@@ -16,6 +16,7 @@ import tempfile
 import time
 from datetime import datetime
 from pydantic import BaseModel
+from tqdm import tqdm
 
 from src.app import RAGPipeline
 from src.loaders import DocumentLoader
@@ -469,11 +470,17 @@ async def _process_indexing_with_progress(
         print(f"  - Clustering batch size: {CLUSTERING_BATCH_SIZE}")
         print(f"  - Qdrant batch size: {QDRANT_BATCH_SIZE}")
 
-        # Bước 1: Load tài liệu
+        # Tạo thanh tiến trình tổng thể
+        overall_progress = tqdm(total=100, desc="Tổng quá trình xử lý", unit="%")
+
+        # Bước 1: Load tài liệu (25%)
         _update_progress(
             task_id, "loading", "Load tài liệu", 0, "Đang load tài liệu...", 0.1
         )
+        overall_progress.update(10)
+
         documents = DocumentLoader.load_documents(data_dir)
+
         _update_progress(
             task_id,
             "loading",
@@ -482,8 +489,9 @@ async def _process_indexing_with_progress(
             f"Đã load {len(documents)} tài liệu",
             0.25,
         )
+        overall_progress.update(15)
 
-        # Bước 2: Chunking
+        # Bước 2: Chunking (25%)
         _update_progress(
             task_id,
             "chunking",
@@ -492,7 +500,10 @@ async def _process_indexing_with_progress(
             "Đang chia nhỏ tài liệu...",
             0.3,
         )
+        overall_progress.update(5)
+
         chunks = pipeline.processor.chunk_documents(documents)
+
         _update_progress(
             task_id,
             "chunking",
@@ -501,8 +512,9 @@ async def _process_indexing_with_progress(
             f"Đã chia thành {len(chunks)} chunks",
             0.5,
         )
+        overall_progress.update(20)
 
-        # Bước 3: Clustering & merging
+        # Bước 3: Clustering & merging (25%)
         _update_progress(
             task_id,
             "clustering",
@@ -511,7 +523,10 @@ async def _process_indexing_with_progress(
             "Đang phân cụm và gộp chunks...",
             0.6,
         )
+        overall_progress.update(5)
+
         merged_docs = pipeline.processor.cluster_and_merge(chunks)
+
         _update_progress(
             task_id,
             "clustering",
@@ -520,8 +535,9 @@ async def _process_indexing_with_progress(
             f"Đã gộp thành {len(merged_docs)} tài liệu",
             0.75,
         )
+        overall_progress.update(20)
 
-        # Bước 4: Upload vào vector database
+        # Bước 4: Upload vào vector database (25%)
         _update_progress(
             task_id,
             "vectorizing",
@@ -530,12 +546,17 @@ async def _process_indexing_with_progress(
             "Đang upload vào vector database...",
             0.8,
         )
+        overall_progress.update(5)
+
         pipeline.vector_store_manager.upload_documents(merged_docs)
 
         # Hoàn thành
         _update_progress(
             task_id, "completed", "Hoàn thành", 4, "Đã hoàn thành indexing", 1.0
         )
+        overall_progress.update(20)
+        overall_progress.close()
+
         indexing_tasks[task_id]["status"] = "completed"
         indexing_tasks[task_id]["message"] = "Đã hoàn thành indexing"
 

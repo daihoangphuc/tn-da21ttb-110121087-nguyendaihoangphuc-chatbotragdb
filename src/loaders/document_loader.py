@@ -4,6 +4,7 @@ from typing import List, Tuple
 from langchain.schema import Document
 from langchain_core.documents.base import Blob
 from concurrent.futures import ThreadPoolExecutor
+from tqdm import tqdm
 
 # Loader & Parser cho PDF và Image
 from langchain_community.document_loaders.pdf import PDFPlumberLoader
@@ -68,19 +69,24 @@ class DocumentLoader:
                 for path in file_paths
             }
 
-            # Thu thập kết quả
-            for i, future in enumerate(future_to_path):
+            # Thu thập kết quả với thanh tiến trình tqdm
+            progress_bar = tqdm(
+                total=len(file_paths), desc="Loading documents", unit="file"
+            )
+            for future in future_to_path:
                 path = future_to_path[future]
                 try:
                     result_docs = future.result()
                     docs.extend(result_docs)
-                    print(
-                        f"✓ [{i+1}/{len(file_paths)}] Đã xử lý: {path} → {len(result_docs)} tài liệu"
+                    progress_bar.set_postfix_str(
+                        f"Đã xử lý: {path} → {len(result_docs)} tài liệu"
                     )
+                    progress_bar.update(1)
                 except Exception as e:
-                    print(
-                        f"⚠️ [{i+1}/{len(file_paths)}] Lỗi khi đọc file {path}: {str(e)}"
-                    )
+                    progress_bar.set_postfix_str(f"Lỗi: {path} - {str(e)}")
+                    progress_bar.update(1)
+                    print(f"⚠️ Lỗi khi đọc file {path}: {str(e)}")
+            progress_bar.close()
 
         print(f"✅ Đã load được {len(docs)} tài liệu từ {len(file_paths)} file.")
         return docs

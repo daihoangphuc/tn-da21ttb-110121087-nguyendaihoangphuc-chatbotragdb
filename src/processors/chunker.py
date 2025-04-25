@@ -1,6 +1,7 @@
 import numpy as np
 from typing import List
 from langchain.schema import Document
+from tqdm import tqdm
 
 # from langchain_experimental.text_splitter import SemanticChunker
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -46,7 +47,7 @@ class DocumentProcessor:
 
         # Phương pháp chunking mới
         chunks = []
-        for doc in docs:
+        for doc in tqdm(docs, desc="Chunking documents", unit="doc"):
             # Tách văn bản thành các chunk
             text_chunks = self.chunker.split_text(doc.page_content)
             # Lọc các chunk có ít hơn 20 từ
@@ -72,12 +73,27 @@ class DocumentProcessor:
         """Nhóm và gộp các chunk liên quan lại với nhau"""
         print("⏳ Đang embed & cluster...")
 
-        # Lấy embedding
-        vecs = np.array(
-            self.embeddings.embed_documents([c.page_content for c in chunks])
-        )
+        # Lấy embedding với tqdm để hiển thị tiến trình
+        print("⏳ Đang tính toán embeddings...")
+        chunk_texts = [c.page_content for c in chunks]
+
+        # Sử dụng batching để tính embeddings hiệu quả hơn
+        batch_size = 32
+        all_embeddings = []
+
+        for i in tqdm(
+            range(0, len(chunk_texts), batch_size),
+            desc="Embedding chunks",
+            unit="batch",
+        ):
+            batch = chunk_texts[i : i + batch_size]
+            batch_embeddings = self.embeddings.embed_documents(batch)
+            all_embeddings.extend(batch_embeddings)
+
+        vecs = np.array(all_embeddings)
 
         # Clustering với Agglomerative Clustering
+        print("⏳ Đang thực hiện clustering...")
         labels = AgglomerativeClustering(
             n_clusters=None, distance_threshold=CLUSTER_DISTANCE_THRESHOLD
         ).fit_predict(vecs)
@@ -89,7 +105,8 @@ class DocumentProcessor:
 
         # Sắp xếp và gộp các chunk trong cùng một cluster
         merged_docs = []
-        for group in clustered.values():
+        for group_id in tqdm(clustered.keys(), desc="Merging clusters", unit="cluster"):
+            group = clustered[group_id]
             group.sort(key=lambda d: d.metadata.get("start_index", 0))
             merged_docs.append(
                 Document(page_content="\n".join(d.page_content for d in group))

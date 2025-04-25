@@ -10,6 +10,7 @@ from qdrant_client.models import (
     FieldCondition,
     MatchValue,
 )
+from tqdm import tqdm
 
 from src.config import QDRANT_URL, QDRANT_API_KEY, COLLECTION_NAME, QDRANT_BATCH_SIZE
 from src.utils import measure_time
@@ -67,36 +68,35 @@ class VectorStoreManager:
         # Đảm bảo collection tồn tại
         self.initialize_collection()
 
-        # Xử lý theo batch để tăng hiệu suất
-        for i in range(0, len(docs), batch_size):
+        # Xử lý theo batch để tăng hiệu suất sử dụng tqdm để hiển thị tiến trình
+        for i in tqdm(
+            range(0, len(docs), batch_size), desc="Upload documents", unit="batch"
+        ):
             batch_docs = docs[i : i + batch_size]
 
             # Thực hiện embedding cho batch hiện tại
             batch_texts = [doc.page_content for doc in batch_docs]
             batch_embeddings = self.embeddings.embed_documents(batch_texts)
 
-        # Tạo các point để upsert
-        points = [
-            PointStruct(
-                id=i + j,  # Tính ID tương đối với vị trí trong toàn bộ danh sách
-                vector=embedding,
-                payload={
-                    "text": doc.page_content,
-                    # Lưu thêm thông tin nguồn gốc từ metadata
-                    "source_file": doc.metadata.get("source", ""),
-                    "source_path": doc.metadata.get("source_path", ""),
-                    "file_path": doc.metadata.get("file_path", ""),
-                    "metadata": doc.metadata,
-                },
-            )
-            for j, (doc, embedding) in enumerate(zip(batch_docs, batch_embeddings))
-        ]
+            # Tạo các point để upsert
+            points = [
+                PointStruct(
+                    id=i + j,  # Tính ID tương đối với vị trí trong toàn bộ danh sách
+                    vector=embedding,
+                    payload={
+                        "text": doc.page_content,
+                        # Lưu thêm thông tin nguồn gốc từ metadata
+                        "source_file": doc.metadata.get("source", ""),
+                        "source_path": doc.metadata.get("source_path", ""),
+                        "file_path": doc.metadata.get("file_path", ""),
+                        "metadata": doc.metadata,
+                    },
+                )
+                for j, (doc, embedding) in enumerate(zip(batch_docs, batch_embeddings))
+            ]
 
-        # Upsert batch vào Qdrant
-        self.client.upsert(collection_name=self.collection_name, points=points)
-
-        # In tiến độ
-        print(f"  ↳ Đã xử lý {min(i+batch_size, len(docs))}/{len(docs)} tài liệu")
+            # Upsert batch vào Qdrant
+            self.client.upsert(collection_name=self.collection_name, points=points)
 
         print(f"✅ Hoàn thành upsert {len(docs)} tài liệu vào Qdrant.")
 
