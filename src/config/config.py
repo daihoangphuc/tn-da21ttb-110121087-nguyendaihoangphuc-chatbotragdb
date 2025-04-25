@@ -25,19 +25,19 @@ EMBEDDING_DEVICE = os.getenv("EMBEDDING_DEVICE", "cpu")
 DOCUMENT_LOADER_MAX_WORKERS = int(os.getenv("DOCUMENT_LOADER_MAX_WORKERS", "8"))
 
 # Cấu hình Qdrant
-QDRANT_BATCH_SIZE = int(os.getenv("QDRANT_BATCH_SIZE", "64"))
+QDRANT_BATCH_SIZE = int(os.getenv("QDRANT_BATCH_SIZE", "128"))
 
 # Cấu hình Chunking
-CHUNK_SIZE = 1024
-CHUNK_OVERLAP = 128
+CHUNK_SIZE = 1500
+CHUNK_OVERLAP = 150
 # Cấu hình thêm cho tối ưu code và SQL
 CHUNK_SIZE_SPECIALIZED = 2500
 CHUNK_OVERLAP_SPECIALIZED = 256
-MIN_CHUNK_SIZE = 50
-MIN_CHUNK_CHARACTERS = 200
+MIN_CHUNK_SIZE = 100
+MIN_CHUNK_CHARACTERS = 300
 
 # Kích thước buffer cho khớp với dấu hiệu phân đoạn
-CHUNK_BUFFER_SIZE = int(os.getenv("CHUNK_BUFFER_SIZE", "1"))
+CHUNK_BUFFER_SIZE = int(os.getenv("CHUNK_BUFFER_SIZE", "2"))
 
 # Loại ngưỡng phá vỡ chunk - giá trị: "percentile", "absolute"
 CHUNK_BREAKPOINT_THRESHOLD_TYPE = os.getenv(
@@ -64,8 +64,8 @@ CHUNK_SEPARATORS = [
 ]
 
 # Cấu hình Clustering
-CLUSTER_DISTANCE_THRESHOLD = float(os.getenv("CLUSTER_DISTANCE_THRESHOLD", "1.0"))
-CLUSTERING_BATCH_SIZE = int(os.getenv("CLUSTERING_BATCH_SIZE", "64"))
+CLUSTER_DISTANCE_THRESHOLD = float(os.getenv("CLUSTER_DISTANCE_THRESHOLD", "1.2"))
+CLUSTERING_BATCH_SIZE = int(os.getenv("CLUSTERING_BATCH_SIZE", "128"))
 
 # Cấu hình Retrieval
 RETRIEVAL_SEARCH_TYPE = os.getenv("RETRIEVAL_SEARCH_TYPE", "similarity")

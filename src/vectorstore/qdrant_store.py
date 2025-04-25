@@ -11,6 +11,7 @@ from qdrant_client.models import (
     MatchValue,
 )
 from tqdm import tqdm
+import time
 
 from src.config import QDRANT_URL, QDRANT_API_KEY, COLLECTION_NAME, QDRANT_BATCH_SIZE
 from src.utils import measure_time
@@ -61,6 +62,14 @@ class VectorStoreManager:
         if batch_size is None:
             batch_size = QDRANT_BATCH_SIZE
 
+        # Tối ưu hóa batch_size dựa trên kích thước dataset để tăng hiệu suất
+        if len(docs) > 500:
+            # Với dữ liệu lớn, dùng batch lớn hơn
+            batch_size = max(batch_size, 128)
+            print(
+                f"⚠️ Tự động điều chỉnh batch size lên {batch_size} do số lượng tài liệu lớn"
+            )
+
         print(
             f"⏳ Đang upsert {len(docs)} tài liệu vào Qdrant (batch size: {batch_size})..."
         )
@@ -68,10 +77,19 @@ class VectorStoreManager:
         # Đảm bảo collection tồn tại
         self.initialize_collection()
 
+        # Tạo dict để theo dõi thời gian xử lý mỗi batch
+        batch_times = {}
+
+        # Tạo ID duy nhất cho mỗi document
+        start_time_total = time.time()
+
         # Xử lý theo batch để tăng hiệu suất sử dụng tqdm để hiển thị tiến trình
-        for i in tqdm(
+        progress_bar = tqdm(
             range(0, len(docs), batch_size), desc="Upload documents", unit="batch"
-        ):
+        )
+
+        for i in progress_bar:
+            batch_start_time = time.time()
             batch_docs = docs[i : i + batch_size]
 
             # Thực hiện embedding cho batch hiện tại
@@ -98,7 +116,22 @@ class VectorStoreManager:
             # Upsert batch vào Qdrant
             self.client.upsert(collection_name=self.collection_name, points=points)
 
-        print(f"✅ Hoàn thành upsert {len(docs)} tài liệu vào Qdrant.")
+            # Tính thời gian xử lý và hiển thị
+            batch_end_time = time.time()
+            batch_time = batch_end_time - batch_start_time
+            batch_times[i] = batch_time
+
+            # Cập nhật thanh tiến trình với thời gian xử lý batch hiện tại
+            avg_time = sum(batch_times.values()) / len(batch_times)
+            progress_bar.set_postfix_str(
+                f"Batch hiện tại: {batch_time:.2f}s, Trung bình: {avg_time:.2f}s/batch"
+            )
+
+        total_time = time.time() - start_time_total
+        avg_docs_per_second = len(docs) / total_time if total_time > 0 else 0
+        print(
+            f"✅ Hoàn thành upsert {len(docs)} tài liệu vào Qdrant trong {total_time:.2f}s ({avg_docs_per_second:.2f} docs/s)"
+        )
 
     @measure_time
     def delete_points_by_file(self, file_path: str) -> int:

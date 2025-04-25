@@ -5,6 +5,7 @@ from langchain.schema import Document
 from langchain_core.documents.base import Blob
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
+import time
 
 # Loader & Parser cho PDF và Image
 from langchain_community.document_loaders.pdf import PDFPlumberLoader
@@ -49,10 +50,26 @@ class DocumentLoader:
         if max_workers is None:
             max_workers = DOCUMENT_LOADER_MAX_WORKERS
 
+        # Tự động tăng số lượng workers nếu CPU có nhiều lõi
+        import multiprocessing
+
+        cpu_count = multiprocessing.cpu_count()
+        if cpu_count > max_workers * 2:  # Nếu có nhiều CPU hơn gấp đôi max_workers
+            max_workers = min(
+                cpu_count - 2, 16
+            )  # Giới hạn tối đa 16 workers và giữ lại 2 lõi cho hệ thống
+            print(
+                f"ℹ️ Tự động điều chỉnh số workers lên {max_workers} (CPU cores: {cpu_count})"
+            )
+
         # Thu thập danh sách file cần xử lý
         file_paths = []
         for root, _, files in os.walk(directory_path):
             for fname in files:
+                # Lọc các file temporay, cache hoặc không phải là file văn bản thông thường
+                if fname.startswith("~$") or fname.startswith("."):
+                    continue
+
                 path = os.path.join(root, fname)
                 file_paths.append(path)
 
@@ -60,35 +77,62 @@ class DocumentLoader:
             f"🔍 Tìm thấy {len(file_paths)} file cần xử lý (sử dụng {max_workers} workers)."
         )
 
+        # Theo dõi thời gian
+        start_time = time.time()
+        file_times = {}
+
         # Xử lý song song với ThreadPoolExecutor
         docs = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit các task
-            future_to_path = {
-                executor.submit(DocumentLoader._load_file_safe, path): path
-                for path in file_paths
-            }
+            # Submit các task với chunksize để tối ưu hóa hiệu suất xử lý
+            # Chunksize giúp mỗi worker nhận nhiều task cùng lúc, giảm overhead
+            chunksize = max(1, len(file_paths) // (max_workers * 2))
+            print(f"ℹ️ Sử dụng chunksize={chunksize} cho ThreadPoolExecutor")
 
             # Thu thập kết quả với thanh tiến trình tqdm
             progress_bar = tqdm(
                 total=len(file_paths), desc="Loading documents", unit="file"
             )
-            for future in future_to_path:
-                path = future_to_path[future]
+
+            # Sử dụng map với chunksize thay vì submit từng tác vụ riêng biệt
+            # Điều này sẽ hiệu quả hơn với số lượng file lớn
+            for file_idx, (path, result_docs) in enumerate(
+                zip(
+                    file_paths,
+                    executor.map(
+                        DocumentLoader._load_file_safe, file_paths, chunksize=chunksize
+                    ),
+                )
+            ):
                 try:
-                    result_docs = future.result()
-                    docs.extend(result_docs)
+                    # Tính thời gian xử lý cho file hiện tại
+                    file_time = time.time() - start_time
+                    start_time = time.time()
+                    file_times[path] = file_time
+
+                    # Cập nhật kết quả
+                    if result_docs:
+                        docs.extend(result_docs)
+
+                    # Tính thời gian xử lý trung bình
+                    avg_time = sum(file_times.values()) / len(file_times)
                     progress_bar.set_postfix_str(
-                        f"Đã xử lý: {path} → {len(result_docs)} tài liệu"
+                        f"File: {os.path.basename(path)} → {len(result_docs) if result_docs else 0} tài liệu ({file_time:.2f}s, avg: {avg_time:.2f}s/file)"
                     )
                     progress_bar.update(1)
                 except Exception as e:
                     progress_bar.set_postfix_str(f"Lỗi: {path} - {str(e)}")
                     progress_bar.update(1)
                     print(f"⚠️ Lỗi khi đọc file {path}: {str(e)}")
+
             progress_bar.close()
 
-        print(f"✅ Đã load được {len(docs)} tài liệu từ {len(file_paths)} file.")
+        total_docs = len(docs)
+        total_files = len(file_paths)
+        docs_per_file = total_docs / total_files if total_files > 0 else 0
+        print(
+            f"✅ Đã load được {total_docs} tài liệu từ {total_files} file (trung bình: {docs_per_file:.1f} tài liệu/file)."
+        )
         return docs
 
     @staticmethod
@@ -151,15 +195,26 @@ class DocumentLoader:
         """Load tài liệu PDF kết hợp nhiều phương pháp"""
         docs = []
 
-        # — Thứ tự: PDFPlumberLoader (text + images) → PDFMinerParser (bảng, hình ảnh nhúng)
-        plumber_loader = PDFPlumberLoader(path, extract_images=True)
-        docs.extend(plumber_loader.load())
-
-        blob = Blob.from_path(path)
-        miner_parser = PDFMinerParser(extract_images=True)
-        docs.extend(miner_parser.parse(blob))
-
-        return docs
+        # Thay vì sử dụng cả hai phương pháp, chỉ sử dụng PDFPlumberLoader vì nhanh hơn
+        try:
+            plumber_loader = PDFPlumberLoader(path, extract_images=True)
+            docs.extend(plumber_loader.load())
+            print(f"  - Đã xử lý PDF với PDFPlumberLoader: {len(docs)} trang")
+            return docs
+        except Exception as e:
+            print(
+                f"  - Lỗi khi sử dụng PDFPlumberLoader: {str(e)}, thử dùng PDFMinerParser..."
+            )
+            # Backup: Nếu PDFPlumberLoader thất bại, dùng PDFMinerParser
+            try:
+                blob = Blob.from_path(path)
+                miner_parser = PDFMinerParser(extract_images=True)
+                docs.extend(miner_parser.parse(blob))
+                print(f"  - Đã xử lý PDF với PDFMinerParser: {len(docs)} trang")
+                return docs
+            except Exception as e2:
+                print(f"  - Lỗi khi sử dụng PDFMinerParser: {str(e2)}")
+                raise e2
 
     @staticmethod
     def _load_image(path: str) -> List[Document]:
