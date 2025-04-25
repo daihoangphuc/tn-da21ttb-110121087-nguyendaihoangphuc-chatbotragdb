@@ -1,0 +1,1 @@
+from src.embeddings.embedding_model import initialize_embeddings
