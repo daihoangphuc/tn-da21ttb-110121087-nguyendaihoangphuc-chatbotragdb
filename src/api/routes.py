@@ -38,6 +38,32 @@ class QueryRequest(BaseModel):
     query: str
 
 
+class SourceInfo(BaseModel):
+    index: int
+    source: str
+    source_path: str
+    file_type: str
+    chunk_length: int
+    chunk_word_count: int
+    start_index: int
+    chunk_count: int
+    has_list_content: bool
+    content_preview: str
+
+
+class QueryResponse(BaseModel):
+    response: str
+    sources: List[SourceInfo]
+    prompt: str
+    model: str
+    query: str
+    temperature: float
+    total_sources: int
+    retrieval_time_ms: int
+    llm_time_ms: int
+    total_tokens: int
+
+
 class IndexResponse(BaseModel):
     task_id: str
     message: str
@@ -87,15 +113,31 @@ async def root():
     return {"message": "API hệ thống RAG đang hoạt động"}
 
 
-@router.post("/query", status_code=200)
+@router.post("/query", response_model=QueryResponse, status_code=200)
 async def query(request: QueryRequest):
     """API endpoint cho việc truy vấn"""
     try:
         if not request.query or request.query.strip() == "":
             raise HTTPException(status_code=400, detail="Câu truy vấn không được trống")
 
-        response = pipeline.query(request.query)
-        return {"response": response}
+        # Gọi pipeline.query để lấy kết quả chi tiết
+        result = pipeline.query(request.query)
+
+        # Chuẩn bị response với đầy đủ thông tin
+        response = QueryResponse(
+            response=result.get("text", ""),
+            sources=result.get("sources", []),
+            prompt=result.get("prompt", ""),
+            model=result.get("model", ""),
+            query=result.get("query", request.query),
+            temperature=result.get("temperature", 0.0),
+            total_sources=result.get("total_sources", 0),
+            retrieval_time_ms=round(result.get("retrieval_time", 0) * 1000),
+            llm_time_ms=round(result.get("llm_time", 0) * 1000),
+            total_tokens=result.get("total_tokens", 0),
+        )
+
+        return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý truy vấn: {str(e)}")
 

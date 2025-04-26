@@ -5,6 +5,8 @@ from src.vectorstore import VectorStoreManager
 from src.retrieval import Retriever
 from src.llm import GeminiLLM
 from src.utils import measure_time
+from typing import Dict, Any, Union
+import time
 
 
 class RAGPipeline:
@@ -79,8 +81,28 @@ class RAGPipeline:
         print("⚠️ Lưu ý: Bạn cần tạo lại index trước khi thực hiện truy vấn.")
 
     @measure_time
-    def query(self, query_text: str) -> str:
-        """Truy vấn RAG Pipeline"""
+    def query(self, query_text: str) -> Dict[str, Any]:
+        """Truy vấn RAG Pipeline
+
+        Args:
+            query_text: Câu truy vấn người dùng
+
+        Returns:
+            Dict chứa câu trả lời và các thông tin bổ sung
+        """
+        # Khởi tạo kết quả mặc định
+        result = {
+            "text": "",
+            "sources": [],
+            "prompt": "",
+            "query": query_text,
+            "model": "",
+            "temperature": 0.0,
+            "total_sources": 0,
+            "retrieval_time": 0.0,
+            "llm_time": 0.0,
+        }
+
         # Kiểm tra xem collection có tồn tại không
         if not self.vector_store_manager.client.collection_exists(
             self.vector_store_manager.collection_name
@@ -88,14 +110,20 @@ class RAGPipeline:
             print(
                 f"⚠️ Collection {self.vector_store_manager.collection_name} không tồn tại. Vui lòng tạo index trước."
             )
-            return "Không thể truy vấn vì chưa có dữ liệu. Vui lòng tạo index trước bằng lệnh: python -m src.main index --data-dir ./data"
+            result["text"] = (
+                "Không thể truy vấn vì chưa có dữ liệu. Vui lòng tạo index trước bằng lệnh: python -m src.main index --data-dir ./data"
+            )
+            return result
 
         # Đảm bảo vectorstore đã được khởi tạo
         if self.vectorstore is None:
             self._reinitialize_vectorstore()
             # Nếu vẫn không khởi tạo được
             if self.vectorstore is None:
-                return "Không thể kết nối đến vector store. Vui lòng kiểm tra lại cấu hình và kết nối."
+                result["text"] = (
+                    "Không thể kết nối đến vector store. Vui lòng kiểm tra lại cấu hình và kết nối."
+                )
+                return result
 
         # Kiểm tra xem collection có chứa dữ liệu không
         try:
@@ -107,14 +135,32 @@ class RAGPipeline:
                 print(
                     f"⚠️ Collection {self.vector_store_manager.collection_name} rỗng (0 vectors)"
                 )
-                return "Không thể truy vấn vì chưa có dữ liệu trong vector store. Vui lòng upload và index tài liệu trước."
+                result["text"] = (
+                    "Không thể truy vấn vì chưa có dữ liệu trong vector store. Vui lòng upload và index tài liệu trước."
+                )
+                return result
         except Exception as e:
             print(f"⚠️ Lỗi khi kiểm tra dữ liệu trong collection: {str(e)}")
+            result["text"] = f"Lỗi khi kiểm tra dữ liệu: {str(e)}"
+            return result
 
         # 1. Lấy tài liệu liên quan
+        retrieval_start = time.time()
         relevant_docs = self.retriever.retrieve(query_text)
+        retrieval_end = time.time()
+        result["retrieval_time"] = retrieval_end - retrieval_start
 
         # 2. Tạo câu trả lời với LLM
-        response = self.llm.generate_response(query_text, relevant_docs)
+        llm_start = time.time()
+        response_dict = self.llm.generate_response(query_text, relevant_docs)
+        llm_end = time.time()
+        result["llm_time"] = llm_end - llm_start
 
-        return response
+        # 3. Gộp kết quả từ LLM vào kết quả cuối cùng
+        result.update(response_dict)
+
+        # 4. Bổ sung thông tin thêm
+        result["query"] = query_text
+        result["total_tokens"] = len(query_text.split()) + len(result["text"].split())
+
+        return result
