@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Callable
 import google.generativeai as genai
 from google.generativeai import GenerationConfig
 from langchain.schema import Document
@@ -11,6 +11,7 @@ from src.config import (
     GEMINI_TOP_K,
 )
 from src.utils import format_context_for_llm, measure_time, extract_source_info
+from src.templates import get_database_query_prompt
 
 
 class GeminiLLM:
@@ -25,12 +26,18 @@ class GeminiLLM:
         )
 
     @measure_time
-    def generate_response(self, query: str, docs: List[Document]) -> Dict[str, Any]:
+    def generate_response(
+        self,
+        query: str,
+        docs: List[Document],
+        prompt_template: Optional[Callable] = None,
+    ) -> Dict[str, Any]:
         """Tạo câu trả lời với Gemini dựa trên context và câu truy vấn
 
         Args:
             query: Câu truy vấn
             docs: Danh sách tài liệu liên quan
+            prompt_template: Hàm tạo prompt template, nếu None sẽ dùng mặc định
 
         Returns:
             Dict chứa câu trả lời và thông tin bổ sung như prompt, nguồn,...
@@ -52,21 +59,12 @@ class GeminiLLM:
         # Trích xuất thông tin về nguồn
         sources = extract_source_info(docs)
 
-        prompt = f"""
-Bạn là trợ lý AI chuyên về lĩnh vực cơ sở dữ liệu. Hãy dựa vào ngữ cảnh sau đây:
+        # Sử dụng prompt template nếu được cung cấp, nếu không dùng mặc định
+        if prompt_template is None:
+            prompt_template = get_database_query_prompt
 
-{context}
+        prompt = prompt_template(context, query)
 
-Và trả lời cho câu hỏi: {query}
-
-LƯU Ý QUAN TRỌNG:
-- Trả lời đúng trọng tâm câu hỏi không cần trả lời quá dài
-- Chỉ dùng thông tin trong tài liệu
-- Nếu context chứa danh sách liệt kê hoặc hướng dẫn từng bước, hãy giữ nguyên toàn bộ cấu trúc và đảm bảo KHÔNG bỏ sót hoặc cắt ngang các mục trong danh sách
-- Trả lời đúng như trong context cung cấp không được tự ý "bịa" thông tin
-- Nếu danh sách có nhiều mục, hãy đảm bảo trình bày trọn vẹn tất cả các mục và giữ đúng thứ tự
-- Giữ nguyên định dạng gạch đầu dòng, số thứ tự, và cấu trúc liệt kê như trong context
-"""
         print(f"⏳ Đang tạo câu trả lời từ Gemini...")
         response = self.model.generate_content(
             prompt, generation_config=self.generation_config

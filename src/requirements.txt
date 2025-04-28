@@ -21,6 +21,10 @@ google-generativeai
 scikit-learn
 pdfplumber
 rapidocr-onnxruntime
+# Thư viện cho SQL
+sqlparse>=0.4.3
+# Thư viện cho Typing
+typing-extensions
 # Thư viện cho API
 fastapi
 uvicorn

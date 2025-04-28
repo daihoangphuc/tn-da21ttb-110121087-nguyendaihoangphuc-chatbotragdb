@@ -519,7 +519,7 @@ async def _process_indexing_with_progress(
         _update_progress(
             task_id, "loading", "Load tài liệu", 0, "Đang load tài liệu...", 0.1
         )
-        overall_progress.update(10)
+        overall_progress.update(5)
 
         documents = DocumentLoader.load_documents(data_dir)
 
@@ -531,7 +531,27 @@ async def _process_indexing_with_progress(
             f"Đã load {len(documents)} tài liệu",
             0.25,
         )
-        overall_progress.update(15)
+        overall_progress.update(20)
+
+        # Phân loại tài liệu theo loại
+        from src.config import SQL_FILE_EXTENSIONS
+        from src.utils import get_file_extension
+
+        # Phân chia tài liệu theo loại
+        sql_docs = []
+        regular_docs = []
+
+        for doc in documents:
+            # Phát hiện tài liệu SQL dựa trên phần mở rộng file
+            ext = get_file_extension(doc.metadata.get("source_path", ""))
+            if ext in SQL_FILE_EXTENSIONS:
+                sql_docs.append(doc)
+            else:
+                regular_docs.append(doc)
+
+        print(
+            f"ℹ️ Tổng số tài liệu: {len(documents)} (SQL: {len(sql_docs)}, Thông thường: {len(regular_docs)})"
+        )
 
         # Bước 2: Chunking (25%)
         _update_progress(
@@ -544,7 +564,16 @@ async def _process_indexing_with_progress(
         )
         overall_progress.update(5)
 
-        chunks = pipeline.processor.chunk_documents(documents)
+        # Xử lý tài liệu thông thường
+        chunks = []
+        if regular_docs:
+            regular_chunks = pipeline.document_processor.chunk_documents(regular_docs)
+            chunks.extend(regular_chunks)
+
+        # Xử lý tài liệu SQL nếu có
+        if sql_docs:
+            sql_chunks = pipeline.sql_processor.process_sql_documents(sql_docs)
+            chunks.extend(sql_chunks)
 
         _update_progress(
             task_id,
@@ -554,7 +583,7 @@ async def _process_indexing_with_progress(
             f"Đã chia thành {len(chunks)} chunks",
             0.5,
         )
-        overall_progress.update(20)
+        overall_progress.update(15)
 
         # Bước 3: Clustering & merging (25%)
         _update_progress(
@@ -565,9 +594,23 @@ async def _process_indexing_with_progress(
             "Đang phân cụm và gộp chunks...",
             0.6,
         )
-        overall_progress.update(5)
+        overall_progress.update(10)
 
-        merged_docs = pipeline.processor.cluster_and_merge(chunks)
+        # Chỉ áp dụng clustering cho tài liệu thông thường
+        merged_docs = []
+        if regular_docs:
+            regular_chunks_to_merge = [
+                chunk for chunk in chunks if "sql_type" not in chunk.metadata
+            ]
+            if regular_chunks_to_merge:
+                merged_regular_docs = pipeline.document_processor.cluster_and_merge(
+                    regular_chunks_to_merge
+                )
+                merged_docs.extend(merged_regular_docs)
+
+        # Thêm các chunk SQL (không cần clustering)
+        sql_chunks_to_add = [chunk for chunk in chunks if "sql_type" in chunk.metadata]
+        merged_docs.extend(sql_chunks_to_add)
 
         _update_progress(
             task_id,
@@ -577,7 +620,7 @@ async def _process_indexing_with_progress(
             f"Đã gộp thành {len(merged_docs)} tài liệu",
             0.75,
         )
-        overall_progress.update(20)
+        overall_progress.update(15)
 
         # Bước 4: Upload vào vector database (25%)
         _update_progress(
@@ -588,7 +631,7 @@ async def _process_indexing_with_progress(
             "Đang upload vào vector database...",
             0.8,
         )
-        overall_progress.update(5)
+        overall_progress.update(15)
 
         pipeline.vector_store_manager.upload_documents(merged_docs)
 
@@ -596,18 +639,33 @@ async def _process_indexing_with_progress(
         _update_progress(
             task_id, "completed", "Hoàn thành", 4, "Đã hoàn thành indexing", 1.0
         )
-        overall_progress.update(20)
+
+        # Khởi tạo lại vectorstore để áp dụng thay đổi
+        pipeline._reinitialize_vectorstore()
+
+        # Cập nhật phần còn lại của thanh tiến trình (đảm bảo không vượt quá 100%)
+        current_progress = overall_progress.n
+        if current_progress < 100:
+            overall_progress.update(100 - current_progress)
+
         overall_progress.close()
 
+        # Cập nhật trạng thái task
         indexing_tasks[task_id]["status"] = "completed"
         indexing_tasks[task_id]["message"] = "Đã hoàn thành indexing"
 
-    except Exception as e:
-        # Cập nhật trạng thái nếu có lỗi
-        indexing_tasks[task_id]["status"] = "failed"
-        indexing_tasks[task_id]["message"] = f"Lỗi khi indexing: {str(e)}"
-    finally:
         # Xóa thư mục tạm nếu cần
+        if is_temp_dir:
+            shutil.rmtree(data_dir, ignore_errors=True)
+
+    except Exception as e:
+        error_message = f"Lỗi khi indexing: {str(e)}"
+        print(f"❌ {error_message}")
+        if task_id in indexing_tasks:
+            indexing_tasks[task_id]["status"] = "failed"
+            indexing_tasks[task_id]["message"] = error_message
+
+        # Xóa thư mục tạm nếu có lỗi và là thư mục tạm
         if is_temp_dir:
             shutil.rmtree(data_dir, ignore_errors=True)
 
