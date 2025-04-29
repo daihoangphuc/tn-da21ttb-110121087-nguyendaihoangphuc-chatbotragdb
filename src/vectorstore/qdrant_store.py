@@ -52,51 +52,41 @@ class VectorStoreManager:
 
     @measure_time
     def upload_documents(self, docs: List[Document], batch_size=None):
-        """Upload tài liệu vào vector store với batching
+        """Upload tài liệu vào vector store
 
         Args:
             docs: Danh sách tài liệu cần upload
-            batch_size: Kích thước batch, mặc định sử dụng từ cấu hình
+            batch_size: Kích thước batch, mặc định sẽ được tính tự động
         """
-        # Sử dụng giá trị từ cấu hình nếu không chỉ định batch_size
-        if batch_size is None:
-            batch_size = QDRANT_BATCH_SIZE
+        print(f"⏳ Bắt đầu upsert {len(docs)} tài liệu vào Qdrant...")
 
-        # Tối ưu hóa batch_size dựa trên kích thước dataset để tăng hiệu suất
-        if len(docs) > 500:
-            # Với dữ liệu lớn, dùng batch lớn hơn
-            batch_size = max(batch_size, 128)
-            print(
-                f"⚠️ Tự động điều chỉnh batch size lên {batch_size} do số lượng tài liệu lớn"
-            )
+        # Đảm bảo collection đã được tạo
+        if not self.client.collection_exists(self.collection_name):
+            self.initialize_collection()
 
-        print(
-            f"⏳ Đang upsert {len(docs)} tài liệu vào Qdrant (batch size: {batch_size})..."
-        )
+        # Xác định batch size phù hợp
+        batch_size = batch_size or QDRANT_BATCH_SIZE
+        # Điều chỉnh batch size nếu số lượng tài liệu nhỏ
+        if len(docs) < batch_size:
+            batch_size = max(1, len(docs) // 2)
 
-        # Đảm bảo collection tồn tại
-        self.initialize_collection()
-
-        # Tạo dict để theo dõi thời gian xử lý mỗi batch
-        batch_times = {}
-
-        # Tạo ID duy nhất cho mỗi document
+        # Tạo batch và hiển thị tiến trình
         start_time_total = time.time()
+        batch_times = {}  # Lưu thời gian xử lý cho mỗi batch
 
-        # Xử lý theo batch để tăng hiệu suất sử dụng tqdm để hiển thị tiến trình
-        progress_bar = tqdm(
-            range(0, len(docs), batch_size), desc="Upload documents", unit="batch"
-        )
+        batches = list(range(0, len(docs), batch_size))
+        progress_bar = tqdm(batches, desc="Uploading documents", unit="batch")
 
         for i in progress_bar:
             batch_start_time = time.time()
+            # Lấy batch tài liệu
             batch_docs = docs[i : i + batch_size]
 
-            # Thực hiện embedding cho batch hiện tại
-            batch_texts = [doc.page_content for doc in batch_docs]
+            # Tính embedding cho batch
+            batch_texts = [d.page_content for d in batch_docs]
             batch_embeddings = self.embeddings.embed_documents(batch_texts)
 
-            # Tạo các point để upsert
+            # Tạo danh sách các point để upsert
             points = [
                 PointStruct(
                     id=i + j,  # Tính ID tương đối với vị trí trong toàn bộ danh sách
@@ -107,6 +97,12 @@ class VectorStoreManager:
                         "source_file": doc.metadata.get("source", ""),
                         "source_path": doc.metadata.get("source_path", ""),
                         "file_path": doc.metadata.get("file_path", ""),
+                        # Trích xuất metadata PDF quan trọng
+                        "pdf_page": doc.metadata.get("pdf_page", None),
+                        "pdf_element_type": doc.metadata.get("pdf_element_type", None),
+                        "image_paths": doc.metadata.get("image_paths", []),
+                        "image_path": doc.metadata.get("image_path", ""),
+                        "has_list_content": doc.metadata.get("has_list_content", False),
                         "metadata": doc.metadata,
                     },
                 )

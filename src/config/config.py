@@ -22,7 +22,7 @@ EMBEDDING_MODEL = os.getenv(
 EMBEDDING_DEVICE = os.getenv("EMBEDDING_DEVICE", "cpu")
 
 # Cấu hình Reranker
-RERANKER_MODEL = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base")
+RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 RERANKER_DEVICE = os.getenv("RERANKER_DEVICE", "cpu")
 RERANKER_BATCH_SIZE = int(os.getenv("RERANKER_BATCH_SIZE", "16"))
 RERANKER_USE_FP16 = os.getenv("RERANKER_USE_FP16", "false").lower() == "true"
@@ -32,6 +32,7 @@ RERANKER_ENABLED = os.getenv("RERANKER_ENABLED", "true").lower() == "true"
 QUERY_EXPANSION_ENABLED = os.getenv("QUERY_EXPANSION_ENABLED", "true").lower() == "true"
 QUERY_EXPANSION_NUM_QUERIES = int(os.getenv("QUERY_EXPANSION_NUM_QUERIES", "2"))
 USE_SELF_QUERY = os.getenv("USE_SELF_QUERY", "false").lower() == "true"
+USE_HYBRID_SEARCH = os.getenv("USE_HYBRID_SEARCH", "false").lower() == "true"
 
 # Cấu hình Tốc độ vs Chất lượng
 FAST_MODE = os.getenv("FAST_MODE", "false").lower() == "true"  # Chế độ ưu tiên tốc độ
@@ -86,6 +87,8 @@ CHUNK_SEPARATORS = [
 
 # Cấu hình SQL Chunking
 SQL_FILE_EXTENSIONS = [".sql", ".ddl", ".dml", ".db"]
+SQL_CHUNK_SIZE = 2000
+SQL_CHUNK_OVERLAP = 200
 SQL_QUERY_SAMPLE_LENGTH = 100  # Độ dài mẫu để phát hiện SQL query
 SQL_SCHEMA_KEYWORDS = ["CREATE TABLE", "ALTER TABLE", "CREATE INDEX", "PRIMARY KEY"]
 SQL_QUERY_KEYWORDS = ["SELECT", "INSERT", "UPDATE", "DELETE", "MERGE", "JOIN", "WHERE"]

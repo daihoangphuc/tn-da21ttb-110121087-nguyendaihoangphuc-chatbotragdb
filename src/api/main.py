@@ -2,6 +2,9 @@ import uvicorn
 import argparse
 import os
 import time
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from src.api import app
 from src.embeddings import initialize_embeddings
@@ -13,6 +16,40 @@ from src.config import (
     CLUSTERING_BATCH_SIZE,
     QDRANT_URL,
 )
+from src.api.routes import router
+
+# Tạo ứng dụng FastAPI
+app = FastAPI(
+    title="API hệ thống RAG cho CSDL",
+    description="API cho hệ thống RAG hỗ trợ môn cơ sở dữ liệu",
+    version="1.0.0",
+)
+
+# Cấu hình CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Thêm router
+app.include_router(router, prefix="/api")
+
+# Tạo thư mục chứa ảnh nếu chưa tồn tại
+images_dir = os.path.join(os.getcwd(), "src", "data", "images")
+os.makedirs(images_dir, exist_ok=True)
+
+# Mount thư mục tĩnh để phục vụ hình ảnh
+app.mount("/images", StaticFiles(directory=images_dir), name="images")
+
+
+@app.get("/")
+async def root():
+    return {
+        "message": "API hệ thống RAG đang hoạt động. Sử dụng /api cho các endpoint."
+    }
 
 
 def check_system_ready():

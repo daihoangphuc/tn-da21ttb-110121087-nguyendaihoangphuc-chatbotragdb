@@ -1,17 +1,28 @@
 from src.embeddings import initialize_embeddings
 from src.loaders import DocumentLoader
 from src.processors import DocumentProcessor, SQLDocumentProcessor
+from src.processors.code_processor import CodeDocumentProcessor
+from src.processors.table_processor import TableDocumentProcessor
+from src.processors.pdf_processor import PDFDocumentProcessor
 from src.vectorstore import VectorStoreManager
 from src.retrieval import Retriever
+from src.retrieval.hybrid_retriever import HybridRetriever
 from src.llm import GeminiLLM
 from src.fusion import RAGFusion
+from src.query_expansion.query_decomposer import MultiStepReasoner
 from src.templates import (
     get_database_query_prompt,
     get_sql_generation_prompt,
     get_schema_analysis_prompt,
 )
 from src.utils import measure_time, get_file_extension
-from src.config import QUERY_EXPANSION_ENABLED, RERANKER_ENABLED, SQL_FILE_EXTENSIONS
+from src.config import (
+    QUERY_EXPANSION_ENABLED,
+    RERANKER_ENABLED,
+    SQL_FILE_EXTENSIONS,
+    USE_HYBRID_SEARCH,
+    USE_SELF_QUERY,
+)
 from typing import Dict, Any, Union, List
 import time
 import os
@@ -25,11 +36,27 @@ class RAGPipeline:
         print("⏳ Đang khởi tạo RAG Pipeline...")
         # Khởi tạo và kiểm tra các thành phần của pipeline
         self.embeddings = initialize_embeddings()
+
+        # Khởi tạo các processor cho nhiều loại tài liệu
         self.document_processor = DocumentProcessor(self.embeddings)
         self.sql_processor = SQLDocumentProcessor(self.embeddings)
+        self.code_processor = CodeDocumentProcessor(self.embeddings)
+        self.table_processor = TableDocumentProcessor(self.embeddings)
+        self.pdf_processor = PDFDocumentProcessor(self.embeddings)
+
+        # Khởi tạo vector store
         self.vector_store_manager = VectorStoreManager(self.embeddings)
         self.vectorstore = self.vector_store_manager.get_vectorstore()
-        self.retriever = Retriever(self.vectorstore)
+
+        # Khởi tạo retriever (thông thường hoặc hybrid)
+        if USE_HYBRID_SEARCH:
+            print("⏳ Đang khởi tạo HybridRetriever...")
+            self.retriever = HybridRetriever(
+                self.vectorstore, use_reranker=RERANKER_ENABLED
+            )
+            print("✅ Đã khởi tạo HybridRetriever!")
+        else:
+            self.retriever = Retriever(self.vectorstore)
 
         # Khởi tạo RAG Fusion
         if QUERY_EXPANSION_ENABLED:
@@ -43,6 +70,14 @@ class RAGPipeline:
                 self.fusion = None
         else:
             self.fusion = None
+
+        # Khởi tạo MultiStepReasoner nếu cần thiết
+        if USE_SELF_QUERY:
+            print("⏳ Đang khởi tạo MultiStepReasoner...")
+            self.reasoner = MultiStepReasoner(self.retriever)
+            print("✅ Đã khởi tạo MultiStepReasoner!")
+        else:
+            self.reasoner = None
 
         self.llm = GeminiLLM()
         print("✅ RAG Pipeline đã được khởi tạo thành công!")
@@ -62,7 +97,18 @@ class RAGPipeline:
             old_reranker = self.retriever.reranker
 
         # Khởi tạo retriever mới nhưng dùng lại reranker cũ nếu có
-        self.retriever = Retriever(self.vectorstore, use_reranker=RERANKER_ENABLED)
+        if USE_HYBRID_SEARCH:
+            self.retriever = HybridRetriever(
+                self.vectorstore, use_reranker=RERANKER_ENABLED
+            )
+
+            # Xây dựng sparse index nếu là hybrid retriever
+            documents = self.vector_store_manager.get_all_documents()
+            if documents:
+                print(f"⏳ Đang xây dựng sparse index cho {len(documents)} tài liệu...")
+                self.retriever.build_sparse_index(documents)
+        else:
+            self.retriever = Retriever(self.vectorstore, use_reranker=RERANKER_ENABLED)
 
         # Gán lại reranker cũ nếu có
         if (
@@ -77,6 +123,10 @@ class RAGPipeline:
         if QUERY_EXPANSION_ENABLED and hasattr(self, "fusion") and self.fusion:
             self.fusion = RAGFusion(self.retriever)
 
+        # Cập nhật lại reasoner để sử dụng retriever mới
+        if USE_SELF_QUERY and hasattr(self, "reasoner") and self.reasoner:
+            self.reasoner.retriever = self.retriever
+
         print("✅ Đã khởi tạo lại vector store!")
 
     @measure_time
@@ -87,18 +137,43 @@ class RAGPipeline:
 
         # 2. Phân chia tài liệu theo loại
         sql_docs = []
+        code_docs = []
+        table_docs = []
+        pdf_docs = []
         regular_docs = []
 
         for doc in documents:
-            # Phát hiện tài liệu SQL dựa trên phần mở rộng file
-            ext = get_file_extension(doc.metadata.get("source_path", ""))
+            source_path = doc.metadata.get("source_path", "")
+            ext = get_file_extension(source_path)
+
+            # Phân loại theo extension
             if ext in SQL_FILE_EXTENSIONS:
                 sql_docs.append(doc)
+            elif ext in [
+                ".py",
+                ".js",
+                ".ts",
+                ".jsx",
+                ".tsx",
+                ".java",
+                ".cs",
+                ".cpp",
+                ".c",
+                ".h",
+            ]:
+                code_docs.append(doc)
+            elif ext in [".csv", ".xlsx", ".xls", ".json", ".tsv"]:
+                table_docs.append(doc)
+            elif ext == ".pdf":
+                pdf_docs.append(doc)
             else:
                 regular_docs.append(doc)
 
         print(
-            f"ℹ️ Tổng số tài liệu: {len(documents)} (SQL: {len(sql_docs)}, Thông thường: {len(regular_docs)})"
+            f"ℹ️ Tổng số tài liệu: {len(documents)} "
+            f"(SQL: {len(sql_docs)}, Code: {len(code_docs)}, "
+            f"Table: {len(table_docs)}, PDF: {len(pdf_docs)}, "
+            f"Thông thường: {len(regular_docs)})"
         )
 
         # 3a. Xử lý các tài liệu SQL với processor đặc biệt
@@ -111,7 +186,37 @@ class RAGPipeline:
         else:
             sql_chunks = []
 
-        # 3b. Xử lý các tài liệu thông thường với processor thông thường
+        # 3b. Xử lý các tài liệu code với processor đặc biệt
+        if code_docs:
+            print("⏳ Đang xử lý các tài liệu code...")
+            code_chunks = self.code_processor.process_code_documents(code_docs)
+            print(
+                f"✅ Đã xử lý {len(code_chunks)} chunks từ {len(code_docs)} tài liệu code"
+            )
+        else:
+            code_chunks = []
+
+        # 3c. Xử lý các tài liệu dạng bảng với processor đặc biệt
+        if table_docs:
+            print("⏳ Đang xử lý các tài liệu dạng bảng...")
+            table_chunks = self.table_processor.process_table_documents(table_docs)
+            print(
+                f"✅ Đã xử lý {len(table_chunks)} chunks từ {len(table_docs)} tài liệu dạng bảng"
+            )
+        else:
+            table_chunks = []
+
+        # 3d. Xử lý các tài liệu PDF với processor đặc biệt
+        if pdf_docs:
+            print("⏳ Đang xử lý các tài liệu PDF...")
+            pdf_chunks = self.pdf_processor.process_pdf_documents(pdf_docs)
+            print(
+                f"✅ Đã xử lý {len(pdf_chunks)} chunks từ {len(pdf_docs)} tài liệu PDF"
+            )
+        else:
+            pdf_chunks = []
+
+        # 3e. Xử lý các tài liệu thông thường với processor thông thường
         if regular_docs:
             # Chunk tài liệu thông thường
             regular_chunks = self.document_processor.chunk_documents(regular_docs)
@@ -126,7 +231,9 @@ class RAGPipeline:
             merged_regular_chunks = []
 
         # 4. Kết hợp tất cả chunks
-        all_chunks = sql_chunks + merged_regular_chunks
+        all_chunks = (
+            sql_chunks + code_chunks + table_chunks + pdf_chunks + merged_regular_chunks
+        )
         print(f"ℹ️ Tổng số chunks để index: {len(all_chunks)}")
 
         # 5. Upload vào vector store
@@ -150,9 +257,9 @@ class RAGPipeline:
         # Xóa các point trong vector store
         deleted_count = self.vector_store_manager.delete_points_by_file(file_path)
 
-        # Khởi tạo lại vectorstore nếu có point bị xóa
+        # Đặt lại trạng thái vectorstore về None
         if deleted_count > 0:
-            self._reinitialize_vectorstore()
+            self.vectorstore = None
 
         print(f"✅ Đã xóa {deleted_count} point liên quan đến file: {file_path}")
 
@@ -282,7 +389,22 @@ class RAGPipeline:
             result["text"] = f"Lỗi khi kiểm tra dữ liệu: {str(e)}"
             return result
 
-        # 1. Lấy tài liệu liên quan
+        # 1. Kiểm tra nếu cần sử dụng multi-step reasoning
+        if USE_SELF_QUERY and self.reasoner:
+            is_complex = self.reasoner.decomposer._is_complex_query(query_text)
+            if is_complex:
+                print(f"ℹ️ Phát hiện truy vấn phức tạp, sử dụng multi-step reasoning")
+                reasoning_result = self.reasoner.answer_with_reasoning(query_text)
+
+                result["text"] = reasoning_result["answer"]
+                result["reasoning_steps"] = reasoning_result.get("reasoning_steps", [])
+                result["retrieval_time"] = 0
+                result["llm_time"] = 0
+                result["used_reasoning"] = True
+
+                return result
+
+        # 2. Lấy tài liệu liên quan
         retrieval_start = time.time()
 
         # Sử dụng RAG Fusion nếu được bật, nếu không sử dụng retriever thông thường
@@ -291,12 +413,13 @@ class RAGPipeline:
             # fusion.retrieve sẽ tự động sử dụng reranker nếu RERANK_RETRIEVAL_RESULTS=True
             relevant_docs = self.fusion.retrieve(query_text)
         else:
+            # Nếu sử dụng HybridRetriever, retrieve đã được override để sử dụng hybrid_retrieve
             relevant_docs = self.retriever.retrieve(query_text)
 
         retrieval_end = time.time()
         result["retrieval_time"] = retrieval_end - retrieval_start
 
-        # 2. Tạo câu trả lời với LLM
+        # 3. Tạo câu trả lời với LLM
         llm_start = time.time()
 
         # Chọn prompt template phù hợp
@@ -310,11 +433,17 @@ class RAGPipeline:
         llm_end = time.time()
         result["llm_time"] = llm_end - llm_start
 
-        # 3. Gộp kết quả từ LLM vào kết quả cuối cùng
+        # 4. Gộp kết quả từ LLM vào kết quả cuối cùng
         result.update(response_dict)
 
-        # 4. Bổ sung thông tin thêm
+        # 5. Bổ sung thông tin thêm
         result["query"] = query_text
         result["total_tokens"] = len(query_text.split()) + len(result["text"].split())
+        result["used_reasoning"] = False
+
+        # Thêm thông tin về phương pháp retrieval đã sử dụng
+        result["retrieval_method"] = "hybrid" if USE_HYBRID_SEARCH else "vector"
+        if self.fusion and QUERY_EXPANSION_ENABLED:
+            result["retrieval_method"] += "_fusion"
 
         return result

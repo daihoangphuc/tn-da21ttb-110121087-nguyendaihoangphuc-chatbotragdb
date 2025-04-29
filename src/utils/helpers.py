@@ -49,16 +49,20 @@ def format_context_for_llm(docs: List[Document]) -> str:
         # Lấy nguồn (nếu có)
         source = doc.metadata.get("source", f"Document {i+1}")
 
+        # Lấy thông tin trang (nếu có)
+        page_number = doc.metadata.get("pdf_page", "")
+        page_info = f" (Trang {page_number})" if page_number else ""
+
         # Format tài liệu với tiêu đề nguồn và đảm bảo giữ nguyên cấu trúc đoạn văn
         content = doc.page_content.strip()
 
         # Đặc biệt xử lý nội dung có danh sách liệt kê
         if has_list_content:
             # Đảm bảo giữ nguyên định dạng xuống dòng của danh sách liệt kê
-            formatted_item = f"--- NGUỒN: {source} ---\n{content}\n"
+            formatted_item = f"--- NGUỒN: {source}{page_info} ---\n{content}\n"
         else:
             # Với nội dung thông thường
-            formatted_item = f"--- NGUỒN: {source} ---\n{content}\n"
+            formatted_item = f"--- NGUỒN: {source}{page_info} ---\n{content}\n"
 
         formatted_docs.append(formatted_item)
 
@@ -93,6 +97,12 @@ def extract_source_info(docs: List[Document]) -> List[Dict[str, Any]]:
                 if len(doc.page_content) > 200
                 else doc.page_content
             ),
+            # Thêm thông tin về số trang
+            "page_number": doc.metadata.get("pdf_page", None),
+            # Thêm đường dẫn đến hình ảnh nếu có
+            "image_paths": doc.metadata.get("image_paths", []),
+            # Thêm thông tin về loại phần tử PDF
+            "pdf_element_type": doc.metadata.get("pdf_element_type", None),
         }
         sources.append(source_info)
 

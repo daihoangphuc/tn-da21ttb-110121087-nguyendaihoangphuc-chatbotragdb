@@ -246,3 +246,4 @@ def validate_sql(sql_query: str) -> Dict[str, Any]:
         "errors": errors,
         "formatted_sql": formatted_sql if is_valid else None,
     }
+ 

@@ -31,3 +31,5 @@ uvicorn
 python-multipart
 python-dotenv
 tqdm
+pymupdf
+spacy

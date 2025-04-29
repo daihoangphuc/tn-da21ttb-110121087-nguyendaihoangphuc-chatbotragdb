@@ -49,6 +49,9 @@ class SourceInfo(BaseModel):
     chunk_count: int
     has_list_content: bool
     content_preview: str
+    page_number: Optional[int] = None
+    image_paths: Optional[List[str]] = []
+    pdf_element_type: Optional[str] = None
 
 
 class QueryResponse(BaseModel):
@@ -62,6 +65,7 @@ class QueryResponse(BaseModel):
     retrieval_time_ms: int
     llm_time_ms: int
     total_tokens: int
+    related_images: Optional[List[str]] = []
 
 
 class IndexResponse(BaseModel):
@@ -123,6 +127,24 @@ async def query(request: QueryRequest):
         # Gọi pipeline.query để lấy kết quả chi tiết
         result = pipeline.query(request.query)
 
+        # Trích xuất đường dẫn ảnh từ sources
+        related_images = []
+        for source in result.get("sources", []):
+            if "image_paths" in source and source["image_paths"]:
+                for img_path in source["image_paths"]:
+                    if img_path not in related_images:
+                        related_images.append(img_path)
+            # Kiểm tra cả image_path (đơn lẻ)
+            if "image_path" in source and source["image_path"]:
+                if source["image_path"] not in related_images:
+                    related_images.append(source["image_path"])
+
+        # Chuyển đổi đường dẫn tương đối thành URL API
+        image_urls = [
+            f"/images/{os.path.basename(os.path.dirname(img_path))}/{os.path.basename(img_path)}"
+            for img_path in related_images
+        ]
+
         # Chuẩn bị response với đầy đủ thông tin
         response = QueryResponse(
             response=result.get("text", ""),
@@ -135,6 +157,7 @@ async def query(request: QueryRequest):
             retrieval_time_ms=round(result.get("retrieval_time", 0) * 1000),
             llm_time_ms=round(result.get("llm_time", 0) * 1000),
             total_tokens=result.get("total_tokens", 0),
+            related_images=image_urls,
         )
 
         return response
@@ -473,6 +496,109 @@ async def delete_file(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi khi xóa file: {str(e)}")
+
+
+@router.post("/reindex", response_model=IndexResponse)
+async def reindex_all_documents(background_tasks: BackgroundTasks):
+    """API endpoint để tái chỉ mục toàn bộ tài liệu hiện có"""
+    task_id = str(uuid.uuid4())
+
+    try:
+        # Kiểm tra có dữ liệu không
+        if not os.path.exists(DATA_DIR):
+            raise HTTPException(
+                status_code=400, detail="Không tìm thấy thư mục dữ liệu"
+            )
+
+        # Tìm tất cả thư mục upload
+        upload_dirs = []
+        for item in os.listdir(DATA_DIR):
+            item_path = os.path.join(DATA_DIR, item)
+            if os.path.isdir(item_path) and item.startswith("upload_"):
+                upload_dirs.append(item_path)
+
+        if not upload_dirs:
+            raise HTTPException(
+                status_code=400, detail="Không tìm thấy thư mục upload nào"
+            )
+
+        # Khởi tạo trạng thái task với progress chi tiết
+        current_time = time.time()
+        indexing_tasks[task_id] = {
+            "status": "running",
+            "message": "Đang chuẩn bị xóa index hiện tại và tái chỉ mục...",
+            "progress": {
+                "step": "init",
+                "step_name": "Khởi tạo",
+                "completed_steps": 0,
+                "total_steps": 4,
+                "progress_percent": 0.0,
+                "start_time": current_time,
+                "current_time": current_time,
+                "elapsed_time": 0.0,
+                "estimated_time_remaining": None,
+            },
+        }
+
+        # Thực hiện xóa index hiện tại và tái chỉ mục trong background
+        async def _reindex_all():
+            try:
+                # 1. Xóa index hiện tại
+                _update_progress(
+                    task_id,
+                    "delete_index",
+                    "Xóa index hiện tại",
+                    1,
+                    "Đang xóa index hiện tại...",
+                    0.1,
+                )
+                pipeline.delete_index()
+
+                # 2. Lặp qua từng thư mục upload để index lại
+                for i, upload_dir in enumerate(upload_dirs):
+                    progress = 0.1 + 0.8 * (i / len(upload_dirs))
+                    _update_progress(
+                        task_id,
+                        "indexing",
+                        f"Index thư mục {i+1}/{len(upload_dirs)}",
+                        2,
+                        f"Đang index thư mục: {os.path.basename(upload_dir)}",
+                        progress,
+                    )
+                    await _process_indexing_with_progress(
+                        f"{task_id}_{i}", upload_dir, False
+                    )
+
+                # 3. Hoàn thành
+                _update_progress(
+                    task_id,
+                    "completed",
+                    "Hoàn thành",
+                    4,
+                    "Đã tái chỉ mục tất cả tài liệu",
+                    1.0,
+                )
+                indexing_tasks[task_id]["status"] = "completed"
+                indexing_tasks[task_id][
+                    "message"
+                ] = "Đã tái chỉ mục thành công tất cả tài liệu"
+
+            except Exception as e:
+                error_message = f"Lỗi khi tái chỉ mục: {str(e)}"
+                print(f"❌ {error_message}")
+                indexing_tasks[task_id]["status"] = "failed"
+                indexing_tasks[task_id]["message"] = error_message
+
+        # Thực hiện tái chỉ mục trong background
+        background_tasks.add_task(_reindex_all)
+
+        return {
+            "task_id": task_id,
+            "message": f"Đã bắt đầu tái chỉ mục tất cả tài liệu từ {len(upload_dirs)} thư mục upload",
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi tái chỉ mục: {str(e)}")
 
 
 async def _process_indexing_with_progress(

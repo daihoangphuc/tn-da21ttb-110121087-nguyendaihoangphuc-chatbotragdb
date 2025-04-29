@@ -1,6 +1,6 @@
 # Hệ thống RAG cho Cơ sở dữ liệu
 
-Hệ thống Retrieval-Augmented Generation (RAG) được tối ưu cho việc truy vấn cơ sở dữ liệu với khả năng đọc nhiều loại tài liệu, xử lý semantic chunking và clustering.
+Hệ thống Retrieval-Augmented Generation (RAG) hỗ trợ môn cơ sở dữ liệu. Có khả năng hỏi đáp kiến thức chuyên về lĩnh vực cơ sở dữ liệu.
 
 ## Cấu trúc dự án
 
