@@ -18,20 +18,24 @@ class VectorStore:
         collection_name=None,
     ):
         """Khởi tạo Qdrant client"""
+        # Lấy URL và API key từ môi trường hoặc tham số
+        qdrant_url = url or os.getenv("QDRANT_URL")
+        qdrant_api_key = api_key or os.getenv("QDRANT_API_KEY")
+
+        # Kiểm tra xem có URL và API key không
+        if not qdrant_url or not qdrant_api_key:
+            raise ValueError(
+                "QDRANT_URL và QDRANT_API_KEY phải được cung cấp trong file .env hoặc trong tham số khởi tạo"
+            )
+
+        # Khởi tạo Qdrant client
         self.client = QdrantClient(
-            url=url
-            or os.getenv(
-                "QDRANT_URL",
-                "https://2f7481a0-b7e5-4785-afc0-14e7912f70d8.europe-west3-0.gcp.cloud.qdrant.io",
-            ),
-            api_key=api_key
-            or os.getenv(
-                "QDRANT_API_KEY",
-                "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.vszpZXJyBfX7-5XQtOfPQVO8UU16ym_KISz0rSr1vmY",
-            ),
+            url=qdrant_url,
+            api_key=qdrant_api_key,
             prefer_grpc=False,
             https=True,
         )
+
         self.collection_name = collection_name or os.getenv(
             "QDRANT_COLLECTION_NAME", "csdl_rag_e5_base"
         )
