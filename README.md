@@ -67,27 +67,7 @@ D:/DATN/V4/
 
 ## SƠ ĐỒ HOẠT ĐỘNG
 
-```mermaid
-graph LR
-    A[Frontend] --> B(API (FastAPI))
-    B --> C{AdvancedDatabaseRAG}
-    B --> D{DocumentProcessor}
-    B --> E[Feedback]
-    D --> F{Layout Analysis}
-    D --> G{Indexing}
-    F --> H{Chunking}
-    H --> I((Vector Store (Qdrant)))
-    C --> I
-    I --> J{QueryProcessor (Expansion)}
-    J --> K{SearchManager}
-    K --> L{PromptManager}
-    L --> M{Gemini LLM (Response Generation)}
-    M --> N[Final Response with sources]
-    B --> O[/api/ask]
-    B --> P[/api/upload]
-    B --> Q[/api/index]
-    B --> R[/api/feedback]
-```
+![Sơ đồ hoạt động hệ thống RAG](src/img/Diagram/image.png)
 
 ## Sử dụng hệ thống
 
