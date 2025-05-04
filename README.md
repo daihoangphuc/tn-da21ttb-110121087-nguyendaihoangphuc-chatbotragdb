@@ -65,74 +65,29 @@ D:/DATN/V4/
    python -m uvicorn src.api:app --host 0.0.0.0 --port 8000 --reload
    ```
 
-## SƠ ĐÒ HOẠT ĐỘNG
-┌─────────────────────────────────────────────────────────────────────────┐
-│                                FRONTEND                                 │
-└───────────────────────────────────┬─────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                               API (FastAPI)                             │
-│  ┌─────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │  /api/ask   │  │ /api/upload  │  │  /api/index  │  │ /api/feedback│  │
-│  └──────┬──────┘  └───────┬──────┘  └──────┬───────┘  └──────┬───────┘  │
-└─────────┼─────────────────┼────────────────┼─────────────────┼──────────┘
-          │                 │                │                 │
-          ▼                 ▼                │                 ▼
-┌───────────────────┐ ┌─────────────────┐    │          ┌───────────────┐
-│AdvancedDatabaseRAG│ │DocumentProcessor│    │          │   Feedback    │
-└─────────┬─────────┘ └─────┬───────────┘    │          └───────────────┘
-          │                 │                │
-          │                 ▼                ▼
-          │         ┌───────────────┐  ┌────────────┐
-          │         │Layout Analysis│  │  Indexing  │
-          │         └───────┬───────┘  └─────┬──────┘
-          │                 │                │
-          │                 ▼                │
-          │         ┌─────────────┐          │
-          │         │  Chunking   │          │
-          │         └───────┬─────┘          │
-          │                 │                │
-          │                 ▼                ▼
-          │          ┌────────────────────────────┐
-          │          │     Vector Store (Qdrant)  │
-          │          └───────────┬────────────────┘
-          │                      │
-          ▼                      │
-┌─────────────────┐              │
-│ QueryProcessor  │◄─────────────┘
-│  (Expansion)    │
-└─────────┬───────┘
-          │
-          ▼
-┌─────────────────┐
-│  SearchManager  │
-│  - Semantic     │
-│  - Keyword      │
-│  - Hybrid       │
-│  - Reranking    │
-└─────────┬───────┘
-          │
-          ▼
-┌──────────────────┐
-│  PromptManager   │
-│  - Question      │
-│  - Classification│
-│  - Templates     │
-└─────────┬────────┘
-          │
-          ▼
-┌─────────────────┐
-│    Gemini LLM   │
-│    (Response    │
-│    Generation)  │
-└─────────┬───────┘
-          │
-          ▼
-┌─────────────────┐
-│  Final Response │
-│  with sources   │
-└─────────────────┘
+## SƠ ĐỒ HOẠT ĐỘNG
+
+```mermaid
+graph LR
+    A[Frontend] --> B(API (FastAPI))
+    B --> C{AdvancedDatabaseRAG}
+    B --> D{DocumentProcessor}
+    B --> E[Feedback]
+    D --> F{Layout Analysis}
+    D --> G{Indexing}
+    F --> H{Chunking}
+    H --> I((Vector Store (Qdrant)))
+    C --> I
+    I --> J{QueryProcessor (Expansion)}
+    J --> K{SearchManager}
+    K --> L{PromptManager}
+    L --> M{Gemini LLM (Response Generation)}
+    M --> N[Final Response with sources]
+    B --> O[/api/ask]
+    B --> P[/api/upload]
+    B --> Q[/api/index]
+    B --> R[/api/feedback]
+```
 
 ## Sử dụng hệ thống
 
@@ -497,6 +452,3 @@ Khi chạy API, bạn có thể sử dụng các endpoint sau:
 - Các file hỗ trợ: PDF, DOCX, TXT, SQL
 - Thay đổi danh sách câu hỏi mẫu trong file `main.py`
 - Tùy chỉnh cấu hình API trong file `src/api.py`
-
-
-
