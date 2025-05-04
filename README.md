@@ -115,16 +115,40 @@ Các tham số:
 ##### API Endpoints chính:
 
 - `GET /`: Kiểm tra trạng thái API
-- `POST /query`: Truy vấn dữ liệu
-- `POST /upload`: Upload và index tài liệu
-- `POST /index/files`: Index dữ liệu từ các file
-- `POST /index/path`: Index dữ liệu từ thư mục
-- `GET /index/status/{task_id}`: Kiểm tra trạng thái indexing
-- `GET /index/progress/{task_id}`: Kiểm tra tiến trình chi tiết
-- `GET /files`: Liệt kê tất cả files
-- `DELETE /files/{file_name}`: Xóa file và embedding tương ứng
-- `GET /uploads`: Liệt kê các thư mục upload
-- `DELETE /index`: Xóa index
+- `POST /api/query`: Truy vấn dữ liệu
+- `POST /api/upload`: Upload và index tài liệu
+- `POST /api/index/files`: Index dữ liệu từ các file
+- `POST /api/index/path`: Index dữ liệu từ thư mục
+- `GET /api/index/status/{task_id}`: Kiểm tra trạng thái indexing
+- `GET /api/index/progress/{task_id}`: Kiểm tra tiến trình chi tiết
+- `GET /api/files`: Liệt kê tất cả files
+- `DELETE /api/files/{file_name}`: Xóa file và embedding tương ứng
+- `GET /api/uploads`: Liệt kê các thư mục upload
+- `DELETE /api/index`: Xóa index
+
+### Cấu trúc API và Versioning
+
+API được tổ chức theo cấu trúc phân cấp với quy ước đặt tên như sau:
+
+```
+/{api_prefix}/{version}/{resource}/{action}
+```
+
+- **api_prefix**: Tiền tố chung `/api` cho tất cả endpoints API
+- **version**: Phiên bản API (`v1`) cho phép nâng cấp API trong tương lai mà không phá vỡ khả năng tương thích
+- **resource**: Tài nguyên cụ thể (`query`, `upload`, `files`, `index`, v.v.)
+- **action**: Hành động cụ thể trên tài nguyên (`status`, `progress`, v.v.)
+
+Cấu trúc này cho phép:
+- Dễ dàng quản lý nhiều phiên bản API cùng lúc
+- Khả năng mở rộng API mà không ảnh hưởng đến client hiện tại
+- Tăng tính rõ ràng và dễ hiểu
+
+Ví dụ:
+- `/api/query`: API phiên bản 1 cho truy vấn dữ liệu
+- `/api/index/status/{task_id}`: API phiên bản 1 để kiểm tra trạng thái của task indexing
+
+Trong tương lai, nếu API có thay đổi lớn, phiên bản `/api/v2/...` có thể được triển khai mà không ảnh hưởng đến các ứng dụng đang sử dụng `/api/...`.
 
 ## Các tính năng chính
 

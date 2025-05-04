@@ -232,3 +232,62 @@ class VectorStoreManager:
             print(f"⚠️ Lỗi khi tạo vector store: {str(e)}")
             # Trả về một vectorstore giả để tránh lỗi
             return None
+
+    @measure_time
+    def get_all_documents(self, limit: int = 10000) -> List[Document]:
+        """Lấy tất cả các tài liệu từ vector store
+
+        Args:
+            limit: Số lượng tài liệu tối đa cần lấy
+
+        Returns:
+            Danh sách các tài liệu
+        """
+        # Kiểm tra collection có tồn tại không
+        if not self.client.collection_exists(self.collection_name):
+            print(f"ℹ️ Collection {self.collection_name} không tồn tại.")
+            return []
+
+        try:
+            # Lấy tất cả các point
+            results = self.client.scroll(
+                collection_name=self.collection_name,
+                limit=limit,
+                with_vectors=False,  # Không cần vector để tiết kiệm băng thông
+            )[0]
+
+            print(f"ℹ️ Đã lấy {len(results)} tài liệu từ vector store")
+
+            # Chuyển đổi thành Document
+            documents = []
+            for point in results:
+                if "text" in point.payload:
+                    # Lấy thông tin metadata
+                    metadata = point.payload.get("metadata", {})
+                    if not metadata and "source_path" in point.payload:
+                        # Tạo metadata từ các trường riêng lẻ nếu không có trường metadata
+                        metadata = {
+                            "source": point.payload.get("source_file", ""),
+                            "source_path": point.payload.get("source_path", ""),
+                            "file_path": point.payload.get("file_path", ""),
+                            "pdf_page": point.payload.get("pdf_page", None),
+                            "pdf_element_type": point.payload.get(
+                                "pdf_element_type", None
+                            ),
+                            "image_paths": point.payload.get("image_paths", []),
+                            "image_path": point.payload.get("image_path", ""),
+                            "has_list_content": point.payload.get(
+                                "has_list_content", False
+                            ),
+                        }
+
+                    # Tạo Document
+                    doc = Document(
+                        page_content=point.payload["text"], metadata=metadata
+                    )
+                    documents.append(doc)
+
+            return documents
+        except Exception as e:
+            print(f"⚠️ Lỗi khi lấy tài liệu từ vector store: {str(e)}")
+            return []

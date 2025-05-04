@@ -113,16 +113,20 @@ def main():
     print(f"\n🚀 Đang khởi động API tại http://{args.host}:{args.port}")
     print("📚 Các API có sẵn:")
     print("  - GET /           : Kiểm tra trạng thái API")
-    print("  - POST /query     : Truy vấn hệ thống với một câu hỏi")
-    print("  - POST /upload    : Upload và index tài liệu (lưu vào thư mục cố định)")
-    print("  - POST /index/files : Index dữ liệu từ các file (thư mục tạm)")
-    print("  - POST /index/path : Index dữ liệu từ một thư mục")
-    print("  - GET /index/status/{task_id} : Kiểm tra trạng thái của task indexing")
-    print("  - GET /index/progress/{task_id} : Kiểm tra tiến trình chi tiết của task")
-    print("  - GET /files      : Liệt kê tất cả các file đã upload")
-    print("  - DELETE /files/{file_name} : Xóa file và embedding tương ứng")
-    print("  - GET /uploads    : Liệt kê các thư mục upload")
-    print("  - DELETE /index   : Xóa toàn bộ index")
+    print("  - POST /api/query     : Truy vấn hệ thống với một câu hỏi")
+    print(
+        "  - POST /api/upload    : Upload và index tài liệu (lưu vào thư mục cố định)"
+    )
+    print("  - POST /api/index/files : Index dữ liệu từ các file (thư mục tạm)")
+    print("  - POST /api/index/path : Index dữ liệu từ một thư mục")
+    print("  - GET /api/index/status/{task_id} : Kiểm tra trạng thái của task indexing")
+    print(
+        "  - GET /api/index/progress/{task_id} : Kiểm tra tiến trình chi tiết của task"
+    )
+    print("  - GET /api/files      : Liệt kê tất cả các file đã upload")
+    print("  - DELETE /api/files/{file_name} : Xóa file và embedding tương ứng")
+    print("  - GET /api/uploads    : Liệt kê các thư mục upload")
+    print("  - DELETE /api/index   : Xóa toàn bộ index")
     print("📖 Truy cập API docs tại: http://localhost:8000/docs")
 
     # Chạy API với Uvicorn

@@ -26,6 +26,7 @@ from src.config import (
 from typing import Dict, Any, Union, List
 import time
 import os
+import re
 
 
 class RAGPipeline:
@@ -103,10 +104,19 @@ class RAGPipeline:
             )
 
             # Xây dựng sparse index nếu là hybrid retriever
-            documents = self.vector_store_manager.get_all_documents()
-            if documents:
-                print(f"⏳ Đang xây dựng sparse index cho {len(documents)} tài liệu...")
-                self.retriever.build_sparse_index(documents)
+            try:
+                documents = self.vector_store_manager.get_all_documents()
+                if documents:
+                    print(
+                        f"⏳ Đang xây dựng sparse index cho {len(documents)} tài liệu..."
+                    )
+                    self.retriever.build_sparse_index(documents)
+                else:
+                    print(
+                        "ℹ️ Không có tài liệu nào trong vector store để xây dựng sparse index"
+                    )
+            except Exception as e:
+                print(f"⚠️ Không thể lấy tài liệu để xây dựng sparse index: {str(e)}")
         else:
             self.retriever = Retriever(self.vectorstore, use_reranker=RERANKER_ENABLED)
 
@@ -325,6 +335,109 @@ class RAGPipeline:
         # Mặc định dùng prompt cơ sở dữ liệu vì đây là hệ thống chuyên về CSDL
         return get_database_query_prompt
 
+    def _process_sql_in_response(self, text: str) -> str:
+        """Xử lý và đánh dấu các đoạn code SQL trong câu trả lời
+
+        Args:
+            text: Văn bản câu trả lời từ LLM
+
+        Returns:
+            Văn bản đã được xử lý với các đoạn code SQL được đánh dấu
+        """
+        # Pattern để tìm các đoạn code nằm giữa các dấu backtick hoặc trong block code
+        # Cần xử lý cả 2 trường hợp:
+        # 1. ```sql ... ``` hoặc ```SQL ... ```
+        # 2. ```... các lệnh SQL ...```
+        # 3. `... các lệnh SQL ...`
+
+        # Xử lý trường hợp code block có đánh dấu SQL
+        sql_block_pattern = r"```(?:sql|SQL)(.*?)```"
+        # Tìm tất cả các khối code đã được đánh dấu sql và đảm bảo rằng chúng vẫn được đánh dấu đúng
+        processed_text = re.sub(
+            sql_block_pattern, r"```sql\1```", text, flags=re.DOTALL
+        )
+
+        # Xử lý trường hợp code block không đánh dấu cụ thể ngôn ngữ
+        unmarked_block_pattern = r"```(?!\w)(.*?)```"
+
+        def process_unmarked_block(match):
+            content = match.group(1)
+            # Kiểm tra xem khối này có phải là SQL hay không
+            sql_keywords = [
+                r"\bSELECT\b",
+                r"\bFROM\b",
+                r"\bWHERE\b",
+                r"\bJOIN\b",
+                r"\bGROUP BY\b",
+                r"\bORDER BY\b",
+                r"\bHAVING\b",
+                r"\bUNION\b",
+                r"\bINSERT INTO\b",
+                r"\bVALUES\b",
+                r"\bUPDATE\b",
+                r"\bSET\b",
+                r"\bDELETE FROM\b",
+                r"\bCREATE TABLE\b",
+                r"\bALTER TABLE\b",
+                r"\bDROP TABLE\b",
+                r"\bINDEX\b",
+                r"\bTRIGGER\b",
+                r"\bVIEW\b",
+            ]
+
+            # Đếm số lượng từ khóa SQL trong nội dung
+            sql_keyword_count = sum(
+                1
+                for keyword in sql_keywords
+                if re.search(keyword, content, re.IGNORECASE)
+            )
+
+            # Nếu có ít nhất 2 từ khóa SQL phổ biến, thì đánh dấu là SQL
+            if sql_keyword_count >= 2:
+                return f"```sql{content}```"
+            return f"```{content}```"
+
+        # Áp dụng xử lý cho các code block không đánh dấu
+        processed_text = re.sub(
+            unmarked_block_pattern,
+            process_unmarked_block,
+            processed_text,
+            flags=re.DOTALL,
+        )
+
+        # Xử lý các đoạn code nằm trong dấu backtick đơn
+        inline_code_pattern = r"`([^`]+)`"
+
+        def process_inline_code(match):
+            content = match.group(1)
+            # Kiểm tra từ khóa SQL phổ biến
+            sql_keywords = [
+                "SELECT",
+                "FROM",
+                "WHERE",
+                "JOIN",
+                "INSERT",
+                "UPDATE",
+                "DELETE",
+            ]
+
+            # Nếu đoạn code inline có vẻ là một câu lệnh SQL đơn giản
+            if any(
+                keyword in content.upper() for keyword in sql_keywords
+            ) and re.search(
+                r"\b(SELECT|INSERT|UPDATE|DELETE)\b", content, re.IGNORECASE
+            ):
+                # Chuyển đổi thành dấu backtick triple nếu là SQL
+                return f"```sql\n{content}\n```"
+            return f"`{content}`"
+
+        # Áp dụng xử lý cho các đoạn code inline
+        processed_text = re.sub(
+            inline_code_pattern, process_inline_code, processed_text
+        )
+
+        return processed_text
+
     @measure_time
     def query(self, query_text: str) -> Dict[str, Any]:
         """Truy vấn RAG Pipeline
@@ -396,6 +509,11 @@ class RAGPipeline:
                 print(f"ℹ️ Phát hiện truy vấn phức tạp, sử dụng multi-step reasoning")
                 reasoning_result = self.reasoner.answer_with_reasoning(query_text)
 
+                # Xử lý và đánh dấu code SQL trong câu trả lời
+                reasoning_result["answer"] = self._process_sql_in_response(
+                    reasoning_result["answer"]
+                )
+
                 result["text"] = reasoning_result["answer"]
                 result["reasoning_steps"] = reasoning_result.get("reasoning_steps", [])
                 result["retrieval_time"] = 0
@@ -436,7 +554,11 @@ class RAGPipeline:
         # 4. Gộp kết quả từ LLM vào kết quả cuối cùng
         result.update(response_dict)
 
-        # 5. Bổ sung thông tin thêm
+        # 5. Xử lý và đánh dấu code SQL trong câu trả lời
+        if "text" in result and result["text"]:
+            result["text"] = self._process_sql_in_response(result["text"])
+
+        # 6. Bổ sung thông tin thêm
         result["query"] = query_text
         result["total_tokens"] = len(query_text.split()) + len(result["text"].split())
         result["used_reasoning"] = False

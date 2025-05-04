@@ -31,10 +31,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Thêm router vào app
-app.include_router(router)
+# Thêm router vào app với prefix "/api"
+app.include_router(router, prefix="/api")
 
 # Ghi log khi khởi tạo
 logger.info("RAG API đã được khởi tạo thành công")
 logger.info(f"Thời gian khởi tạo: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-logger.info("Tất cả các routes đã được đăng ký")
+logger.info("Tất cả các routes đã được đăng ký với prefix /api")

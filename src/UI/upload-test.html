@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Upload</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        .form-container {
+            max-width: 500px;
+            margin: 0 auto;
+            border: 1px solid #ccc;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .file-input {
+            margin-bottom: 20px;
+        }
+        .button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .loading {
+            display: none;
+            margin-top: 20px;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="form-container">
+        <h2>Test Upload</h2>
+        
+        <form id="upload-form" onsubmit="return false;">
+            <div class="file-input">
+                <label for="file">Chọn file:</label>
+                <input type="file" id="file" multiple accept=".pdf,.docx,.txt,.sql">
+            </div>
+            
+            <button type="button" id="upload-button" class="button">Tải lên</button>
+        </form>
+        
+        <div id="loading" class="loading">Đang tải lên...</div>
+        
+        <div id="result" class="result"></div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const uploadForm = document.getElementById('upload-form');
+            const uploadButton = document.getElementById('upload-button');
+            const fileInput = document.getElementById('file');
+            const loading = document.getElementById('loading');
+            const result = document.getElementById('result');
+            
+            // API URL
+            const API_URL = 'http://localhost:8000/api/upload';
+            
+            // Ngăn chặn form submit
+            uploadForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                return false;
+            });
+            
+            // Xử lý upload
+            uploadButton.addEventListener('click', async function(e) {
+                e.preventDefault();
+                
+                const files = fileInput.files;
+                if (files.length === 0) {
+                    alert('Vui lòng chọn ít nhất một file');
+                    return;
+                }
+                
+                // Hiển thị loading
+                loading.style.display = 'block';
+                result.style.display = 'none';
+                uploadButton.disabled = true;
+                
+                // Tạo FormData
+                const formData = new FormData();
+                Array.from(files).forEach(file => {
+                    formData.append('files', file);
+                });
+                
+                try {
+                    // Gửi request
+                    const response = await axios.post(API_URL, formData, {
+                        headers: {
+                            'Content-Type': 'multipart/form-data'
+                        }
+                    });
+                    
+                    console.log('Response:', response.data);
+                    
+                    // Hiển thị kết quả
+                    result.textContent = JSON.stringify(response.data, null, 2);
+                    result.style.display = 'block';
+                    
+                    // Nếu có task_id, đã upload thành công
+                    if (response.data && response.data.task_id) {
+                        alert('Upload thành công! Task ID: ' + response.data.task_id);
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    result.textContent = 'Lỗi: ' + (error.response?.data?.message || error.message);
+                    result.style.display = 'block';
+                } finally {
+                    // Ẩn loading
+                    loading.style.display = 'none';
+                    uploadButton.disabled = false;
+                }
+            });
+        });
+    </script>
+</body>
+</html> 
