@@ -1,0 +1,281 @@
+from qdrant_client import QdrantClient, models
+from qdrant_client.models import Distance, VectorParams, PointStruct, Filter
+from typing import List, Dict
+import os
+from dotenv import load_dotenv
+
+# Load biến môi trường từ .env
+load_dotenv()
+
+
+class VectorStore:
+    """Lớp quản lý kho lưu trữ vector với Qdrant"""
+
+    def __init__(
+        self,
+        url=None,
+        api_key=None,
+        collection_name=None,
+    ):
+        """Khởi tạo Qdrant client"""
+        self.client = QdrantClient(
+            url=url
+            or os.getenv(
+                "QDRANT_URL",
+                "https://2f7481a0-b7e5-4785-afc0-14e7912f70d8.europe-west3-0.gcp.cloud.qdrant.io",
+            ),
+            api_key=api_key
+            or os.getenv(
+                "QDRANT_API_KEY",
+                "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.vszpZXJyBfX7-5XQtOfPQVO8UU16ym_KISz0rSr1vmY",
+            ),
+            prefer_grpc=False,
+            https=True,
+        )
+        self.collection_name = collection_name or os.getenv(
+            "QDRANT_COLLECTION_NAME", "csdl_rag_e5_base"
+        )
+
+    def ensure_collection_exists(self, vector_size):
+        """Đảm bảo collection tồn tại trong Qdrant"""
+        collections = self.client.get_collections().collections
+        collection_names = [c.name for c in collections]
+
+        if self.collection_name not in collection_names:
+            self.client.create_collection(
+                collection_name=self.collection_name,
+                vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+            )
+
+    def index_documents(self, chunks, embeddings):
+        """Index dữ liệu lên Qdrant"""
+        points = []
+        for idx, chunk in enumerate(chunks):
+            # Đảm bảo source có trong cả payload trực tiếp và metadata
+            source = chunk.get("source", "unknown")
+
+            # Đảm bảo metadata là một dict
+            if "metadata" not in chunk or not isinstance(chunk["metadata"], dict):
+                chunk["metadata"] = {}
+
+            # Đảm bảo source cũng có trong metadata
+            chunk["metadata"]["source"] = source
+
+            # In thông tin để debug
+            print(
+                f"Indexing chunk {idx}: source={source}, metadata.source={chunk['metadata'].get('source')}"
+            )
+
+            points.append(
+                PointStruct(
+                    id=idx,
+                    vector=embeddings[idx].tolist(),
+                    payload={
+                        "text": chunk["text"],
+                        "metadata": chunk["metadata"],
+                        "source": source,  # Lưu source trực tiếp trong payload
+                    },
+                )
+            )
+
+        # Upload theo batch
+        batch_size = 100
+        for i in range(0, len(points), batch_size):
+            batch = points[i : i + batch_size]
+            self.client.upsert(collection_name=self.collection_name, points=batch)
+
+    def search(self, query_vector, limit=5):
+        """Tìm kiếm trong Qdrant"""
+        results = self.client.search(
+            collection_name=self.collection_name,
+            query_vector=query_vector,
+            limit=limit,
+            with_payload=True,
+        )
+
+        return [
+            {
+                "text": hit.payload["text"],
+                "metadata": hit.payload["metadata"],
+                "score": hit.score,
+            }
+            for hit in results
+        ]
+
+    def search_with_filter(self, query_vector, sources=None, limit=5):
+        """Tìm kiếm trong Qdrant với filter theo nguồn tài liệu"""
+        # Nếu không có danh sách nguồn, sử dụng search thông thường
+        if not sources:
+            return self.search(query_vector, limit)
+
+        # Xử lý danh sách nguồn để hỗ trợ so sánh với cả tên file đơn thuần và đường dẫn
+        normalized_sources = []
+        for source in sources:
+            normalized_sources.append(source)  # Giữ nguyên source gốc
+            # Thêm tên file đơn thuần (nếu source chứa đường dẫn)
+            if os.path.sep in source:
+                filename = os.path.basename(source)
+                if filename and filename not in normalized_sources:
+                    normalized_sources.append(filename)
+
+        print(
+            f"Tìm kiếm với sources={sources}, normalized_sources={normalized_sources}"
+        )
+
+        # Lược bỏ cách sử dụng filter của Qdrant vì không tương thích với phiên bản hoặc cấu hình hiện tại
+        # Thay vào đó, chúng ta sẽ thực hiện tìm kiếm không filter và lọc thủ công
+        print(
+            f"Tìm kiếm với sources={normalized_sources} bằng phương pháp lọc thủ công"
+        )
+
+        # Lấy nhiều kết quả hơn để đảm bảo đủ sau khi lọc
+        results = self.search(query_vector, limit=limit * 3)
+
+        # Lọc kết quả theo nguồn
+        filtered_results = []
+        for result in results:
+            # Kiểm tra source trong cả metadata và trực tiếp trong kết quả
+            meta_source = result.get("metadata", {}).get("source", "unknown")
+            # Một số kết quả có thể có source trực tiếp
+            direct_source = result.get("source", "unknown")
+
+            # Extract filename từ source nếu có đường dẫn
+            meta_filename = (
+                os.path.basename(meta_source) if meta_source != "unknown" else "unknown"
+            )
+            direct_filename = (
+                os.path.basename(direct_source)
+                if direct_source != "unknown"
+                else "unknown"
+            )
+
+            # Nếu bất kỳ source nào khớp với danh sách nguồn
+            if (
+                meta_source in normalized_sources
+                or direct_source in normalized_sources
+                or meta_filename in normalized_sources
+                or direct_filename in normalized_sources
+            ):
+                filtered_results.append(result)
+
+                # Nếu đã đủ số kết quả cần thiết, dừng lại
+                if len(filtered_results) >= limit:
+                    break
+
+        return filtered_results
+
+    def get_all_documents(self, limit=1000):
+        """Lấy tất cả tài liệu từ collection"""
+        try:
+            # Kiểm tra xem collection có tồn tại không
+            collection_info = self.get_collection_info()
+            if not collection_info:
+                print(f"Collection {self.collection_name} không tồn tại")
+                return []
+
+            points_count = collection_info.get("points_count", 0)
+            if points_count == 0:
+                print(f"Collection {self.collection_name} không có dữ liệu")
+                return []
+
+            # Giới hạn số lượng tài liệu trả về nếu quá lớn
+            actual_limit = min(limit, points_count)
+
+            # Scroll để lấy tất cả points
+            results = self.client.scroll(
+                collection_name=self.collection_name,
+                limit=actual_limit,
+                with_payload=True,
+                with_vectors=False,  # Không cần vector vì chỉ dùng văn bản
+            )
+
+            points, next_offset = results
+
+            # Chuyển đổi thành định dạng chuẩn
+            documents = [
+                {
+                    "text": point.payload["text"],
+                    "metadata": point.payload["metadata"],
+                    "source": point.payload.get("source", "unknown"),
+                }
+                for point in points
+            ]
+
+            return documents
+
+        except Exception as e:
+            print(f"Lỗi khi lấy tất cả tài liệu: {str(e)}")
+            return []
+
+    def delete_collection(self):
+        """Xóa collection trong Qdrant"""
+        self.client.delete_collection(self.collection_name)
+
+    def get_collection_info(self):
+        """Lấy thông tin collection"""
+        try:
+            collection_info = self.client.get_collection(self.collection_name)
+            return collection_info.dict()
+        except Exception as e:
+            print(f"Lỗi khi lấy thông tin collection: {str(e)}")
+            return None
+
+    def get_document_by_category(self, category, limit=100):
+        """Lấy tài liệu theo danh mục (SQL, NoSQL, ...)"""
+        try:
+            # Tạo bộ lọc theo danh mục
+            category_filter = Filter(
+                must=[{"key": "metadata.category", "match": {"value": category}}]
+            )
+
+            # Scroll với filter
+            results = self.client.scroll(
+                collection_name=self.collection_name,
+                limit=limit,
+                with_payload=True,
+                with_vectors=False,
+                filter=category_filter,
+            )
+
+            points, next_offset = results
+
+            # Chuyển đổi thành định dạng chuẩn
+            documents = [
+                {
+                    "text": point.payload["text"],
+                    "metadata": point.payload["metadata"],
+                    "source": point.payload.get("source", "unknown"),
+                }
+                for point in points
+            ]
+
+            return documents
+
+        except Exception as e:
+            print(f"Lỗi khi lấy tài liệu theo danh mục: {str(e)}")
+            return []
+
+    def delete_points(self, point_ids: List[str]) -> bool:
+        """
+        Xóa các điểm cụ thể từ collection theo danh sách ID
+
+        Args:
+            point_ids: Danh sách ID của các điểm cần xóa
+
+        Returns:
+            True nếu xóa thành công, False nếu có lỗi
+        """
+        try:
+            if not self.client.collection_exists(self.collection_name):
+                return False
+
+            # Xóa từng điểm từ collection
+            self.client.collection(self.collection_name).delete(
+                points_selector=models.PointIdsList(
+                    points=point_ids,
+                )
+            )
+            return True
+        except Exception as e:
+            print(f"Lỗi khi xóa điểm từ vector store: {str(e)}")
+            return False

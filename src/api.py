@@ -1,0 +1,1357 @@
+from fastapi import (
+    FastAPI,
+    File,
+    UploadFile,
+    Form,
+    HTTPException,
+    BackgroundTasks,
+    Depends,
+    Query,
+)
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import List, Dict, Optional
+import os
+import uvicorn
+import shutil
+from uuid import uuid4
+import time
+import json
+from datetime import datetime
+from os import path
+from dotenv import load_dotenv
+
+from src.rag import AdvancedDatabaseRAG
+
+# Load biến môi trường từ .env
+load_dotenv()
+
+# Thêm prefix API
+PREFIX = os.getenv("API_PREFIX", "/api")
+
+# Khởi tạo ứng dụng FastAPI
+app = FastAPI(
+    title=os.getenv("API_TITLE", "Hệ thống RAG cho Cơ sở dữ liệu"),
+    description=os.getenv(
+        "API_DESCRIPTION", "API cho hệ thống tìm kiếm và trả lời câu hỏi sử dụng RAG"
+    ),
+    version=os.getenv("API_VERSION", "1.0.0"),
+)
+
+# Cấu hình CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Khởi tạo hệ thống RAG
+rag_system = AdvancedDatabaseRAG()
+
+# Đường dẫn lưu dữ liệu tạm thời
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", "src/data")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# Đường dẫn lưu phản hồi
+FEEDBACK_DIR = os.getenv("FEEDBACK_DIR", "src/feedback")
+os.makedirs(FEEDBACK_DIR, exist_ok=True)
+
+
+# Models cho API
+class QuestionRequest(BaseModel):
+    question: str
+    search_type: Optional[str] = "hybrid"  # "semantic", "keyword", "hybrid"
+    alpha: Optional[float] = 0.7  # Hệ số kết hợp giữa semantic và keyword search
+    sources: Optional[List[str]] = None  # Danh sách các file nguồn cần tìm kiếm
+
+
+class AnswerResponse(BaseModel):
+    question_id: str
+    question: str
+    answer: str
+    sources: List[Dict]  # Sẽ bao gồm source, page, section, score, content_snippet
+    search_method: str
+    total_reranked: Optional[int] = None  # Thêm trường hiển thị số lượng kết quả rerank
+    filtered_sources: Optional[List[str]] = None  # Danh sách các file nguồn đã được lọc
+
+
+class SQLAnalysisRequest(BaseModel):
+    sql_query: str
+    database_context: Optional[str] = None
+
+
+class SQLAnalysisResponse(BaseModel):
+    query: str
+    analysis: str
+    suggestions: List[str]
+    optimized_query: Optional[str] = None
+
+
+class FeedbackRequest(BaseModel):
+    question_id: str
+    rating: int  # 1-5
+    comment: Optional[str] = None
+    is_helpful: bool
+    specific_feedback: Optional[Dict] = None
+
+
+class IndexingStatusResponse(BaseModel):
+    status: str
+    message: str
+    processed_files: int
+
+
+class CategoryStatsResponse(BaseModel):
+    total_documents: int
+    documents_by_category: Dict[str, int]
+    categories: List[str]
+
+
+# Biến lưu trạng thái quá trình indexing
+indexing_status = {
+    "is_running": False,
+    "status": "idle",
+    "message": "Hệ thống sẵn sàng",
+    "processed_files": 0,
+}
+
+# Lưu lịch sử câu hỏi
+questions_history = {}
+
+
+# Hàm xử lý indexing trong background
+def indexing_documents():
+    global indexing_status
+
+    try:
+        indexing_status["is_running"] = True
+        indexing_status["status"] = "running"
+        indexing_status["message"] = "Đang tải và xử lý tài liệu..."
+
+        # Tải và xử lý tài liệu
+        documents = rag_system.load_documents(UPLOAD_DIR)
+        indexing_status["processed_files"] = len(documents)
+        indexing_status["message"] = f"Đã tải {len(documents)} tài liệu. Đang xử lý..."
+
+        processed_chunks = rag_system.process_documents(documents)
+        indexing_status["message"] = (
+            f"Đã xử lý {len(processed_chunks)} chunks. Đang index..."
+        )
+
+        # Index lên vector store
+        rag_system.index_to_qdrant(processed_chunks)
+
+        # Cập nhật BM25 index sau khi đã index xong tài liệu
+        indexing_status["message"] = "Đang cập nhật BM25 index..."
+        rag_system.search_manager.update_bm25_index()
+
+        indexing_status["status"] = "completed"
+        indexing_status["message"] = (
+            f"Đã hoàn thành index {len(processed_chunks)} chunks từ {len(documents)} tài liệu"
+        )
+    except Exception as e:
+        indexing_status["status"] = "error"
+        indexing_status["message"] = f"Lỗi khi indexing: {str(e)}"
+    finally:
+        indexing_status["is_running"] = False
+
+
+# Lưu phản hồi người dùng
+def save_feedback(feedback: Dict):
+    try:
+        # Tạo tên file dựa vào question_id và timestamp
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        filename = f"{feedback['question_id']}_{timestamp}.json"
+        filepath = os.path.join(FEEDBACK_DIR, filename)
+
+        # Thêm timestamp vào feedback
+        feedback["timestamp"] = datetime.now().isoformat()
+
+        # Lưu feedback vào file
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(feedback, f, ensure_ascii=False, indent=4)
+
+        return True
+    except Exception as e:
+        print(f"Lỗi khi lưu phản hồi: {str(e)}")
+        return False
+
+
+# Thêm model mới cho danh sách file
+class FileInfo(BaseModel):
+    filename: str
+    path: str
+    size: int
+    upload_date: Optional[str] = None
+    extension: str
+    category: Optional[str] = None
+
+
+class FileListResponse(BaseModel):
+    total_files: int
+    files: List[FileInfo]
+
+
+class FileDeleteResponse(BaseModel):
+    filename: str
+    status: str
+    message: str
+    removed_points: Optional[int] = None
+
+
+# API routes
+@app.get(f"{PREFIX}/")
+async def root():
+    return {
+        "message": "Chào mừng đến với API của hệ thống RAG. Truy cập /docs để xem tài liệu API."
+    }
+
+
+@app.post(f"{PREFIX}/ask", response_model=AnswerResponse)
+async def ask_question(
+    request: QuestionRequest,
+    max_sources: Optional[int] = Query(
+        None,
+        description="Số lượng nguồn tham khảo tối đa trả về. Để None để hiển thị tất cả.",
+        ge=1,
+        le=50,
+    ),
+):
+    """
+    Đặt câu hỏi và nhận câu trả lời từ hệ thống RAG
+
+    - **question**: Câu hỏi cần trả lời
+    - **search_type**: Loại tìm kiếm ("semantic", "keyword", "hybrid")
+    - **alpha**: Hệ số kết hợp giữa semantic và keyword search (0.7 = 70% semantic + 30% keyword)
+    - **sources**: Danh sách các file nguồn cần tìm kiếm, có thể là tên file đơn thuần hoặc đường dẫn đầy đủ
+    - **max_sources**: Số lượng nguồn tham khảo tối đa trả về (query parameter)
+    """
+    try:
+        # Kiểm tra xem người dùng đã chọn nguồn hay chưa
+        if not request.sources or len(request.sources) == 0:
+            # Lấy danh sách các nguồn có sẵn
+            all_docs = rag_system.vector_store.get_all_documents(limit=1000)
+            available_sources = set()
+            available_filenames = set()  # Tập hợp tên file không có đường dẫn
+
+            for doc in all_docs:
+                source = doc.get("metadata", {}).get(
+                    "source", doc.get("source", "unknown")
+                )
+                if source != "unknown":
+                    available_sources.add(source)
+                    # Thêm tên file đơn thuần
+                    if os.path.sep in source:
+                        available_filenames.add(os.path.basename(source))
+                    else:
+                        available_filenames.add(source)
+
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "Vui lòng chọn ít nhất một nguồn tài liệu để tìm kiếm.",
+                    "available_sources": sorted(list(available_sources)),
+                    "available_filenames": sorted(list(available_filenames)),
+                    "note": "Bạn có thể dùng tên file đơn thuần hoặc đường dẫn đầy đủ",
+                },
+            )
+
+        # Kiểm tra xem sources có tồn tại không nếu đã chỉ định
+        if request.sources and len(request.sources) > 0:
+            # Lấy danh sách các nguồn có sẵn
+            all_docs = rag_system.vector_store.get_all_documents(limit=1000)
+            available_sources = set()
+            available_filenames = (
+                set()
+            )  # Thêm tập hợp để lưu tên file không có đường dẫn
+
+            for doc in all_docs:
+                # Lấy nguồn từ cả metadata và direct
+                source = doc.get("metadata", {}).get(
+                    "source", doc.get("source", "unknown")
+                )
+                if source != "unknown":
+                    available_sources.add(source)
+                    # Thêm tên file đơn thuần
+                    if os.path.sep in source:
+                        available_filenames.add(os.path.basename(source))
+                    else:
+                        available_filenames.add(source)
+
+            # Kiểm tra xem các nguồn được yêu cầu có tồn tại không (tính cả tên file đơn thuần)
+            missing_sources = []
+            for s in request.sources:
+                # Kiểm tra cả đường dẫn đầy đủ và tên file đơn thuần
+                filename = os.path.basename(s) if os.path.sep in s else s
+                if s not in available_sources and filename not in available_filenames:
+                    missing_sources.append(s)
+
+            if missing_sources:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "status": "error",
+                        "message": f"Không tìm thấy các nguồn: {', '.join(missing_sources)}",
+                        "available_sources": sorted(list(available_sources)),
+                        "available_filenames": sorted(list(available_filenames)),
+                        "note": "Bạn có thể dùng tên file đơn thuần hoặc đường dẫn đầy đủ",
+                    },
+                )
+
+        # Tạo ID cho câu hỏi
+        question_id = f"q_{uuid4().hex[:8]}"
+
+        # Gọi hệ thống RAG
+        result = rag_system.query_with_sources(
+            request.question,
+            search_type=request.search_type,
+            alpha=request.alpha,
+            sources=request.sources,
+        )
+
+        # Thêm question_id vào kết quả
+        result["question_id"] = question_id
+
+        # Giới hạn số lượng nguồn trả về theo tham số nếu người dùng yêu cầu
+        if max_sources and result["sources"] and len(result["sources"]) > max_sources:
+            result["sources"] = result["sources"][:max_sources]
+
+        # Lưu vào lịch sử
+        questions_history[question_id] = {
+            "question": request.question,
+            "search_type": request.search_type,
+            "alpha": request.alpha,
+            "sources": request.sources,
+            "timestamp": datetime.now().isoformat(),
+            "answer": result["answer"],
+        }
+
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý câu hỏi: {str(e)}")
+
+
+@app.post(f"{PREFIX}/upload")
+async def upload_document(
+    file: UploadFile = File(...), category: Optional[str] = Form(None)
+):
+    """
+    Tải lên một tài liệu để thêm vào hệ thống và tự động xử lý/index
+    """
+    try:
+        # Kiểm tra phần mở rộng file
+        ext = os.path.splitext(file.filename)[1].lower()
+        allowed_extensions = [".pdf", ".docx", ".txt", ".sql"]
+
+        if ext not in allowed_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Định dạng file không được hỗ trợ. Chấp nhận: {', '.join(allowed_extensions)}",
+            )
+
+        # Lưu file
+        file_location = os.path.join(UPLOAD_DIR, file.filename)
+        with open(file_location, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+
+        # Xử lý metadata bổ sung (nếu có)
+        metadata = {}
+        if category:
+            metadata["category"] = category
+
+        # Xử lý file vừa tải lên
+        print(f"Bắt đầu xử lý file {file.filename}...")
+
+        # Sử dụng phương pháp xử lý nâng cao cho PDF
+        if ext.lower() == ".pdf":
+            try:
+                print(f"Sử dụng layout detection để xử lý {file.filename}...")
+                processed_chunks = (
+                    rag_system.document_processor.process_pdf_with_layout(
+                        file_location, category
+                    )
+                )
+                if processed_chunks:
+                    print(
+                        f"Đã xử lý {len(processed_chunks)} chunks với layout detection"
+                    )
+                else:
+                    # Fallback to regular loading
+                    documents = (
+                        rag_system.document_processor.load_document_with_category(
+                            file_location, category
+                        )
+                    )
+                    processed_chunks = rag_system.document_processor.process_documents(
+                        documents
+                    )
+            except Exception as e:
+                print(f"Lỗi khi xử lý PDF với layout: {str(e)}")
+                # Fallback to regular processing
+                documents = rag_system.document_processor.load_document_with_category(
+                    file_location, category
+                )
+                processed_chunks = rag_system.document_processor.process_documents(
+                    documents
+                )
+        else:
+            # Tải file bằng loader thích hợp cho các định dạng khác
+            if category:
+                documents = rag_system.document_processor.load_document_with_category(
+                    file_location, category
+                )
+            else:
+                ext = os.path.splitext(file_location)[1].lower()
+                if ext in rag_system.document_processor.loaders:
+                    loader = rag_system.document_processor.loaders[ext](file_location)
+                    documents = loader.load()
+                else:
+                    return {
+                        "filename": file.filename,
+                        "status": "error",
+                        "message": f"Không hỗ trợ định dạng {ext}",
+                    }
+
+            if not documents:
+                return {
+                    "filename": file.filename,
+                    "status": "error",
+                    "message": "Không thể tải tài liệu hoặc tài liệu rỗng",
+                }
+
+            # Sử dụng chunking cấu trúc cho các định dạng không phải PDF
+            processed_chunks = rag_system.document_processor.process_documents(
+                documents
+            )
+
+        # Index lên vector store
+        if processed_chunks:
+            # Tạo embeddings cho các chunks
+            texts = [chunk["text"] for chunk in processed_chunks]
+            embeddings = rag_system.embedding_model.encode(texts)
+
+            # Đảm bảo collection đã tồn tại với kích thước vector đúng
+            rag_system.vector_store.ensure_collection_exists(len(embeddings[0]))
+
+            # Index embeddings
+            rag_system.vector_store.index_documents(processed_chunks, embeddings)
+
+            # Tính toán thống kê layout nếu có
+            layout_stats = {}
+            if ext.lower() == ".pdf":
+                # Đếm số lượng chunk theo loại
+                chunk_types = {}
+                for chunk in processed_chunks:
+                    chunk_type = chunk["metadata"].get("chunk_type", "unknown")
+                    chunk_types[chunk_type] = chunk_types.get(chunk_type, 0) + 1
+                layout_stats["chunk_types"] = chunk_types
+
+            return {
+                "filename": file.filename,
+                "status": "success",
+                "message": f"Đã tải lên và index thành công {len(processed_chunks)} chunks từ tài liệu",
+                "chunks_count": len(processed_chunks),
+                "category": category,
+                "layout_stats": layout_stats if layout_stats else None,
+            }
+        else:
+            return {
+                "filename": file.filename,
+                "status": "warning",
+                "message": "Tài liệu đã được tải lên nhưng không thể tạo chunks",
+                "category": category,
+            }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý tài liệu: {str(e)}")
+
+
+@app.post(f"{PREFIX}/index")
+async def index_documents(background_tasks: BackgroundTasks):
+    """
+    Index các tài liệu đã tải lên và chuẩn bị hệ thống để tìm kiếm/trả lời
+    """
+    if indexing_status["is_running"]:
+        return {
+            "status": "running",
+            "message": "Đang trong quá trình indexing, vui lòng đợi",
+        }
+
+    background_tasks.add_task(indexing_documents)
+
+    return {"status": "started", "message": "Đã bắt đầu quá trình indexing"}
+
+
+@app.get(f"{PREFIX}/index/status", response_model=IndexingStatusResponse)
+async def get_indexing_status():
+    """
+    Kiểm tra trạng thái của quá trình indexing
+    """
+    return {
+        "status": indexing_status["status"],
+        "message": indexing_status["message"],
+        "processed_files": indexing_status["processed_files"],
+    }
+
+
+@app.get(f"{PREFIX}/collection/info")
+async def get_collection_info():
+    """
+    Lấy thông tin về collection trong vector store
+    """
+    try:
+        info = rag_system.get_collection_info()
+        return info
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Lỗi khi lấy thông tin collection: {str(e)}"
+        )
+
+
+@app.post(f"{PREFIX}/feedback")
+async def submit_feedback(feedback: FeedbackRequest):
+    """
+    Nhận phản hồi của người dùng về câu trả lời
+    """
+    try:
+        # Kiểm tra question_id có tồn tại không
+        if feedback.question_id not in questions_history:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Không tìm thấy câu hỏi với ID {feedback.question_id}",
+            )
+
+        # Chuẩn bị dữ liệu feedback
+        feedback_data = {
+            "question_id": feedback.question_id,
+            "question": questions_history[feedback.question_id]["question"],
+            "answer": questions_history[feedback.question_id]["answer"],
+            "rating": feedback.rating,
+            "is_helpful": feedback.is_helpful,
+            "comment": feedback.comment,
+            "specific_feedback": feedback.specific_feedback,
+        }
+
+        # Lưu phản hồi
+        save_success = save_feedback(feedback_data)
+
+        if save_success:
+            return {"status": "success", "message": "Đã lưu phản hồi của bạn. Cảm ơn!"}
+        else:
+            return {
+                "status": "warning",
+                "message": "Đã ghi nhận phản hồi nhưng có lỗi khi lưu",
+            }
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý phản hồi: {str(e)}")
+
+
+@app.post(f"{PREFIX}/analyze/sql", response_model=SQLAnalysisResponse)
+async def analyze_sql_query(request: SQLAnalysisRequest):
+    """
+    Phân tích và đề xuất cải tiến cho truy vấn SQL
+    """
+    try:
+        # Tìm kiếm tài liệu liên quan đến SQL và mô hình dữ liệu
+        search_query = "SQL query optimization performance index"
+        context_docs = rag_system.hybrid_search(search_query)
+
+        # Tạo prompt cho phân tích SQL
+        sql_prompt = rag_system.prompt_manager.templates["sql_analysis"].format(
+            context="\n\n".join([doc["text"] for doc in context_docs[:3]]),
+            query=request.sql_query,
+        )
+
+        # Phân tích SQL
+        analysis_result = rag_system.llm.invoke(sql_prompt)
+
+        # Xử lý kết quả
+        analysis_text = analysis_result.content
+
+        # Tìm các đề xuất trong kết quả
+        suggestions = []
+        for line in analysis_text.split("\n"):
+            if line.strip().startswith("- "):
+                suggestions.append(line.strip()[2:])
+
+        # Tìm truy vấn đã tối ưu (nếu có)
+        optimized_query = rag_system.prompt_manager.extract_sql_query(analysis_text)
+
+        return {
+            "query": request.sql_query,
+            "analysis": analysis_text,
+            "suggestions": suggestions[:5],  # Giới hạn số lượng đề xuất
+            "optimized_query": optimized_query if optimized_query else None,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi phân tích SQL: {str(e)}")
+
+
+@app.get(f"{PREFIX}/categories", response_model=CategoryStatsResponse)
+async def get_categories_stats():
+    """
+    Lấy thống kê về các danh mục tài liệu
+    """
+    try:
+        # Lấy tất cả tài liệu
+        all_docs = rag_system.vector_store.get_all_documents()
+
+        if not all_docs:
+            return {"total_documents": 0, "documents_by_category": {}, "categories": []}
+
+        # Thống kê theo danh mục
+        categories = {}
+        for doc in all_docs:
+            category = doc["metadata"].get("category", "general")
+            if category in categories:
+                categories[category] += 1
+            else:
+                categories[category] = 1
+
+        return {
+            "total_documents": len(all_docs),
+            "documents_by_category": categories,
+            "categories": list(categories.keys()),
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Lỗi khi lấy thống kê danh mục: {str(e)}"
+        )
+
+
+# Thêm endpoint ngữ nghĩa
+@app.post(f"{PREFIX}/search/semantic")
+async def semantic_search(
+    request: QuestionRequest, k: int = Query(5, description="Số lượng kết quả trả về")
+):
+    """
+    Tìm kiếm ngữ nghĩa theo câu truy vấn
+    """
+    try:
+        # Kiểm tra xem sources có tồn tại không nếu đã chỉ định
+        if request.sources and len(request.sources) > 0:
+            # Lấy danh sách các nguồn có sẵn
+            all_docs = rag_system.vector_store.get_all_documents(limit=1000)
+            available_sources = set()
+            available_filenames = (
+                set()
+            )  # Thêm tập hợp để lưu tên file không có đường dẫn
+
+            for doc in all_docs:
+                source = doc.get("metadata", {}).get(
+                    "source", doc.get("source", "unknown")
+                )
+                if source != "unknown":
+                    available_sources.add(source)
+                    # Thêm tên file đơn thuần
+                    if os.path.sep in source:
+                        available_filenames.add(os.path.basename(source))
+                    else:
+                        available_filenames.add(source)
+
+            # Kiểm tra xem các nguồn được yêu cầu có tồn tại không (tính cả tên file đơn thuần)
+            missing_sources = []
+            for s in request.sources:
+                # Kiểm tra cả đường dẫn đầy đủ và tên file đơn thuần
+                filename = os.path.basename(s) if os.path.sep in s else s
+                if s not in available_sources and filename not in available_filenames:
+                    missing_sources.append(s)
+
+            if missing_sources:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "status": "error",
+                        "message": f"Không tìm thấy các nguồn: {', '.join(missing_sources)}",
+                        "available_sources": sorted(list(available_sources)),
+                        "available_filenames": sorted(list(available_filenames)),
+                        "note": "Bạn có thể dùng tên file đơn thuần hoặc đường dẫn đầy đủ",
+                    },
+                )
+
+        results = rag_system.semantic_search(
+            request.question, k=k, sources=request.sources
+        )
+        return {
+            "query": request.question,
+            "results": results,
+            "filtered_sources": request.sources if request.sources else [],
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Lỗi khi tìm kiếm ngữ nghĩa: {str(e)}"
+        )
+
+
+@app.post(f"{PREFIX}/search/hybrid")
+async def hybrid_search(
+    request: QuestionRequest,
+    k: int = Query(5, description="Số lượng kết quả trả về"),
+    alpha: float = Query(
+        0.7, description="Hệ số kết hợp (0.7 = 70% semantic + 30% keyword)"
+    ),
+):
+    """
+    Thực hiện tìm kiếm kết hợp (hybrid search) vừa ngữ nghĩa vừa keyword
+    """
+    try:
+        # Kiểm tra xem sources có tồn tại không nếu đã chỉ định
+        if request.sources and len(request.sources) > 0:
+            # Lấy danh sách các nguồn có sẵn
+            all_docs = rag_system.vector_store.get_all_documents(limit=1000)
+            available_sources = set()
+            available_filenames = (
+                set()
+            )  # Thêm tập hợp để lưu tên file không có đường dẫn
+
+            for doc in all_docs:
+                source = doc.get("metadata", {}).get(
+                    "source", doc.get("source", "unknown")
+                )
+                if source != "unknown":
+                    available_sources.add(source)
+                    # Thêm tên file đơn thuần
+                    if os.path.sep in source:
+                        available_filenames.add(os.path.basename(source))
+                    else:
+                        available_filenames.add(source)
+
+            # Kiểm tra xem các nguồn được yêu cầu có tồn tại không (tính cả tên file đơn thuần)
+            missing_sources = []
+            for s in request.sources:
+                # Kiểm tra cả đường dẫn đầy đủ và tên file đơn thuần
+                filename = os.path.basename(s) if os.path.sep in s else s
+                if s not in available_sources and filename not in available_filenames:
+                    missing_sources.append(s)
+
+            if missing_sources:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "status": "error",
+                        "message": f"Không tìm thấy các nguồn: {', '.join(missing_sources)}",
+                        "available_sources": sorted(list(available_sources)),
+                        "available_filenames": sorted(list(available_filenames)),
+                        "note": "Bạn có thể dùng tên file đơn thuần hoặc đường dẫn đầy đủ",
+                    },
+                )
+
+        # Cập nhật alpha từ request nếu được cung cấp
+        if hasattr(request, "alpha") and request.alpha is not None:
+            alpha = request.alpha
+
+        results = rag_system.hybrid_search(
+            request.question, k=k, alpha=alpha, sources=request.sources
+        )
+
+        return {
+            "results": results,
+            "count": len(results),
+            "filtered_sources": request.sources if request.sources else [],
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Lỗi khi thực hiện hybrid search: {str(e)}"
+        )
+
+
+@app.get(f"{PREFIX}/feedback/stats", response_model=dict)
+async def get_feedback_stats():
+    """
+    Trả về thống kê từ các phản hồi người dùng
+    """
+    FEEDBACK_DIR = os.path.join(os.path.dirname(__file__), "feedback")
+
+    if not os.path.exists(FEEDBACK_DIR):
+        return {
+            "status": "error",
+            "message": "Chưa có dữ liệu phản hồi",
+            "total_feedback": 0,
+            "average_rating": 0,
+            "helpful_percentage": 0,
+            "ratings_distribution": {},
+        }
+
+    feedback_files = [f for f in os.listdir(FEEDBACK_DIR) if f.endswith(".json")]
+
+    if not feedback_files:
+        return {
+            "status": "success",
+            "message": "Chưa có phản hồi nào",
+            "total_feedback": 0,
+            "average_rating": 0,
+            "helpful_percentage": 0,
+            "ratings_distribution": {},
+        }
+
+    total_feedback = len(feedback_files)
+    total_rating = 0
+    helpful_count = 0
+    ratings_distribution = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+
+    for file in feedback_files:
+        file_path = os.path.join(FEEDBACK_DIR, file)
+        with open(file_path, "r", encoding="utf-8") as f:
+            try:
+                feedback = json.load(f)
+                rating = feedback.get("rating", 0)
+                total_rating += rating
+
+                if rating in ratings_distribution:
+                    ratings_distribution[rating] += 1
+
+                if feedback.get("is_helpful", False):
+                    helpful_count += 1
+            except json.JSONDecodeError:
+                continue
+
+    average_rating = (
+        round(total_rating / total_feedback, 2) if total_feedback > 0 else 0
+    )
+    helpful_percentage = (
+        round((helpful_count / total_feedback) * 100, 1) if total_feedback > 0 else 0
+    )
+
+    return {
+        "status": "success",
+        "message": "Thống kê phản hồi",
+        "total_feedback": total_feedback,
+        "average_rating": average_rating,
+        "helpful_percentage": helpful_percentage,
+        "ratings_distribution": ratings_distribution,
+    }
+
+
+@app.delete(f"{PREFIX}/collection/reset")
+async def reset_collection():
+    """
+    Xóa toàn bộ dữ liệu đã index trong collection
+    """
+    try:
+        # Lấy thông tin collection
+        collection_info = rag_system.vector_store.get_collection_info()
+        if not collection_info:
+            return {
+                "status": "warning",
+                "message": f"Collection {rag_system.vector_store.collection_name} không tồn tại",
+            }
+
+        # Xóa collection cũ
+        rag_system.vector_store.delete_collection()
+
+        # Lấy kích thước vector từ mô hình embedding
+        # Tạo một vector mẫu để xác định kích thước
+        sample_embedding = rag_system.embedding_model.encode(["Sample text"])
+        vector_size = len(sample_embedding[0])
+
+        # Tạo lại collection mới
+        rag_system.vector_store.ensure_collection_exists(vector_size)
+
+        return {
+            "status": "success",
+            "message": f"Đã xóa và tạo lại collection {rag_system.vector_store.collection_name}",
+            "vector_size": vector_size,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Lỗi khi reset collection: {str(e)}"
+        )
+
+
+# Thêm API endpoint lấy danh sách file đã upload
+@app.get(f"{PREFIX}/files", response_model=FileListResponse)
+async def get_uploaded_files():
+    """
+    Lấy danh sách các file đã được upload vào hệ thống
+    """
+    try:
+        files = []
+        for filename in os.listdir(UPLOAD_DIR):
+            file_path = os.path.join(UPLOAD_DIR, filename)
+
+            # Bỏ qua các thư mục
+            if os.path.isdir(file_path):
+                continue
+
+            # Lấy thông tin file
+            file_stats = os.stat(file_path)
+            extension = os.path.splitext(filename)[1].lower()
+
+            # Lấy thời gian tạo file
+            created_time = datetime.fromtimestamp(file_stats.st_ctime).isoformat()
+
+            # Thêm vào danh sách
+            files.append(
+                FileInfo(
+                    filename=filename,
+                    path=file_path,
+                    size=file_stats.st_size,
+                    upload_date=created_time,
+                    extension=extension,
+                    category=None,  # Có thể cần truy vấn metadata từ vector store
+                )
+            )
+
+        # Sắp xếp theo thời gian tạo mới nhất
+        files.sort(key=lambda x: x.upload_date, reverse=True)
+
+        return {"total_files": len(files), "files": files}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Lỗi khi lấy danh sách file: {str(e)}"
+        )
+
+
+# Thêm API endpoint xóa file và index liên quan
+@app.delete(f"{PREFIX}/files/{{filename}}", response_model=FileDeleteResponse)
+async def delete_file(filename: str):
+    """
+    Xóa file đã upload và các index liên quan trong vector store
+    """
+    try:
+        file_path = os.path.join(UPLOAD_DIR, filename)
+
+        # Kiểm tra file có tồn tại không
+        if not os.path.exists(file_path):
+            raise HTTPException(
+                status_code=404, detail=f"File {filename} không tồn tại"
+            )
+
+        # Đếm số lượng điểm trong vector store liên quan đến file này trước khi xóa
+        all_docs = rag_system.vector_store.get_all_documents()
+        related_docs = [
+            doc for doc in all_docs if doc["metadata"].get("source") == filename
+        ]
+        points_count = len(related_docs)
+
+        # Xóa các index liên quan đến file này trong vector store
+        point_ids = [doc["id"] for doc in related_docs]
+        if point_ids:
+            rag_system.vector_store.delete_points(point_ids)
+
+        # Xóa file vật lý
+        os.remove(file_path)
+
+        return {
+            "filename": filename,
+            "status": "success",
+            "message": f"Đã xóa file {filename} và {points_count} index liên quan",
+            "removed_points": points_count,
+        }
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi xóa file: {str(e)}")
+
+
+@app.get(f"{PREFIX}/files/sources")
+async def get_available_sources():
+    """
+    Lấy danh sách các file nguồn có thể sử dụng để tìm kiếm
+    """
+    try:
+        # Lấy tất cả tài liệu từ vector store
+        all_docs = rag_system.vector_store.get_all_documents()
+
+        # Trích xuất danh sách nguồn duy nhất
+        sources = set()
+        filenames = set()  # Thêm tập hợp để lưu tên file không có đường dẫn
+        sources_location = []  # Để debug xem source nằm ở đâu
+
+        for doc in all_docs:
+            # Kiểm tra cả trong metadata.source và source trực tiếp
+            meta_source = doc.get("metadata", {}).get("source", None)
+            direct_source = doc.get("source", None)
+
+            if meta_source:
+                sources.add(meta_source)
+                # Thêm tên file đơn thuần
+                if os.path.sep in meta_source:
+                    filenames.add(os.path.basename(meta_source))
+                else:
+                    filenames.add(meta_source)
+                sources_location.append({"location": "metadata", "source": meta_source})
+
+            if direct_source and direct_source != meta_source:
+                sources.add(direct_source)
+                # Thêm tên file đơn thuần
+                if os.path.sep in direct_source:
+                    filenames.add(os.path.basename(direct_source))
+                else:
+                    filenames.add(direct_source)
+                sources_location.append({"location": "direct", "source": direct_source})
+
+        # Log 10 mẫu đầu tiên để debug
+        samples = all_docs[:5] if len(all_docs) > 5 else all_docs
+        sample_structures = []
+        for doc in samples:
+            # Tính toán filenames
+            meta_source = doc.get("metadata", {}).get("source", "not_found")
+            direct_source = doc.get("source", "not_found")
+            meta_filename = (
+                os.path.basename(meta_source)
+                if meta_source != "not_found" and os.path.sep in meta_source
+                else meta_source
+            )
+            direct_filename = (
+                os.path.basename(direct_source)
+                if direct_source != "not_found" and os.path.sep in direct_source
+                else direct_source
+            )
+
+            sample_structures.append(
+                {
+                    "metadata_keys": list(doc.get("metadata", {}).keys()),
+                    "top_level_keys": list(doc.keys()),
+                    "has_source_in_metadata": "source" in doc.get("metadata", {}),
+                    "has_direct_source": "source" in doc,
+                    "metadata_source": meta_source,
+                    "direct_source": direct_source,
+                    "metadata_filename": meta_filename,
+                    "direct_filename": direct_filename,
+                }
+            )
+
+        # Trả về danh sách nguồn
+        return {
+            "total_sources": len(sources),
+            "sources": sorted(list(sources)),
+            "filenames": sorted(
+                list(filenames)
+            ),  # Thêm danh sách các tên file đơn thuần
+            "recommendation": "Bạn có thể sử dụng sources là tên file đơn thuần hoặc đường dẫn đầy đủ",
+            "debug_info": {
+                "sample_count": len(samples),
+                "sample_structures": sample_structures,
+                "sources_location": sources_location[:10],  # Chỉ trả về 10 mẫu đầu
+            },
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Lỗi khi lấy danh sách nguồn: {str(e)}"
+        )
+
+
+@app.get(f"{PREFIX}/files/sources/details")
+async def get_source_details(
+    source_name: Optional[str] = Query(
+        None, description="Tên file nguồn cụ thể cần kiểm tra"
+    )
+):
+    """
+    Lấy thông tin chi tiết về một nguồn tài liệu cụ thể hoặc tất cả các nguồn
+
+    - **source_name**: (Tùy chọn) Tên file nguồn cần kiểm tra chi tiết
+    """
+    try:
+        # Lấy tất cả tài liệu từ vector store
+        all_docs = rag_system.vector_store.get_all_documents(limit=5000)
+
+        # Nếu không chỉ định nguồn cụ thể, trả về thống kê tổng hợp
+        if not source_name:
+            source_stats = {}
+            for doc in all_docs:
+                # Lấy nguồn từ cả metadata và trực tiếp
+                meta_source = doc.get("metadata", {}).get("source", "unknown")
+                direct_source = doc.get("source", "unknown")
+
+                # Ưu tiên source từ metadata nếu có
+                source = meta_source if meta_source != "unknown" else direct_source
+
+                if source not in source_stats:
+                    source_stats[source] = {
+                        "count": 0,
+                        "categories": set(),
+                    }
+
+                source_stats[source]["count"] += 1
+
+                # Thêm category vào set nếu có
+                category = doc.get("metadata", {}).get("category", "unknown")
+                if category != "unknown":
+                    source_stats[source]["categories"].add(category)
+
+            # Chuyển đổi set thành list cho JSON serialization
+            for source in source_stats:
+                source_stats[source]["categories"] = list(
+                    source_stats[source]["categories"]
+                )
+
+            return {"total_sources": len(source_stats), "sources": source_stats}
+
+        # Nếu chỉ định nguồn cụ thể, trả về thông tin chi tiết về nguồn đó
+        source_chunks = []
+        for doc in all_docs:
+            meta_source = doc.get("metadata", {}).get("source", "unknown")
+            direct_source = doc.get("source", "unknown")
+
+            if meta_source == source_name or direct_source == source_name:
+                source_chunks.append(
+                    {
+                        "text": doc["text"][:200] + "...",  # Chỉ trả về preview
+                        "category": doc.get("metadata", {}).get("category", "unknown"),
+                        "full_length": len(doc["text"]),
+                    }
+                )
+
+        if not source_chunks:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "status": "error",
+                    "message": f"Không tìm thấy nguồn '{source_name}'",
+                    "available_sources": sorted(
+                        list(
+                            set(
+                                [
+                                    doc.get("metadata", {}).get(
+                                        "source", doc.get("source", "unknown")
+                                    )
+                                    for doc in all_docs
+                                    if doc.get("metadata", {}).get(
+                                        "source", doc.get("source", "unknown")
+                                    )
+                                    != "unknown"
+                                ]
+                            )
+                        )
+                    ),
+                },
+            )
+
+        return {
+            "source_name": source_name,
+            "total_chunks": len(source_chunks),
+            "chunks": source_chunks,
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Lỗi khi lấy thông tin chi tiết nguồn: {str(e)}"
+        )
+
+
+@app.get(f"{PREFIX}/check/layoutparser")
+async def check_layoutparser_installation():
+    """
+    Kiểm tra cài đặt LayoutParser và các thư viện liên quan
+    """
+    try:
+        # Thực hiện kiểm tra
+        results = rag_system.document_processor.check_layoutparser_installation()
+
+        # Thêm hướng dẫn cài đặt
+        tips = {
+            "windows": [
+                "Trên Windows, cài đặt Tesseract từ: https://github.com/UB-Mannheim/tesseract/wiki",
+                "Cài đặt Poppler từ: https://github.com/oschwartz10612/poppler-windows/releases",
+                "Thêm cả hai vào PATH hoặc đặt biến TESSDATA_PREFIX và POPPLER_PATH",
+            ],
+            "linux": [
+                "Trên Linux: sudo apt-get install tesseract-ocr",
+                "Trên Linux: sudo apt-get install poppler-utils",
+            ],
+            "layoutparser": [
+                "pip install layoutparser[effdet]",
+                "pip install pdf2image pytesseract Pillow",
+            ],
+        }
+
+        return {
+            "status": "success",
+            "installation_status": results,
+            "tips": tips,
+            "ready_for_layout_detection": results["ready"],
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Lỗi khi kiểm tra cài đặt: {str(e)}"}
+
+
+@app.put(f"{PREFIX}/config/layoutdetection")
+async def toggle_layout_detection(enable: bool = True):
+    """
+    Bật hoặc tắt chức năng Layout Detection cho xử lý PDF
+
+    - **enable**: True để bật, False để tắt
+    """
+    try:
+        # Gán trạng thái
+        rag_system.enable_layout_detection = enable
+        rag_system.document_processor.enable_layout_detection = enable
+
+        # Kiểm tra cài đặt nếu bật
+        installation_status = None
+        if enable:
+            installation_status = (
+                rag_system.document_processor.check_layoutparser_installation()
+            )
+
+        return {
+            "status": "success",
+            "message": f"Layout Detection đã được {'BẬT' if enable else 'TẮT'}",
+            "layout_detection_enabled": enable,
+            "installation_check": installation_status,
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Lỗi khi thay đổi cấu hình Layout Detection: {str(e)}",
+        }
+
+
+@app.post(f"{PREFIX}/check/layoutparser/reset")
+async def reset_layoutparser_configuration():
+    """
+    Khởi động lại cài đặt layout detection và cập nhật đường dẫn Poppler và Tesseract
+    """
+    try:
+        # Đặt lại trạng thái layout detection
+        rag_system.enable_layout_detection = True
+        rag_system.document_processor.enable_layout_detection = True
+
+        # Cấu hình lại đường dẫn
+        if os.name == "nt":  # Windows
+            # Cấu hình Poppler
+            poppler_paths = [
+                r"C:\Program Files\poppler\bin",
+                r"C:\Program Files\poppler\Library\bin",
+                r"C:\poppler\bin",
+                r"C:\poppler\Library\bin",
+            ]
+
+            poppler_found = False
+            for path in poppler_paths:
+                if os.path.exists(path):
+                    print(f"Tìm thấy Poppler tại: {path}")
+                    os.environ["POPPLER_PATH"] = path
+                    poppler_found = True
+
+                    # Kiểm tra file thực thi
+                    exes = ["pdftoppm.exe", "pdfinfo.exe"]
+                    exe_found = False
+                    for exe in exes:
+                        exe_path = os.path.join(path, exe)
+                        if os.path.exists(exe_path):
+                            print(f"Tìm thấy {exe} tại: {exe_path}")
+                            exe_found = True
+                            break
+
+                    if not exe_found:
+                        print(f"Cảnh báo: Không tìm thấy executables trong {path}")
+
+                    break
+
+            if not poppler_found:
+                print("Không tìm thấy thư mục Poppler!")
+
+            # Cấu hình Tesseract
+            tesseract_paths = [r"C:\Program Files\Tesseract-OCR", r"C:\Tesseract-OCR"]
+
+            tessexe_paths = [
+                r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                r"C:\Tesseract-OCR\tesseract.exe",
+            ]
+
+            tesseract_found = False
+            # Đặt TESSDATA_PREFIX
+            for path in tesseract_paths:
+                if os.path.exists(path):
+                    print(f"Tìm thấy Tesseract tại: {path}")
+                    tessdata_path = os.path.join(path, "tessdata")
+                    if os.path.exists(tessdata_path):
+                        os.environ["TESSDATA_PREFIX"] = tessdata_path
+                        print(f"Đặt TESSDATA_PREFIX = {tessdata_path}")
+                        tesseract_found = True
+                    else:
+                        print(f"Cảnh báo: Không tìm thấy thư mục tessdata trong {path}")
+                    break
+
+            if not tesseract_found:
+                print("Không tìm thấy thư mục Tesseract OCR!")
+
+            # Cấu hình pytesseract
+            try:
+                import pytesseract
+
+                tesseract_exe_found = False
+                for path in tessexe_paths:
+                    if os.path.exists(path):
+                        print(f"Cấu hình tesseract.exe tại: {path}")
+                        pytesseract.pytesseract.tesseract_cmd = path
+                        tesseract_exe_found = True
+                        break
+
+                if not tesseract_exe_found:
+                    print("Không tìm thấy tesseract.exe!")
+            except ImportError:
+                print("Không thể import pytesseract")
+
+        # Kiểm tra lại cài đặt
+        installation_status = (
+            rag_system.document_processor.check_layoutparser_installation()
+        )
+
+        # Thu thập thông tin môi trường
+        env_info = {
+            "OS": os.name,
+            "PATH": os.environ.get("PATH", "N/A"),
+            "POPPLER_PATH": os.environ.get("POPPLER_PATH", "Không được đặt"),
+            "TESSDATA_PREFIX": os.environ.get("TESSDATA_PREFIX", "Không được đặt"),
+            "CWD": os.getcwd(),
+        }
+
+        # Kiểm tra file thực thi
+        executable_check = {}
+        poppler_path = os.environ.get("POPPLER_PATH", "")
+        if poppler_path:
+            for exe in ["pdftoppm.exe", "pdfinfo.exe"]:
+                exe_path = os.path.join(poppler_path, exe)
+                executable_check[exe] = {
+                    "path": exe_path,
+                    "exists": os.path.exists(exe_path),
+                }
+
+        try:
+            import pytesseract
+
+            env_info["TESSERACT_CMD"] = pytesseract.pytesseract.tesseract_cmd
+
+            # Kiểm tra phiên bản
+            try:
+                version = pytesseract.get_tesseract_version()
+                env_info["TESSERACT_VERSION"] = str(version)
+            except Exception as e:
+                env_info["TESSERACT_ERROR"] = str(e)
+        except:
+            env_info["TESSERACT_CMD"] = "Không thể truy cập"
+
+        return {
+            "status": "success",
+            "message": "Đã khởi động lại cài đặt layout detection",
+            "installation_status": installation_status,
+            "environment_variables": env_info,
+            "executable_check": executable_check,
+            "ready_for_layout_detection": installation_status["ready"],
+        }
+    except Exception as e:
+        import traceback
+
+        traceback_str = traceback.format_exc()
+        return {
+            "status": "error",
+            "message": f"Lỗi khi khởi động lại layout detection: {str(e)}",
+            "traceback": traceback_str,
+        }
+
+
+if __name__ == "__main__":
+    uvicorn.run("src.api:app", host="0.0.0.0", port=8000, reload=True)

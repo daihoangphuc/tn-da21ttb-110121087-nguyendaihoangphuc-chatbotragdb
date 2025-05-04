@@ -1,244 +1,502 @@
 # Hệ thống RAG cho Cơ sở dữ liệu
 
-Hệ thống Retrieval-Augmented Generation (RAG) hỗ trợ môn cơ sở dữ liệu. Có khả năng hỏi đáp kiến thức chuyên về lĩnh vực cơ sở dữ liệu.
+Hệ thống RAG (Retrieval-Augmented Generation) tìm kiếm thông tin và trả lời câu hỏi về Cơ sở dữ liệu.
 
-## Cấu trúc dự án
-
-```
-src/
-├── api/                  # API RESTful cho hệ thống
-├── app/                  # Module chính cho pipeline RAG
-├── config/               # Cấu hình hệ thống
-├── embeddings/           # Xử lý embedding
-├── llm/                  # Tích hợp Gemini LLM
-├── loaders/              # Đọc dữ liệu từ nhiều nguồn (PDF, Image, Text, etc.)
-├── processors/           # Xử lý chunking và clustering
-├── retrieval/            # Xử lý retrieval từ vector store
-├── utils/                # Tiện ích
-├── vectorstore/          # Kết nối với Qdrant vector store
-└── main.py               # Entry point cho ứng dụng
-```
-
-## Cài đặt
-
-### Yêu cầu hệ thống
-
-- Python 3.8+
-- Tesseract OCR
-- Poppler
-- LibreOffice
-
-### Cài đặt thư viện Python
-
-```bash
-pip install -r requirements.txt
-```
-
-### Cài đặt công cụ bên ngoài (Ubuntu/Debian)
-
-```bash
-apt-get install -y tesseract-ocr poppler-utils libreoffice
-```
-
-### Cài đặt công cụ bên ngoài (Windows)
-
-- Tesseract OCR: Tải và cài đặt từ https://github.com/UB-Mannheim/tesseract/wiki
-- Poppler: Có thể cài đặt thông qua conda: `conda install -c conda-forge poppler`
-- LibreOffice: Tải và cài đặt từ https://www.libreoffice.org/download/download/
-
-## Cấu hình
-
-Bạn có thể cấu hình hệ thống bằng cách chỉnh sửa `src/config/config.py` hoặc thiết lập biến môi trường:
-
-- `HF_TOKEN`: Token Hugging Face
-- `QDRANT_URL`: URL của Qdrant server
-- `QDRANT_API_KEY`: API key cho Qdrant
-- `GEMINI_API_KEY`: API key cho Google Gemini
-- `COLLECTION_NAME`: Tên collection trong Qdrant
-- `DOCUMENT_LOADER_MAX_WORKERS`: Số lượng worker threads cho DocumentLoader (mặc định: 8)
-- `QDRANT_BATCH_SIZE`: Kích thước batch khi upload vào Qdrant (mặc định: 64)
-- `EMBEDDING_DEVICE`: Thiết bị cho embedding (cpu/cuda, mặc định: cpu)
-- `CHUNK_SIZE`: Kích thước chunk (mặc định: 1024)
-- `CHUNK_OVERLAP`: Độ chồng lấp giữa các chunk (mặc định: 128)
-
-## Sử dụng
-
-### Có hai cách chạy ứng dụng
-
-#### 1. Command Line Interface (CLI)
-
-##### Indexing dữ liệu
-
-```bash
-python -m src.main index --data-dir ./data
-```
-
-##### Truy vấn
-
-```bash
-python -m src.main query --query "Câu lệnh thao tác dữ liệu?"
-```
-
-Hoặc chạy không có tham số query để nhập trực tiếp:
-
-```bash
-python -m src.main query
-```
-
-##### Xóa index
-
-Để xóa toàn bộ index trong vector storage:
-
-```bash
-python -m src.main delete-index
-```
-
-Bạn cũng có thể chỉ định tên collection cần xóa:
-
-```bash
-python -m src.main delete-index --collection tên_collection
-```
-
-#### 2. RESTful API
-
-##### Chạy API Server
-
-```bash
-python -m src.api.main --host 0.0.0.0 --port 8000 --reload
-```
-
-Các tham số:
-- `--host`: Host để chạy API (mặc định: 0.0.0.0)
-- `--port`: Port để chạy API (mặc định: 8000)
-- `--reload`: Tự động reload khi code thay đổi (tùy chọn)
-
-##### API Endpoints chính:
-
-- `GET /`: Kiểm tra trạng thái API
-- `POST /api/query`: Truy vấn dữ liệu
-- `POST /api/upload`: Upload và index tài liệu
-- `POST /api/index/files`: Index dữ liệu từ các file
-- `POST /api/index/path`: Index dữ liệu từ thư mục
-- `GET /api/index/status/{task_id}`: Kiểm tra trạng thái indexing
-- `GET /api/index/progress/{task_id}`: Kiểm tra tiến trình chi tiết
-- `GET /api/files`: Liệt kê tất cả files
-- `DELETE /api/files/{file_name}`: Xóa file và embedding tương ứng
-- `GET /api/uploads`: Liệt kê các thư mục upload
-- `DELETE /api/index`: Xóa index
-
-### Cấu trúc API và Versioning
-
-API được tổ chức theo cấu trúc phân cấp với quy ước đặt tên như sau:
+## Cấu trúc thư mục
 
 ```
-/{api_prefix}/{version}/{resource}/{action}
+D:/DATN/V4/
+├── main.py                  # File chính để chạy ứng dụng
+├── requirements.txt         # Danh sách thư viện cần thiết
+├── setup.bat                # Script tạo môi trường và cài đặt
+├── run.bat                  # Script chạy ứng dụng thông thường
+├── run_api.bat              # Script chạy API
+├── test_api.py              # Script kiểm tra API
+└── src/                     # Thư mục mã nguồn
+    ├── __init__.py          # Đánh dấu thư mục là package Python
+    ├── embedding.py         # Module quản lý mô hình embedding
+    ├── llm.py               # Module quản lý mô hình ngôn ngữ lớn
+    ├── vector_store.py      # Module quản lý kho lưu trữ vector
+    ├── document_processor.py # Module xử lý tài liệu
+    ├── prompt_manager.py    # Module quản lý prompt
+    ├── search.py            # Module quản lý tìm kiếm
+    ├── rag.py               # Module tổng hợp hệ thống RAG
+    ├── api.py               # Module API FastAPI
+    └── data/                # Thư mục chứa dữ liệu
 ```
 
-- **api_prefix**: Tiền tố chung `/api` cho tất cả endpoints API
-- **version**: Phiên bản API (`v1`) cho phép nâng cấp API trong tương lai mà không phá vỡ khả năng tương thích
-- **resource**: Tài nguyên cụ thể (`query`, `upload`, `files`, `index`, v.v.)
-- **action**: Hành động cụ thể trên tài nguyên (`status`, `progress`, v.v.)
+## Cài đặt và sử dụng
 
-Cấu trúc này cho phép:
-- Dễ dàng quản lý nhiều phiên bản API cùng lúc
-- Khả năng mở rộng API mà không ảnh hưởng đến client hiện tại
-- Tăng tính rõ ràng và dễ hiểu
+### Phương pháp 1: Sử dụng scripts
 
-Ví dụ:
-- `/api/query`: API phiên bản 1 cho truy vấn dữ liệu
-- `/api/index/status/{task_id}`: API phiên bản 1 để kiểm tra trạng thái của task indexing
+1. **Cài đặt và tạo môi trường ảo**:
+   - Chạy file `setup.bat` để tạo môi trường ảo và cài đặt các thư viện cần thiết
 
-Trong tương lai, nếu API có thay đổi lớn, phiên bản `/api/v2/...` có thể được triển khai mà không ảnh hưởng đến các ứng dụng đang sử dụng `/api/...`.
+2. **Chạy ứng dụng thông thường**:
+   - Chạy file `run.bat` để kích hoạt môi trường ảo và chạy ứng dụng
 
-## Các tính năng chính
+3. **Chạy API**:
+   - Chạy file `run_api.bat` để kích hoạt môi trường ảo và chạy API
 
-1. **Đa dạng định dạng tài liệu**: PDF, ảnh, markdown, HTML, Excel, CSV, JSON, DOCX, và văn bản thuần túy.
-2. **Semantic chunking**: Sử dụng embedding model để chia tài liệu thành các đoạn có ngữ nghĩa liên quan.
-3. **Clustering và Merging**: Tự động gom nhóm và gộp các đoạn liên quan để tăng hiệu suất retrieval.
-4. **Vector Store**: Sử dụng Qdrant để lưu trữ và truy vấn dữ liệu hiệu quả.
-5. **LLM**: Tích hợp Gemini của Google để phân tích và tổng hợp câu trả lời.
-6. **Theo dõi tiến trình**: Cung cấp thông tin chi tiết về tiến trình xử lý, bao gồm thời gian đã trôi qua và thời gian còn lại ước tính.
-7. **Quản lý tệp tin**: Hỗ trợ liệt kê, xóa các tệp đã upload và embeddings tương ứng.
-8. **Xử lý song song**: Sử dụng multithreading để tăng tốc quá trình xử lý văn bản.
-9. **Batching embeddings**: Tối ưu hóa việc tính toán và lưu trữ embeddings bằng cách xử lý theo batch.
+### Phương pháp 2: Thủ công qua Command Prompt
 
-## Tối ưu hiệu suất
+1. **Tạo môi trường ảo Python**:
+   ```
+   python -m venv venv
+   ```
 
-Hệ thống đã được tối ưu để tăng tốc quá trình xử lý văn bản:
+2. **Kích hoạt môi trường ảo**:
+   ```
+   venv\Scripts\activate
+   ```
 
-### 1. Xử lý song song (Multithreading)
+3. **Cài đặt các thư viện cần thiết**:
+   ```
+   pip install -r requirements.txt
+   ```
 
-- **Cơ chế hoạt động**: Sử dụng `ThreadPoolExecutor` để tạo pool worker threads
-- **Triển khai**: `DocumentLoader` và `TextChunker` chạy song song
-- **Hiệu quả**: Tăng tốc 70% thời gian tải tài liệu
+4. **Chạy ứng dụng thông thường**:
+   ```
+   python main.py
+   ```
 
-### 2. Batching Embeddings
+5. **Chạy API**:
+   ```
+   python -m uvicorn src.api:app --host 0.0.0.0 --port 8000 --reload
+   ```
 
-- **Cơ chế hoạt động**: Xử lý nhóm các chunks thay vì từng chunk một
-- **Triển khai**: Upload documents theo batch trong `VectorStoreManager`
-- **Hiệu quả**: Giảm 67% thời gian embedding, tối ưu tài nguyên GPU/CPU
+## SƠ ĐÒ HOẠT ĐỘNG
+┌─────────────────────────────────────────────────────────────────────────┐
+│                                FRONTEND                                 │
+└───────────────────────────────────┬─────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                               API (FastAPI)                             │
+│  ┌─────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
+│  │  /api/ask   │  │ /api/upload  │  │  /api/index  │  │ /api/feedback│  │
+│  └──────┬──────┘  └───────┬──────┘  └──────┬───────┘  └──────┬───────┘  │
+└─────────┼─────────────────┼────────────────┼─────────────────┼──────────┘
+          │                 │                │                 │
+          ▼                 ▼                │                 ▼
+┌───────────────────┐ ┌─────────────────┐    │          ┌───────────────┐
+│AdvancedDatabaseRAG│ │DocumentProcessor│    │          │   Feedback    │
+└─────────┬─────────┘ └─────┬───────────┘    │          └───────────────┘
+          │                 │                │
+          │                 ▼                ▼
+          │         ┌───────────────┐  ┌────────────┐
+          │         │Layout Analysis│  │  Indexing  │
+          │         └───────┬───────┘  └─────┬──────┘
+          │                 │                │
+          │                 ▼                │
+          │         ┌─────────────┐          │
+          │         │  Chunking   │          │
+          │         └───────┬─────┘          │
+          │                 │                │
+          │                 ▼                ▼
+          │          ┌────────────────────────────┐
+          │          │     Vector Store (Qdrant)  │
+          │          └───────────┬────────────────┘
+          │                      │
+          ▼                      │
+┌─────────────────┐              │
+│ QueryProcessor  │◄─────────────┘
+│  (Expansion)    │
+└─────────┬───────┘
+          │
+          ▼
+┌─────────────────┐
+│  SearchManager  │
+│  - Semantic     │
+│  - Keyword      │
+│  - Hybrid       │
+│  - Reranking    │
+└─────────┬───────┘
+          │
+          ▼
+┌──────────────────┐
+│  PromptManager   │
+│  - Question      │
+│  - Classification│
+│  - Templates     │
+└─────────┬────────┘
+          │
+          ▼
+┌─────────────────┐
+│    Gemini LLM   │
+│    (Response    │
+│    Generation)  │
+└─────────┬───────┘
+          │
+          ▼
+┌─────────────────┐
+│  Final Response │
+│  with sources   │
+└─────────────────┘
 
-### 3. Tối ưu hóa Chunking
+## Sử dụng hệ thống
 
-- **Thay đổi tham số**: Kích thước chunk từ 180 → 250, overlap từ 45 → 30
-- **Hiệu quả**: Giảm 30-40% số lượng chunks, tăng tốc độ embedding và tiết kiệm bộ nhớ
-- **Lọc chunks**: Loại bỏ chunks quá ngắn (dưới 15 từ)
+### Ứng dụng thông thường
+Khi chạy ứng dụng thông thường, hệ thống sẽ:
+1. Tải và xử lý tài liệu từ thư mục `src/data`
+2. Chuyển đổi thành vector embedding và lưu trữ trong Qdrant
+3. Thực hiện câu hỏi mẫu và hiển thị kết quả
+4. Hiển thị thông tin về collection trong Qdrant
 
-### 4. Theo dõi tiến trình chi tiết
+### API
+Khi chạy API, bạn có thể sử dụng các endpoint sau:
+- **API Documentation**: Truy cập http://localhost:8000/docs để xem tài liệu API Swagger
+- **Đường dẫn chính**: http://localhost:8000
 
-- **Cơ chế hoạt động**: Cập nhật trạng thái task real-time, ước tính thời gian
-- **Triển khai**: API endpoint `/index/progress/{task_id}` cung cấp thông tin chi tiết
-- **Lợi ích**: Cải thiện trải nghiệm người dùng, dễ dàng debug vấn đề hiệu suất
+## Tài liệu chi tiết các API endpoint
 
-### 5. Quản lý tệp tin hiệu quả
+### 1. Đặt câu hỏi
+**Endpoint**: `POST /api/ask`
 
-- **Cơ chế hoạt động**: Bổ sung metadata đầy đủ khi tải và xử lý tệp tin
-- **Triển khai**: API endpoints để liệt kê và xóa tệp tin cùng với embeddings tương ứng
-- **Lợi ích**: Quản lý dữ liệu hiệu quả hơn, tiết kiệm không gian lưu trữ
+**Mô tả**: Đặt câu hỏi và nhận câu trả lời từ hệ thống RAG
 
-## Hiệu suất đo lường
+**Tham số đầu vào**:
+- **Body** (JSON):
+  ```json
+  {
+    "question": "string",
+    "search_type": "hybrid" // tùy chọn: "semantic", "keyword", "hybrid"
+  }
+  ```
+- **Query Parameters**:
+  - `max_sources`: Số lượng nguồn tham khảo tối đa trả về. Nếu không chỉ định, sẽ trả về tất cả kết quả. (1-50)
 
-| Quá trình | Thời gian trước tối ưu | Thời gian sau tối ưu | Cải thiện (%) |
-|-----------|------------------------|----------------------|---------------|
-| Tải tài liệu | 100 giây / 100MB | 30 giây / 100MB | 70% |
-| Chunking | 45 giây / 100MB | 25 giây / 100MB | 44% |
-| Embedding | 120 giây / 1000 chunks | 40 giây / 1000 chunks | 67% |
-| Toàn bộ pipeline | 265 giây / 100MB | 95 giây / 100MB | 64% |
+**Kết quả trả về**:
+```json
+{
+  "question_id": "string",
+  "question": "string",
+  "answer": "string",
+  "sources": [
+    {
+      "source": "string",
+      "score": 0.95,
+      "content_snippet": "string"
+    }
+  ],
+  "search_method": "string",
+  "total_reranked": 15
+}
+```
 
-## Tùy chỉnh tham số theo phần cứng
+### 2. Tải lên tài liệu
+**Endpoint**: `POST /api/upload`
 
-| Phần cứng | Số threads | Batch size | Chunk size |
-|-----------|------------|------------|------------|
-| 4 cores, 8GB RAM | 4 | 16 | 200 |
-| 8 cores, 16GB RAM | 8 | 32 | 250 |
-| 16+ cores, 32GB+ RAM | 16 | 64 | 300 |
-| GPU (CUDA) | 8-16 | 128-256 | 300 |
+**Mô tả**: Tải lên một tài liệu để thêm vào hệ thống. Tài liệu sẽ được tự động xử lý và index.
 
-## Mẹo sử dụng
+**Tham số đầu vào**:
+- **Form Data**:
+  - `file`: File tài liệu (PDF, DOCX, TXT, SQL)
+  - `category`: Danh mục tài liệu (tùy chọn)
 
-### Tối ưu hóa cho dữ liệu lớn (>1GB)
+**Kết quả trả về**:
+```json
+{
+  "filename": "string",
+  "status": "success",
+  "message": "string",
+  "chunks_count": 25,
+  "category": "string"
+}
+```
 
-1. **Phân đoạn dữ liệu**: Chia thành nhiều batch nhỏ 200-300MB
-2. **Xử lý theo từng loại tài liệu**: Ưu tiên xử lý text trước, PDF sau
-3. **Giám sát bộ nhớ**: Điều chỉnh batch_size khi thấy memory usage cao
+### 3. Index tài liệu
+**Endpoint**: `POST /api/index`
 
-### Cải thiện chất lượng truy xuất
+**Mô tả**: Bắt đầu quá trình indexing tất cả tài liệu trong thư mục data
 
-- **Chuẩn bị tài liệu tốt**: Đảm bảo tài liệu có cấu trúc rõ ràng
-- **Truy vấn cụ thể**: Sử dụng câu hỏi chi tiết và rõ ràng
-- **Tùy chỉnh chunking**: Điều chỉnh kích thước chunk dựa trên loại tài liệu
+**Tham số đầu vào**: Không có
 
-### Khắc phục sự cố hiệu suất
+**Kết quả trả về**:
+```json
+{
+  "status": "started",
+  "message": "Đã bắt đầu quá trình indexing..."
+}
+```
 
-- **Tài liệu lớn làm treo hệ thống**: Giảm số lượng tệp xử lý đồng thời, tăng chunking sớm
-- **Embedding chậm**: Sử dụng mô hình nhẹ hơn, tăng kích thước chunk, xem xét GPU
-- **Quá nhiều bộ nhớ**: Giảm MAX_WORKERS, xử lý theo batch nhỏ hơn
+### 4. Kiểm tra trạng thái indexing
+**Endpoint**: `GET /api/index/status`
 
-## Mở rộng và tùy chỉnh
+**Mô tả**: Kiểm tra trạng thái của quá trình indexing
 
-Hệ thống được thiết kế với kiến trúc module hóa giúp dễ dàng thay đổi:
+**Tham số đầu vào**: Không có
 
-- Thay đổi embedding model bằng cách cập nhật `src/config/config.py`
-- Thêm loại tài liệu mới bằng cách mở rộng `src/loaders/document_loader.py`
-- Thay đổi vector store bằng cách chỉnh sửa `src/vectorstore/`
-- Thay đổi LLM bằng cách thêm implementation mới trong `src/llm/`
+**Kết quả trả về**:
+```json
+{
+  "status": "completed",
+  "message": "Đã hoàn thành index 120 chunks từ 5 tài liệu",
+  "processed_files": 5
+}
+```
+
+### 5. Thông tin collection
+**Endpoint**: `GET /api/collection/info`
+
+**Mô tả**: Lấy thông tin về collection trong vector store
+
+**Tham số đầu vào**: Không có
+
+**Kết quả trả về**:
+```json
+{
+  "name": "csdl_rag_e5_base",
+  "points_count": 120,
+  "config": {
+    "params": {
+      "size": 768,
+      "distance": "Cosine"
+    }
+  }
+}
+```
+
+### 6. Gửi phản hồi
+**Endpoint**: `POST /api/feedback`
+
+**Mô tả**: Gửi phản hồi về câu trả lời của hệ thống
+
+**Tham số đầu vào**:
+- **Body** (JSON):
+  ```json
+  {
+    "question_id": "string",
+    "rating": 5,
+    "comment": "string",
+    "is_helpful": true,
+    "specific_feedback": {
+      "accuracy": 5,
+      "completeness": 4,
+      "clarity": 5
+    }
+  }
+  ```
+
+**Kết quả trả về**:
+```json
+{
+  "status": "success",
+  "message": "Đã lưu phản hồi của bạn. Cảm ơn!"
+}
+```
+
+### 7. Xem thống kê phản hồi
+**Endpoint**: `GET /api/feedback/stats`
+
+**Mô tả**: Lấy thống kê về phản hồi người dùng
+
+**Tham số đầu vào**: Không có
+
+**Kết quả trả về**:
+```json
+{
+  "status": "success",
+  "message": "Thống kê phản hồi",
+  "total_feedback": 25,
+  "average_rating": 4.2,
+  "helpful_percentage": 85.5,
+  "ratings_distribution": {
+    "1": 1,
+    "2": 2,
+    "3": 3,
+    "4": 8,
+    "5": 11
+  }
+}
+```
+
+### 8. Phân tích SQL
+**Endpoint**: `POST /api/analyze/sql`
+
+**Mô tả**: Phân tích và đề xuất cải tiến cho truy vấn SQL
+
+**Tham số đầu vào**:
+- **Body** (JSON):
+  ```json
+  {
+    "sql_query": "SELECT * FROM users WHERE id = 1",
+    "database_context": "Hệ thống quản lý người dùng với các bảng users, roles, permissions"
+  }
+  ```
+
+**Kết quả trả về**:
+```json
+{
+  "query": "string",
+  "analysis": "string",
+  "suggestions": [
+    "Thêm index cho cột id",
+    "Chỉ chọn các cột cần thiết thay vì SELECT *"
+  ],
+  "optimized_query": "SELECT username, email FROM users WHERE id = 1"
+}
+```
+
+### 9. Tìm kiếm ngữ nghĩa
+**Endpoint**: `POST /api/search/semantic`
+
+**Mô tả**: Tìm kiếm ngữ nghĩa theo câu truy vấn
+
+**Tham số đầu vào**:
+- **Body** (JSON):
+  ```json
+  {
+    "question": "string"
+  }
+  ```
+- **Query Parameters**:
+  - `k`: Số lượng kết quả trả về (mặc định: 5)
+
+**Kết quả trả về**:
+```json
+{
+  "query": "string",
+  "results": [
+    {
+      "text": "string",
+      "metadata": {},
+      "score": 0.95,
+      "category": "string"
+    }
+  ]
+}
+```
+
+### 10. Tìm kiếm kết hợp (hybrid)
+**Endpoint**: `POST /api/search/hybrid`
+
+**Mô tả**: Tìm kiếm kết hợp (hybrid) theo câu truy vấn
+
+**Tham số đầu vào**:
+- **Body** (JSON):
+  ```json
+  {
+    "question": "string"
+  }
+  ```
+- **Query Parameters**:
+  - `k`: Số lượng kết quả trả về (mặc định: 5)
+  - `alpha`: Hệ số kết hợp (0.7 = 70% semantic + 30% keyword) (mặc định: 0.7)
+
+**Kết quả trả về**:
+```json
+{
+  "query": "string",
+  "results": [
+    {
+      "text": "string",
+      "metadata": {},
+      "score": 0.95,
+      "category": "string"
+    }
+  ]
+}
+```
+
+### 11. Thống kê danh mục
+**Endpoint**: `GET /api/categories`
+
+**Mô tả**: Lấy thống kê về các danh mục tài liệu
+
+**Tham số đầu vào**: Không có
+
+**Kết quả trả về**:
+```json
+{
+  "total_documents": 120,
+  "documents_by_category": {
+    "sql": 45,
+    "database_design": 30,
+    "nosql": 25,
+    "general": 20
+  },
+  "categories": ["sql", "database_design", "nosql", "general"]
+}
+```
+
+### 12. Reset collection
+**Endpoint**: `DELETE /api/collection/reset`
+
+**Mô tả**: Xóa toàn bộ dữ liệu đã index trong collection
+
+**Tham số đầu vào**: Không có
+
+**Kết quả trả về**:
+```json
+{
+  "status": "success",
+  "message": "Đã xóa và tạo lại collection csdl_rag_e5_base",
+  "vector_size": 768
+}
+```
+
+### 13. Lấy danh sách file
+**Endpoint**: `GET /api/files`
+
+**Mô tả**: Lấy danh sách các file đã được upload vào hệ thống
+
+**Tham số đầu vào**: Không có
+
+**Kết quả trả về**:
+```json
+{
+  "total_files": 5,
+  "files": [
+    {
+      "filename": "sql_basics.pdf",
+      "path": "D:/DATN/V4/src/data/sql_basics.pdf",
+      "size": 2456789,
+      "upload_date": "2023-06-15T14:30:25",
+      "extension": ".pdf",
+      "category": null
+    },
+    {
+      "filename": "database_design.docx",
+      "path": "D:/DATN/V4/src/data/database_design.docx",
+      "size": 1234567,
+      "upload_date": "2023-06-10T09:15:30",
+      "extension": ".docx",
+      "category": null
+    }
+  ]
+}
+```
+
+### 14. Xóa file
+**Endpoint**: `DELETE /api/files/{filename}`
+
+**Mô tả**: Xóa file đã upload và các index liên quan trong vector store
+
+**Tham số đầu vào**:
+- **Path Parameter**:
+  - `filename`: Tên file cần xóa
+
+**Kết quả trả về**:
+```json
+{
+  "filename": "sql_basics.pdf",
+  "status": "success",
+  "message": "Đã xóa file sql_basics.pdf và 45 index liên quan",
+  "removed_points": 45
+}
+```
+
+## Kiểm tra API
+1. Chạy API bằng `run_api.bat`
+2. Chạy script kiểm tra: `python test_api.py`
+
+## Tùy chỉnh
+
+- Bạn có thể thêm dữ liệu mới vào thư mục `src/data`
+- Các file hỗ trợ: PDF, DOCX, TXT, SQL
+- Thay đổi danh sách câu hỏi mẫu trong file `main.py`
+- Tùy chỉnh cấu hình API trong file `src/api.py`
+
+
+

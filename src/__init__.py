@@ -1,3 +1,1 @@
-"""
-Hệ thống RAG (Retrieval-Augmented Generation) cho cơ sở dữ liệu.
-"""
+# Package nguồn cho hệ thống RAG
