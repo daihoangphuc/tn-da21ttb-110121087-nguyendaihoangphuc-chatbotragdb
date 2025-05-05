@@ -1146,31 +1146,11 @@ async def check_layoutparser_installation():
     Kiểm tra cài đặt LayoutParser và các thư viện liên quan
     """
     try:
-        # Thực hiện kiểm tra
-        results = rag_system.document_processor.check_layoutparser_installation()
-
-        # Thêm hướng dẫn cài đặt
-        tips = {
-            "windows": [
-                "Trên Windows, cài đặt Tesseract từ: https://github.com/UB-Mannheim/tesseract/wiki",
-                "Cài đặt Poppler từ: https://github.com/oschwartz10612/poppler-windows/releases",
-                "Thêm cả hai vào PATH hoặc đặt biến TESSDATA_PREFIX và POPPLER_PATH",
-            ],
-            "linux": [
-                "Trên Linux: sudo apt-get install tesseract-ocr",
-                "Trên Linux: sudo apt-get install poppler-utils",
-            ],
-            "layoutparser": [
-                "pip install layoutparser[effdet]",
-                "pip install pdf2image pytesseract Pillow",
-            ],
-        }
-
         return {
-            "status": "success",
-            "installation_status": results,
-            "tips": tips,
-            "ready_for_layout_detection": results["ready"],
+            "status": "warning",
+            "message": "Layout detection đã bị vô hiệu hóa trong hệ thống này.",
+            "installation_status": {"ready": False},
+            "ready_for_layout_detection": False,
         }
     except Exception as e:
         return {"status": "error", "message": f"Lỗi khi kiểm tra cài đặt: {str(e)}"}
@@ -1184,22 +1164,14 @@ async def toggle_layout_detection(enable: bool = True):
     - **enable**: True để bật, False để tắt
     """
     try:
-        # Gán trạng thái
-        rag_system.enable_layout_detection = enable
-        rag_system.document_processor.enable_layout_detection = enable
-
-        # Kiểm tra cài đặt nếu bật
-        installation_status = None
-        if enable:
-            installation_status = (
-                rag_system.document_processor.check_layoutparser_installation()
-            )
+        # Layout detection luôn tắt
+        rag_system.enable_layout_detection = False
+        rag_system.document_processor.enable_layout_detection = False
 
         return {
-            "status": "success",
-            "message": f"Layout Detection đã được {'BẬT' if enable else 'TẮT'}",
-            "layout_detection_enabled": enable,
-            "installation_check": installation_status,
+            "status": "warning",
+            "message": "Layout Detection đã bị vô hiệu hóa trong hệ thống này.",
+            "layout_detection_enabled": False,
         }
     except Exception as e:
         return {
@@ -1214,142 +1186,19 @@ async def reset_layoutparser_configuration():
     Khởi động lại cài đặt layout detection và cập nhật đường dẫn Poppler và Tesseract
     """
     try:
-        # Đặt lại trạng thái layout detection
-        rag_system.enable_layout_detection = True
-        rag_system.document_processor.enable_layout_detection = True
-
-        # Cấu hình lại đường dẫn
-        if os.name == "nt":  # Windows
-            # Cấu hình Poppler
-            poppler_paths = [
-                r"C:\Program Files\poppler\bin",
-                r"C:\Program Files\poppler\Library\bin",
-                r"C:\poppler\bin",
-                r"C:\poppler\Library\bin",
-            ]
-
-            poppler_found = False
-            for path in poppler_paths:
-                if os.path.exists(path):
-                    print(f"Tìm thấy Poppler tại: {path}")
-                    os.environ["POPPLER_PATH"] = path
-                    poppler_found = True
-
-                    # Kiểm tra file thực thi
-                    exes = ["pdftoppm.exe", "pdfinfo.exe"]
-                    exe_found = False
-                    for exe in exes:
-                        exe_path = os.path.join(path, exe)
-                        if os.path.exists(exe_path):
-                            print(f"Tìm thấy {exe} tại: {exe_path}")
-                            exe_found = True
-                            break
-
-                    if not exe_found:
-                        print(f"Cảnh báo: Không tìm thấy executables trong {path}")
-
-                    break
-
-            if not poppler_found:
-                print("Không tìm thấy thư mục Poppler!")
-
-            # Cấu hình Tesseract
-            tesseract_paths = [r"C:\Program Files\Tesseract-OCR", r"C:\Tesseract-OCR"]
-
-            tessexe_paths = [
-                r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-                r"C:\Tesseract-OCR\tesseract.exe",
-            ]
-
-            tesseract_found = False
-            # Đặt TESSDATA_PREFIX
-            for path in tesseract_paths:
-                if os.path.exists(path):
-                    print(f"Tìm thấy Tesseract tại: {path}")
-                    tessdata_path = os.path.join(path, "tessdata")
-                    if os.path.exists(tessdata_path):
-                        os.environ["TESSDATA_PREFIX"] = tessdata_path
-                        print(f"Đặt TESSDATA_PREFIX = {tessdata_path}")
-                        tesseract_found = True
-                    else:
-                        print(f"Cảnh báo: Không tìm thấy thư mục tessdata trong {path}")
-                    break
-
-            if not tesseract_found:
-                print("Không tìm thấy thư mục Tesseract OCR!")
-
-            # Cấu hình pytesseract
-            try:
-                import pytesseract
-
-                tesseract_exe_found = False
-                for path in tessexe_paths:
-                    if os.path.exists(path):
-                        print(f"Cấu hình tesseract.exe tại: {path}")
-                        pytesseract.pytesseract.tesseract_cmd = path
-                        tesseract_exe_found = True
-                        break
-
-                if not tesseract_exe_found:
-                    print("Không tìm thấy tesseract.exe!")
-            except ImportError:
-                print("Không thể import pytesseract")
-
-        # Kiểm tra lại cài đặt
-        installation_status = (
-            rag_system.document_processor.check_layoutparser_installation()
-        )
-
-        # Thu thập thông tin môi trường
-        env_info = {
-            "OS": os.name,
-            "PATH": os.environ.get("PATH", "N/A"),
-            "POPPLER_PATH": os.environ.get("POPPLER_PATH", "Không được đặt"),
-            "TESSDATA_PREFIX": os.environ.get("TESSDATA_PREFIX", "Không được đặt"),
-            "CWD": os.getcwd(),
-        }
-
-        # Kiểm tra file thực thi
-        executable_check = {}
-        poppler_path = os.environ.get("POPPLER_PATH", "")
-        if poppler_path:
-            for exe in ["pdftoppm.exe", "pdfinfo.exe"]:
-                exe_path = os.path.join(poppler_path, exe)
-                executable_check[exe] = {
-                    "path": exe_path,
-                    "exists": os.path.exists(exe_path),
-                }
-
-        try:
-            import pytesseract
-
-            env_info["TESSERACT_CMD"] = pytesseract.pytesseract.tesseract_cmd
-
-            # Kiểm tra phiên bản
-            try:
-                version = pytesseract.get_tesseract_version()
-                env_info["TESSERACT_VERSION"] = str(version)
-            except Exception as e:
-                env_info["TESSERACT_ERROR"] = str(e)
-        except:
-            env_info["TESSERACT_CMD"] = "Không thể truy cập"
+        # Layout detection luôn tắt
+        rag_system.enable_layout_detection = False
+        rag_system.document_processor.enable_layout_detection = False
 
         return {
-            "status": "success",
-            "message": "Đã khởi động lại cài đặt layout detection",
-            "installation_status": installation_status,
-            "environment_variables": env_info,
-            "executable_check": executable_check,
-            "ready_for_layout_detection": installation_status["ready"],
+            "status": "warning",
+            "message": "Layout Detection đã bị vô hiệu hóa trong hệ thống này.",
+            "layout_detection_enabled": False,
         }
     except Exception as e:
-        import traceback
-
-        traceback_str = traceback.format_exc()
         return {
             "status": "error",
-            "message": f"Lỗi khi khởi động lại layout detection: {str(e)}",
-            "traceback": traceback_str,
+            "message": f"Lỗi khi khởi động lại cài đặt layout detection: {str(e)}",
         }
 
 
