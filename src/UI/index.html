@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG - Cơ sở dữ liệu</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.1/styles/github-dark.min.css">
+    <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-container">
+                <div class="header-title">
+                    <h1>RAG - Cơ sở dữ liệu</h1>
+                </div>
+                <div class="header-actions">
+                    <button class="theme-toggle" id="themeToggle">
+                        <i class="fas fa-moon"></i>
+                    </button>
+                    <div class="user-dropdown">
+                        <button class="user-dropdown-trigger">
+                            <div class="avatar">
+                                <span>ND</span>
+                            </div>
+                            <span class="user-name">Người dùng</span>
+                            <i class="fas fa-chevron-down"></i>
+                        </button>
+                        <div class="user-dropdown-content">
+                            <div class="user-info">
+                                <div class="avatar">
+                                    <span>ND</span>
+                                </div>
+                                <div class="user-details">
+                                    <p class="user-full-name">Nguyễn Văn A</p>
+                                    <p class="user-email">nguyenvana@example.com</p>
+                                </div>
+                            </div>
+                            <div class="dropdown-divider"></div>
+                            <ul class="dropdown-menu">
+                                <li><a href="#"><i class="fas fa-user"></i> Hồ sơ</a></li>
+                                <li><a href="#"><i class="fas fa-cog"></i> Cài đặt</a></li>
+                                <li><a href="#"><i class="fas fa-question-circle"></i> Trợ giúp</a></li>
+                            </ul>
+                            <div class="dropdown-divider"></div>
+                            <ul class="dropdown-menu">
+                                <li><a href="#" class="text-danger"><i class="fas fa-sign-out-alt"></i> Đăng xuất</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- API Error Alert -->
+        <div class="api-alert" id="apiAlert" style="display: none;">
+            <i class="fas fa-exclamation-circle"></i>
+            <span id="apiAlertMessage">Không thể kết nối đến API. Vui lòng kiểm tra lại kết nối.</span>
+        </div>
+
+        <!-- Main Content -->
+        <main class="main-interface">
+            <!-- Source Panel -->
+            <div class="source-panel" id="sourcePanel">
+                <div class="panel-header">
+                    <h2>Nguồn</h2>
+                    <div class="action-buttons">
+                        <button class="btn btn-outline btn-full" id="addSourceBtn">
+                            <i class="fas fa-plus"></i> Thêm
+                        </button>
+                    </div>
+                    <div class="select-all-container">
+                        <input type="checkbox" id="selectAll">
+                        <label for="selectAll">Chọn mọi nguồn</label>
+                    </div>
+                    <div class="source-alert" id="noSourceAlert" style="display: none;">
+                        <i class="fas fa-exclamation-circle"></i>
+                        <span>Vui lòng chọn ít nhất một nguồn tài liệu để đặt câu hỏi</span>
+                    </div>
+                </div>
+                <div class="source-list" id="sourceList">
+                    <!-- Source items will be added dynamically -->
+                </div>
+            </div>
+
+            <!-- Conversation Panel -->
+            <div class="conversation-panel" id="conversationPanel">
+                <div class="panel-header">
+                    <div class="conversation-info">
+                        <div class="conversation-icon">
+                            <i class="fas fa-file-alt"></i>
+                        </div>
+                        <div>
+                            <h2>RAG Assistant</h2>
+                            <div class="conversation-meta" id="conversationMeta">Hỏi đáp với tài liệu</div>
+                        </div>
+                    </div>
+                    <button class="btn btn-outline btn-sm mobile-only" id="viewSourcesBtn">
+                        <i class="fas fa-layer-group"></i>
+                        <span>Xem nguồn</span>
+                    </button>
+                </div>
+                <div class="messages-container" id="messagesContainer">
+                    <div class="welcome-message">
+                        <p>Chào mừng bạn đến với hệ thống RAG hỗ trợ môn cơ sở dữ liệu! Hãy đặt câu hỏi về tài liệu của bạn.</p>
+                        <p>Ví dụ: "Phân biệt giữa INNER JOIN và LEFT JOIN trong SQL?" hay "Cho tôi ví dụ về một câu truy vấn nested."</p>
+                    </div>
+                    <!-- Messages will be added dynamically -->
+                </div>
+                <div class="message-input-container">
+                    <form id="messageForm">
+                        <div class="input-wrapper">
+                            <input type="text" id="messageInput" placeholder="Nhập câu hỏi của bạn..." autocomplete="off">
+                            <button type="submit" id="sendButton" disabled>
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Source View Panel -->
+            <div class="source-view-panel" id="sourceViewPanel">
+                <div class="panel-header">
+                    <div class="panel-header-content">
+                        <h2>Nội dung tài liệu</h2>
+                        <button class="btn btn-ghost btn-sm mobile-only" id="backToConversationBtn">
+                            <i class="fas fa-chevron-left"></i>
+                            <span>Trở lại</span>
+                        </button>
+                    </div>
+                    <button class="btn btn-ghost btn-sm panel-collapse-btn" id="collapseSourceViewBtn">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+                <div class="source-content" id="sourceContent">
+                    <div class="no-source-selected">
+                        <p>Chọn một nguồn tài liệu để xem nội dung chi tiết</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Mobile Navigation -->
+        <div class="mobile-navigation" id="mobileNavigation">
+            <button class="nav-button" data-panel="sources">
+                Nguồn
+            </button>
+            <button class="nav-button active" data-panel="conversation">
+                Tin nhắn
+            </button>
+            <button class="nav-button" data-panel="sourceView">
+                Trích dẫn
+            </button>
+        </div>
+
+        <!-- Upload Modal -->
+        <div class="modal" id="uploadModal">
+            <div class="modal-overlay"></div>
+            <div class="modal-container">
+                <div class="modal-header">
+                    <h3>Tải lên tài liệu</h3>
+                    <button class="close-modal-btn">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="upload-area" id="uploadArea">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <p>Kéo và thả các tệp vào đây hoặc</p>
+                        <label for="fileInput" class="upload-btn">Chọn tệp</label>
+                        <input type="file" id="fileInput" class="hidden" accept=".pdf,.docx,.doc,.txt,.sql" multiple>
+                        <p class="upload-note">Có thể chọn nhiều tệp cùng lúc</p>
+                    </div>
+                    <div class="upload-info" id="uploadInfo" style="display: none;">
+                        <div class="upload-files-list" id="uploadFilesList">
+                            <!-- Danh sách file sẽ được tạo động -->
+                        </div>
+                        <div class="upload-status-container">
+                            <div class="loading-spinner" id="uploadSpinner" style="display: none;">
+                                <i class="fas fa-spinner fa-spin"></i>
+                            </div>
+                            <div class="progress-text" id="uploadStatus">Đang chuẩn bị...</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline" id="cancelUploadBtn">Hủy</button>
+                    <button class="btn btn-primary" id="confirmUploadBtn" disabled>Tải lên</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Delete Confirmation Modal -->
+        <div class="modal" id="deleteModal">
+            <div class="modal-overlay"></div>
+            <div class="modal-container modal-sm">
+                <div class="modal-header">
+                    <h3>Xác nhận xóa tài liệu</h3>
+                    <button class="close-modal-btn">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p>Bạn có chắc chắn muốn xóa tài liệu này? Hành động này không thể hoàn tác.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline" id="cancelDeleteBtn">Hủy</button>
+                    <button class="btn btn-danger" id="confirmDeleteBtn">Xóa</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.0.2/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.1/highlight.min.js"></script>
+    <script>
+        // Cấu hình marked.js để hoạt động tốt với highlight.js
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof marked !== 'undefined') {
+                marked.setOptions({
+                    highlight: function(code, lang) {
+                        if (lang && hljs.getLanguage(lang)) {
+                            try {
+                                return hljs.highlight(code, { language: lang }).value;
+                            } catch (err) {
+                                console.error(err);
+                            }
+                        }
+                        return code;
+                    },
+                    gfm: true,
+                    breaks: true
+                });
+            }
+        });
+    </script>
+    <script src="assets/js/main.js"></script>
+    <script src="assets/js/api-service.js"></script>
+    <script src="assets/js/ui-controllers.js"></script>
+</body>
+</html> 

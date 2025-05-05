@@ -5,7 +5,7 @@ Hệ thống RAG (Retrieval-Augmented Generation) tìm kiếm thông tin và tr�
 ## Cấu trúc thư mục
 
 ```
-D:/DATN/V4/
+D:/DATN/V2/
 ├── main.py                  # File chính để chạy ứng dụng
 ├── requirements.txt         # Danh sách thư viện cần thiết
 ├── setup.bat                # Script tạo môi trường và cài đặt
@@ -20,8 +20,21 @@ D:/DATN/V4/
     ├── document_processor.py # Module xử lý tài liệu
     ├── prompt_manager.py    # Module quản lý prompt
     ├── search.py            # Module quản lý tìm kiếm
+    ├── query_processor.py   # Module xử lý và mở rộng truy vấn
     ├── rag.py               # Module tổng hợp hệ thống RAG
     ├── api.py               # Module API FastAPI
+    ├── .env                 # File cấu hình biến môi trường
+    ├── .env.example         # File mẫu cấu hình biến môi trường
+    ├── UI/                  # Thư mục giao diện người dùng
+    │   ├── index.html       # Trang chính của ứng dụng web
+    │   └── assets/          # Thư mục tài nguyên
+    │       ├── css/         # Stylesheet
+    │       ├── js/          # JavaScript
+    │       └── img/         # Hình ảnh 
+    ├── img/                 # Thư mục hình ảnh
+    │   ├── Ui/              # Hình ảnh giao diện người dùng
+    │   └── Diagram/         # Hình ảnh sơ đồ hệ thống
+    ├── feedback/            # Thư mục lưu phản hồi người dùng
     └── data/                # Thư mục chứa dữ liệu
 ```
 
@@ -82,6 +95,48 @@ Khi chạy ứng dụng thông thường, hệ thống sẽ:
 Khi chạy API, bạn có thể sử dụng các endpoint sau:
 - **API Documentation**: Truy cập http://localhost:8000/docs để xem tài liệu API Swagger
 - **Đường dẫn chính**: http://localhost:8000
+
+### Giao diện người dùng (Frontend)
+
+Hệ thống bao gồm giao diện người dùng web được xây dựng bằng HTML, CSS và JavaScript. Để sử dụng giao diện:
+
+1. **Khởi động API backend**:
+   - Chạy file `run_api.bat` hoặc lệnh `python -m uvicorn src.api:app --host 0.0.0.0 --port 8000 --reload`
+   - Đảm bảo API đang chạy tại http://localhost:8000
+
+2. **Mở giao diện web**:
+   - Mở file `src/UI/index.html` trong trình duyệt web
+   - Hoặc sử dụng một máy chủ web đơn giản để phục vụ thư mục `src/UI`
+
+3. **Các tính năng chính**:
+   - **Panel Nguồn**: Hiển thị danh sách tài liệu đã tải lên, cho phép chọn tài liệu để sử dụng khi đặt câu hỏi
+   - **Panel Hội thoại**: Nơi đặt câu hỏi và xem câu trả lời từ hệ thống RAG
+   - **Panel Xem nguồn**: Hiển thị nội dung chi tiết của tài liệu nguồn
+
+4. **Cách sử dụng**:
+   - **Tải tài liệu**: Nhấn vào nút "Thêm" trong panel Nguồn để mở hộp thoại tải lên tài liệu mới
+   - **Chọn tài liệu**: Đánh dấu các tài liệu bạn muốn sử dụng làm nguồn cho câu hỏi
+   - **Đặt câu hỏi**: Nhập câu hỏi của bạn vào ô văn bản ở cuối panel Hội thoại và nhấn Enter hoặc nút Gửi
+   - **Xem thông tin nguồn**: Nhấp vào các nguồn tham khảo được hiển thị trong câu trả lời để xem nội dung đầy đủ
+
+5. **Tính năng khác**:
+   - **Chế độ tối/sáng**: Nhấn vào biểu tượng mặt trăng/mặt trời ở góc trên bên phải để chuyển đổi giữa chế độ tối và sáng
+   - **Xem trên thiết bị di động**: Giao diện tự động điều chỉnh để phù hợp với màn hình thiết bị di động
+   - **Xóa tài liệu**: Nhấp vào biểu tượng thùng rác bên cạnh tên tài liệu để xóa tài liệu khỏi hệ thống
+
+6. **Cấu hình kết nối API**:
+   - Nếu API chạy trên URL khác, bạn có thể thay đổi cấu hình trong file `src/UI/assets/js/api-service.js` bằng cách sửa giá trị của biến `API_BASE_URL`
+
+### Minh họa giao diện
+
+#### Trang chủ
+![Trang chủ](src/img/Ui/Trang%20chủ.png)
+
+#### Hỏi đáp
+![Hỏi đáp](src/img/Ui/Hỏi%20đáp.png)
+
+#### Tải lên tài liệu
+![Tải lên tài liệu](src/img/Ui/Modal%20Upload%20nguồn.png)
 
 ## Tài liệu chi tiết các API endpoint
 
@@ -385,7 +440,7 @@ Khi chạy API, bạn có thể sử dụng các endpoint sau:
   "files": [
     {
       "filename": "sql_basics.pdf",
-      "path": "D:/DATN/V4/src/data/sql_basics.pdf",
+      "path": "D:/DATN/V2/src/data/sql_basics.pdf",
       "size": 2456789,
       "upload_date": "2023-06-15T14:30:25",
       "extension": ".pdf",
@@ -393,7 +448,7 @@ Khi chạy API, bạn có thể sử dụng các endpoint sau:
     },
     {
       "filename": "database_design.docx",
-      "path": "D:/DATN/V4/src/data/database_design.docx",
+      "path": "D:/DATN/V2/src/data/database_design.docx",
       "size": 1234567,
       "upload_date": "2023-06-10T09:15:30",
       "extension": ".docx",
