@@ -6,12 +6,7 @@ Hệ thống RAG (Retrieval-Augmented Generation) tìm kiếm thông tin và tr�
 
 ```
 D:/DATN/V2/
-├── main.py                  # File chính để chạy ứng dụng
 ├── requirements.txt         # Danh sách thư viện cần thiết
-├── setup.bat                # Script tạo môi trường và cài đặt
-├── run.bat                  # Script chạy ứng dụng thông thường
-├── run_api.bat              # Script chạy API
-├── test_api.py              # Script kiểm tra API
 └── src/                     # Thư mục mã nguồn
     ├── __init__.py          # Đánh dấu thư mục là package Python
     ├── embedding.py         # Module quản lý mô hình embedding
@@ -40,18 +35,7 @@ D:/DATN/V2/
 
 ## Cài đặt và sử dụng
 
-### Phương pháp 1: Sử dụng scripts
-
-1. **Cài đặt và tạo môi trường ảo**:
-   - Chạy file `setup.bat` để tạo môi trường ảo và cài đặt các thư viện cần thiết
-
-2. **Chạy ứng dụng thông thường**:
-   - Chạy file `run.bat` để kích hoạt môi trường ảo và chạy ứng dụng
-
-3. **Chạy API**:
-   - Chạy file `run_api.bat` để kích hoạt môi trường ảo và chạy API
-
-### Phương pháp 2: Thủ công qua Command Prompt
+### Cài đặt thủ công
 
 1. **Tạo môi trường ảo Python**:
    ```
@@ -68,12 +52,7 @@ D:/DATN/V2/
    pip install -r requirements.txt
    ```
 
-4. **Chạy ứng dụng thông thường**:
-   ```
-   python main.py
-   ```
-
-5. **Chạy API**:
+4. **Chạy API**:
    ```
    python -m uvicorn src.api:app --host 0.0.0.0 --port 8000 --reload
    ```
@@ -83,13 +62,6 @@ D:/DATN/V2/
 ![Sơ đồ hoạt động hệ thống RAG](src/img/Diagram/image.png)
 
 ## Sử dụng hệ thống
-
-### Ứng dụng thông thường
-Khi chạy ứng dụng thông thường, hệ thống sẽ:
-1. Tải và xử lý tài liệu từ thư mục `src/data`
-2. Chuyển đổi thành vector embedding và lưu trữ trong Qdrant
-3. Thực hiện câu hỏi mẫu và hiển thị kết quả
-4. Hiển thị thông tin về collection trong Qdrant
 
 ### API
 Khi chạy API, bạn có thể sử dụng các endpoint sau:
@@ -101,7 +73,7 @@ Khi chạy API, bạn có thể sử dụng các endpoint sau:
 Hệ thống bao gồm giao diện người dùng web được xây dựng bằng HTML, CSS và JavaScript. Để sử dụng giao diện:
 
 1. **Khởi động API backend**:
-   - Chạy file `run_api.bat` hoặc lệnh `python -m uvicorn src.api:app --host 0.0.0.0 --port 8000 --reload`
+   - Sử dụng lệnh `python -m uvicorn src.api:app --host 0.0.0.0 --port 8000 --reload`
    - Đảm bảo API đang chạy tại http://localhost:8000
 
 2. **Mở giao diện web**:
@@ -477,13 +449,8 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
 }
 ```
 
-## Kiểm tra API
-1. Chạy API bằng `run_api.bat`
-2. Chạy script kiểm tra: `python test_api.py`
-
 ## Tùy chỉnh
 
 - Bạn có thể thêm dữ liệu mới vào thư mục `src/data`
 - Các file hỗ trợ: PDF, DOCX, TXT, SQL
-- Thay đổi danh sách câu hỏi mẫu trong file `main.py`
 - Tùy chỉnh cấu hình API trong file `src/api.py`
