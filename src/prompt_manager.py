@@ -195,7 +195,7 @@ class PromptManager:
         if question_type is None:
             question_type = self.classify_question(query)
 
-        # Tạo văn bản ngữ cảnh từ các tài liệu đã truy xuất - tăng từ top 3 lên top 5
+        # Tạo văn bản ngữ cảnh từ các tài liệu đã truy xuất - sử dụng tất cả kết quả được cung cấp
         context_str = "\n\n".join(
             [
                 f"Source: {doc['metadata'].get('source', 'unknown')}\n"
@@ -203,7 +203,7 @@ class PromptManager:
                 + f"Section: {doc['metadata'].get('chunk_type', 'unknown')}\n"
                 + f"Category: {doc['metadata'].get('category', 'general')}\n"
                 + f"Content: {doc['text']}"
-                for doc in context[:5]
+                for doc in context
             ]
         )
 

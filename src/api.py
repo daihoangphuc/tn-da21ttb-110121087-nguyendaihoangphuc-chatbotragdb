@@ -437,8 +437,13 @@ async def upload_document(
             # Đảm bảo collection đã tồn tại với kích thước vector đúng
             rag_system.vector_store.ensure_collection_exists(len(embeddings[0]))
 
-            # Index embeddings
-            rag_system.vector_store.index_documents(processed_chunks, embeddings)
+            # Index embeddings với user_id mặc định
+            print(
+                f"[UPLOAD] Đang index {len(processed_chunks)} chunks với user_id='default_user'"
+            )
+            rag_system.vector_store.index_documents(
+                processed_chunks, embeddings, user_id="default_user"
+            )
 
             # Tính toán thống kê layout nếu có
             layout_stats = {}
@@ -919,27 +924,109 @@ async def delete_file(filename: str):
     """
     try:
         file_path = os.path.join(UPLOAD_DIR, filename)
+        print(f"[DELETE] Bắt đầu xóa file: {filename}, đường dẫn: {file_path}")
 
         # Kiểm tra file có tồn tại không
         if not os.path.exists(file_path):
+            print(f"[DELETE] Lỗi: File {filename} không tồn tại")
             raise HTTPException(
                 status_code=404, detail=f"File {filename} không tồn tại"
             )
 
+        print(f"[DELETE] Đang tìm kiếm các điểm dữ liệu liên quan đến file: {filename}")
         # Đếm số lượng điểm trong vector store liên quan đến file này trước khi xóa
         all_docs = rag_system.vector_store.get_all_documents()
-        related_docs = [
-            doc for doc in all_docs if doc["metadata"].get("source") == filename
+        print(f"[DELETE] Tổng số documents trong vector store: {len(all_docs)}")
+
+        # Tạo danh sách các biến thể của tên file để tìm kiếm
+        file_path_variants = [
+            filename,  # Tên file đơn thuần
+            file_path,  # Đường dẫn đầy đủ
+            file_path.replace("\\", "/"),  # Đường dẫn với dấu /
+            os.path.join(UPLOAD_DIR, filename).replace(
+                "\\", "/"
+            ),  # Đường dẫn đầy đủ với dấu /
+            f"src/data/{filename}",  # Thêm tiền tố src/data/
+            f"src/data\\{filename}",  # Thêm tiền tố src/data\ với backslash
         ]
+
+        print(f"[DELETE] Tìm kiếm với các biến thể: {file_path_variants}")
+
+        # Tìm tất cả tài liệu khớp với bất kỳ biến thể nào của tên file
+        related_docs = []
+        for doc in all_docs:
+            # Kiểm tra trong metadata.source
+            meta_source = doc.get("metadata", {}).get("source", "unknown")
+            # Kiểm tra trong source trực tiếp
+            direct_source = doc.get("source", "unknown")
+
+            # So sánh với các biến thể
+            for variant in file_path_variants:
+                if meta_source == variant or direct_source == variant:
+                    related_docs.append(doc)
+                    print(
+                        f"[DELETE] Tìm thấy document với source={meta_source if meta_source != 'unknown' else direct_source}"
+                    )
+                    break
+
         points_count = len(related_docs)
+        print(f"[DELETE] Số lượng điểm dữ liệu liên quan đến file: {points_count}")
 
         # Xóa các index liên quan đến file này trong vector store
-        point_ids = [doc["id"] for doc in related_docs]
-        if point_ids:
-            rag_system.vector_store.delete_points(point_ids)
+        if points_count > 0:
+            print(f"[DELETE] Bắt đầu xóa {points_count} điểm dữ liệu liên quan")
+            point_ids = [
+                doc.get("id") for doc in related_docs if doc.get("id") is not None
+            ]
+            if point_ids:
+                delete_result = rag_system.vector_store.delete_points(point_ids)
+                print(f"[DELETE] Kết quả xóa điểm dữ liệu: {delete_result}")
+            else:
+                print(
+                    f"[DELETE] Không thể xóa vì không tìm thấy ID cho các điểm dữ liệu"
+                )
+
+            # Thêm xóa theo filter dựa trên tên file
+            try:
+                print(f"[DELETE] Thử xóa theo filter với tên file...")
+                for variant in file_path_variants:
+                    filter_request = {
+                        "filter": {
+                            "must": [{"key": "source", "match": {"value": variant}}]
+                        }
+                    }
+                    print(f"[DELETE] Xóa filter với variant: {variant}")
+                    success, message = rag_system.vector_store.delete_points_by_filter(
+                        filter_request
+                    )
+                    print(
+                        f"[DELETE] Kết quả xóa theo filter (source={variant}): {success}, {message}"
+                    )
+
+                    # Thử xóa theo metadata.source
+                    filter_request = {
+                        "filter": {
+                            "must": [
+                                {"key": "metadata.source", "match": {"value": variant}}
+                            ]
+                        }
+                    }
+                    print(f"[DELETE] Xóa filter với metadata.source={variant}")
+                    success, message = rag_system.vector_store.delete_points_by_filter(
+                        filter_request
+                    )
+                    print(
+                        f"[DELETE] Kết quả xóa theo filter (metadata.source={variant}): {success}, {message}"
+                    )
+            except Exception as e:
+                print(f"[DELETE] Lỗi khi xóa theo filter: {str(e)}")
+        else:
+            print(f"[DELETE] Không có điểm dữ liệu nào liên quan đến file {filename}")
 
         # Xóa file vật lý
+        print(f"[DELETE] Đang xóa file vật lý: {file_path}")
         os.remove(file_path)
+        print(f"[DELETE] Đã xóa file vật lý thành công")
 
         return {
             "filename": filename,
@@ -948,8 +1035,10 @@ async def delete_file(filename: str):
             "removed_points": points_count,
         }
     except HTTPException as e:
+        print(f"[DELETE] HTTP Exception: {str(e)}")
         raise e
     except Exception as e:
+        print(f"[DELETE] Lỗi không xác định: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Lỗi khi xóa file: {str(e)}")
 
 
@@ -1351,6 +1440,90 @@ async def reset_layoutparser_configuration():
             "message": f"Lỗi khi khởi động lại layout detection: {str(e)}",
             "traceback": traceback_str,
         }
+
+
+@app.post(f"{PREFIX}/collections/delete-by-filter")
+async def delete_points_by_filter(filter_request: Dict):
+    """
+    Xóa các điểm trong collection theo filter
+
+    Filter format:
+    {
+      "filter": {
+        "must": [
+          {
+            "key": "source",
+            "match": {
+              "value": "tên_file.pdf"
+            }
+          },
+          {
+            "key": "user_id",
+            "match": {
+              "value": "default_user"
+            }
+          }
+        ]
+      }
+    }
+    """
+    try:
+        print(f"[DELETE-FILTER] Bắt đầu xóa điểm theo filter: {filter_request}")
+
+        # Ghi log filter chi tiết
+        if "filter" in filter_request and "must" in filter_request["filter"]:
+            for condition in filter_request["filter"]["must"]:
+                if "key" in condition and "match" in condition:
+                    print(
+                        f"[DELETE-FILTER] Điều kiện: key={condition['key']}, value={condition['match'].get('value', 'N/A')}"
+                    )
+
+        # Kiểm tra collection tồn tại
+        collection_exists = rag_system.vector_store.client.collection_exists(
+            rag_system.vector_store.collection_name
+        )
+        print(
+            f"[DELETE-FILTER] Collection {rag_system.vector_store.collection_name} tồn tại: {collection_exists}"
+        )
+
+        # Lấy thông tin collection trước khi xóa
+        if collection_exists:
+            collection_info = rag_system.vector_store.get_collection_info()
+            print(
+                f"[DELETE-FILTER] Thông tin collection trước khi xóa: points_count={collection_info.get('points_count', 'N/A')}"
+            )
+
+        success, message = rag_system.vector_store.delete_points_by_filter(
+            filter_request
+        )
+        print(f"[DELETE-FILTER] Kết quả xóa: success={success}, message={message}")
+
+        # Lấy thông tin collection sau khi xóa
+        if collection_exists:
+            collection_info = rag_system.vector_store.get_collection_info()
+            print(
+                f"[DELETE-FILTER] Thông tin collection sau khi xóa: points_count={collection_info.get('points_count', 'N/A')}"
+            )
+
+        if success:
+            return {"status": "success", "message": message}
+        else:
+            print(f"[DELETE-FILTER] Lỗi khi xóa: {message}")
+            return JSONResponse(
+                status_code=400, content={"status": "error", "message": message}
+            )
+
+    except Exception as e:
+        print(f"[DELETE-FILTER] Exception: {str(e)}")
+        import traceback
+
+        traceback_str = traceback.format_exc()
+        print(f"[DELETE-FILTER] Traceback: {traceback_str}")
+
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": f"Lỗi khi xóa điểm: {str(e)}"},
+        )
 
 
 if __name__ == "__main__":

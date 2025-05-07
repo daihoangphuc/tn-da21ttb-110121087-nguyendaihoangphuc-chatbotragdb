@@ -3,6 +3,8 @@ from qdrant_client.models import Distance, VectorParams, PointStruct, Filter
 from typing import List, Dict
 import os
 from dotenv import load_dotenv
+import uuid
+import time
 
 # Load biến môi trường từ .env
 load_dotenv()
@@ -51,10 +53,26 @@ class VectorStore:
                 vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
             )
 
-    def index_documents(self, chunks, embeddings):
+    def index_documents(self, chunks, embeddings, user_id="default_user"):
         """Index dữ liệu lên Qdrant"""
+        start_time = time.time()
+        print(f"[INDEX] Bắt đầu index {len(chunks)} chunks với user_id={user_id}")
+
+        # Đảm bảo collection có tồn tại
+        if not self.client.collection_exists(self.collection_name):
+            vector_size = (
+                len(embeddings[0]) if embeddings and len(embeddings) > 0 else 768
+            )
+            print(
+                f"[INDEX] Collection {self.collection_name} chưa tồn tại, tạo mới với size={vector_size}"
+            )
+            self.ensure_collection_exists(vector_size)
+
         points = []
         for idx, chunk in enumerate(chunks):
+            # Tạo ID ngẫu nhiên cho mỗi điểm để tránh ghi đè
+            point_id = str(uuid.uuid4())
+
             # Đảm bảo source có trong cả payload trực tiếp và metadata
             source = chunk.get("source", "unknown")
 
@@ -62,31 +80,70 @@ class VectorStore:
             if "metadata" not in chunk or not isinstance(chunk["metadata"], dict):
                 chunk["metadata"] = {}
 
-            # Đảm bảo source cũng có trong metadata
+            # Đảm bảo source cũng có trong metadata và thêm user_id
             chunk["metadata"]["source"] = source
+            chunk["metadata"]["user_id"] = user_id  # Thêm user_id vào metadata
+            # Thêm timestamp để theo dõi
+            chunk["metadata"]["indexed_at"] = int(time.time())
 
-            # In thông tin để debug
-            print(
-                f"Indexing chunk {idx}: source={source}, metadata.source={chunk['metadata'].get('source')}"
-            )
+            # In thông tin để debug nếu là chunk đầu tiên hoặc mỗi 50 chunks
+            if idx == 0 or idx % 50 == 0 or idx == len(chunks) - 1:
+                print(
+                    f"[INDEX] Indexing chunk {idx}/{len(chunks)}: id={point_id}, source={source}, user_id={user_id}"
+                )
 
             points.append(
                 PointStruct(
-                    id=idx,
+                    id=point_id,  # Sử dụng ID ngẫu nhiên
                     vector=embeddings[idx].tolist(),
                     payload={
                         "text": chunk["text"],
                         "metadata": chunk["metadata"],
                         "source": source,  # Lưu source trực tiếp trong payload
+                        "user_id": user_id,  # Thêm user_id trực tiếp trong payload
+                        "indexed_at": int(time.time()),  # Thêm timestamp
                     },
                 )
             )
 
         # Upload theo batch
         batch_size = 100
+        total_batches = (len(points) + batch_size - 1) // batch_size
+        print(
+            f"[INDEX] Uploading {len(points)} points in {total_batches} batches (batch_size={batch_size})"
+        )
+
         for i in range(0, len(points), batch_size):
             batch = points[i : i + batch_size]
-            self.client.upsert(collection_name=self.collection_name, points=batch)
+            batch_num = i // batch_size + 1
+            print(
+                f"[INDEX] Uploading batch {batch_num}/{total_batches} ({len(batch)} points)"
+            )
+            try:
+                result = self.client.upsert(
+                    collection_name=self.collection_name, points=batch
+                )
+                print(f"[INDEX] Batch {batch_num} uploaded successfully: {result}")
+            except Exception as e:
+                print(f"[INDEX] Error in batch {batch_num}: {str(e)}")
+                # Tiếp tục với batch tiếp theo thay vì dừng lại
+
+        # In thống kê indexing
+        end_time = time.time()
+        duration = end_time - start_time
+        print(
+            f"[INDEX] Completed indexing {len(chunks)} chunks in {duration:.2f} seconds"
+        )
+
+        # Kiểm tra số lượng điểm trong collection sau khi index
+        try:
+            collection_info = self.get_collection_info()
+            if collection_info:
+                print(
+                    f"[INDEX] Collection now has {collection_info.get('points_count', 'unknown')} points"
+                )
+        except Exception as e:
+            print(f"[INDEX] Error getting collection info: {str(e)}")
 
     def search(self, query_vector, limit=5):
         """Tìm kiếm trong Qdrant"""
@@ -270,16 +327,96 @@ class VectorStore:
             True nếu xóa thành công, False nếu có lỗi
         """
         try:
+            print(
+                f"[VECTOR_STORE] Bắt đầu xóa {len(point_ids)} điểm. ID mẫu: {point_ids[:3] if len(point_ids) > 3 else point_ids}"
+            )
+
             if not self.client.collection_exists(self.collection_name):
+                print(
+                    f"[VECTOR_STORE] Lỗi: Collection {self.collection_name} không tồn tại"
+                )
                 return False
 
             # Xóa từng điểm từ collection
-            self.client.collection(self.collection_name).delete(
+            delete_result = self.client.collection(self.collection_name).delete(
                 points_selector=models.PointIdsList(
                     points=point_ids,
                 )
             )
+            print(f"[VECTOR_STORE] Kết quả xóa điểm: {delete_result}")
             return True
         except Exception as e:
-            print(f"Lỗi khi xóa điểm từ vector store: {str(e)}")
+            print(f"[VECTOR_STORE] Lỗi khi xóa điểm từ vector store: {str(e)}")
+            import traceback
+
+            traceback_str = traceback.format_exc()
+            print(f"[VECTOR_STORE] Traceback: {traceback_str}")
             return False
+
+    def delete_points_by_filter(self, filter_dict):
+        """
+        Xóa các điểm theo filter
+
+        Args:
+            filter_dict: Dictionary chứa filter theo định dạng của Qdrant
+
+        Returns:
+            Tuple (success, message) với success là True nếu xóa thành công
+        """
+        try:
+            print(f"[VECTOR_STORE] Bắt đầu xóa điểm theo filter: {filter_dict}")
+
+            if not self.client.collection_exists(self.collection_name):
+                print(
+                    f"[VECTOR_STORE] Lỗi: Collection {self.collection_name} không tồn tại"
+                )
+                return False, "Collection không tồn tại"
+
+            # Trước khi xóa, hãy đếm số lượng điểm khớp với filter
+            try:
+                # Lấy thông tin collection trước khi xóa
+                info_before = self.client.get_collection(self.collection_name)
+                points_before = info_before.points_count
+                print(f"[VECTOR_STORE] Số điểm trước khi xóa: {points_before}")
+
+                # Thử đếm số điểm khớp với filter
+                if "filter" in filter_dict:
+                    print(f"[VECTOR_STORE] Đang đếm số điểm khớp với filter...")
+                    count_results = self.client.count(
+                        collection_name=self.collection_name,
+                        count_filter=models.Filter(**filter_dict["filter"]),
+                    )
+                    print(
+                        f"[VECTOR_STORE] Số điểm khớp với filter: {count_results.count}"
+                    )
+            except Exception as count_e:
+                print(f"[VECTOR_STORE] Lỗi khi đếm số điểm: {str(count_e)}")
+
+            # Xóa điểm từ collection theo filter
+            print(f"[VECTOR_STORE] Thực hiện xóa điểm theo filter...")
+            result = self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=models.FilterSelector(filter=filter_dict["filter"]),
+            )
+
+            print(f"[VECTOR_STORE] Kết quả xóa điểm: {result}")
+
+            # Sau khi xóa, kiểm tra số lượng điểm còn lại
+            try:
+                info_after = self.client.get_collection(self.collection_name)
+                points_after = info_after.points_count
+                points_deleted = points_before - points_after
+                print(f"[VECTOR_STORE] Số điểm sau khi xóa: {points_after}")
+                print(f"[VECTOR_STORE] Số điểm đã xóa: {points_deleted}")
+                return True, f"Đã xóa {points_deleted} điểm"
+            except Exception as e:
+                print(f"[VECTOR_STORE] Lỗi khi kiểm tra sau khi xóa: {str(e)}")
+                return True, f"Đã xóa {result.deleted} điểm"
+
+        except Exception as e:
+            print(f"[VECTOR_STORE] Lỗi khi xóa điểm theo filter: {str(e)}")
+            import traceback
+
+            traceback_str = traceback.format_exc()
+            print(f"[VECTOR_STORE] Traceback: {traceback_str}")
+            return False, f"Lỗi khi xóa điểm theo filter: {str(e)}"

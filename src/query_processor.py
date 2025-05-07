@@ -137,6 +137,9 @@ class QueryProcessor:
         # Danh sách các câu truy vấn mở rộng
         expanded_queries = [original_query]  # Luôn giữ truy vấn gốc
 
+        # Giới hạn số lượng biến thể tạo ra là 3 (bao gồm cả truy vấn gốc)
+        max_variations = 3
+
         # 1. Xử lý từ đồng nghĩa và viết tắt
         for term, syns in self.synonyms.items():
             # Kiểm tra xem term có nằm trong query không
@@ -146,9 +149,16 @@ class QueryProcessor:
                     new_query = re.sub(r"\b" + re.escape(term) + r"\b", syn, query)
                     if new_query != query and new_query not in expanded_queries:
                         expanded_queries.append(new_query)
+                        # Kiểm tra xem đã đủ số lượng biến thể chưa
+                        if len(expanded_queries) >= max_variations:
+                            break
+                # Nếu đã đủ số lượng biến thể, dừng luôn vòng lặp ngoài
+                if len(expanded_queries) >= max_variations:
+                    break
 
         # 2. Sử dụng model để tạo các biến thể dựa trên ngữ nghĩa
-        if self.use_model and self.model:
+        # Chỉ thực hiện nếu chưa đủ số lượng biến thể
+        if len(expanded_queries) < max_variations and self.use_model and self.model:
             try:
                 # Lấy embedding của truy vấn gốc
                 query_embedding = self.model.encode(query)
@@ -166,14 +176,28 @@ class QueryProcessor:
                 variation_embeddings = self.model.encode(variations)
                 similarities = util.cos_sim(query_embedding, variation_embeddings)[0]
 
-                for i, variation in enumerate(variations):
+                # Sắp xếp các biến thể theo độ tương đồng
+                sorted_variations = [
+                    (variations[i], similarities[i]) for i in range(len(variations))
+                ]
+                sorted_variations.sort(key=lambda x: x[1], reverse=True)
+
+                # Chỉ lấy đủ số biến thể còn thiếu
+                for variation, similarity in sorted_variations:
                     if (
-                        similarities[i] > 0.7 and variation not in expanded_queries
+                        similarity > 0.7 and variation not in expanded_queries
                     ):  # Ngưỡng tương đồng
                         expanded_queries.append(variation)
+                        # Kiểm tra xem đã đủ số lượng biến thể chưa
+                        if len(expanded_queries) >= max_variations:
+                            break
 
             except Exception as e:
                 print(f"Lỗi khi tạo biến thể bằng model: {str(e)}")
+
+        # Cắt bớt nếu vượt quá số lượng quy định
+        if len(expanded_queries) > max_variations:
+            expanded_queries = expanded_queries[:max_variations]
 
         print(
             f"Đã mở rộng truy vấn '{original_query}' thành {len(expanded_queries)} biến thể"
