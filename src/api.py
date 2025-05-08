@@ -49,7 +49,7 @@ app.add_middleware(
 )
 
 # Khởi tạo hệ thống RAG
-rag_system = AdvancedDatabaseRAG()
+rag_system = AdvancedDatabaseRAG(enable_query_expansion=False)
 
 # Đường dẫn lưu dữ liệu tạm thời
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "src/data")
@@ -76,6 +76,9 @@ class AnswerResponse(BaseModel):
     search_method: str
     total_reranked: Optional[int] = None  # Thêm trường hiển thị số lượng kết quả rerank
     filtered_sources: Optional[List[str]] = None  # Danh sách các file nguồn đã được lọc
+    reranker_model: Optional[str] = None  # Model reranker được sử dụng
+    processing_time: Optional[float] = None  # Thời gian xử lý (giây)
+    debug_info: Optional[Dict] = None  # Thông tin debug bổ sung
 
 
 class SQLAnalysisRequest(BaseModel):
@@ -305,7 +308,20 @@ async def ask_question(
         # Tạo ID cho câu hỏi
         question_id = f"q_{uuid4().hex[:8]}"
 
-        # Gọi hệ thống RAG
+        # Gọi hệ thống RAG với số lượng kết quả tăng lên
+        print(f"Xử lý câu hỏi: '{request.question}'")
+        print(f"Phương pháp tìm kiếm: {request.search_type}")
+        print(f"Alpha: {request.alpha}")
+
+        # Lấy thông tin model reranker đang sử dụng
+        reranker_info = getattr(
+            rag_system.search_manager, "reranker_model_name", "unknown"
+        )
+
+        # Bắt đầu đo thời gian xử lý
+        start_time = time.time()
+
+        # Gọi RAG để lấy kết quả
         result = rag_system.query_with_sources(
             request.question,
             search_type=request.search_type,
@@ -313,8 +329,23 @@ async def ask_question(
             sources=request.sources,
         )
 
-        # Thêm question_id vào kết quả
+        # Kết thúc đo thời gian
+        elapsed_time = time.time() - start_time
+
+        # Thêm question_id và thông tin reranker vào kết quả
         result["question_id"] = question_id
+        result["reranker_model"] = reranker_info
+        result["processing_time"] = round(elapsed_time, 2)
+
+        # Thêm thông tin số lượng kết quả được rerank vào debug info
+        debug_info = {
+            "search_type": request.search_type,
+            "alpha": request.alpha,
+            "reranker_model": reranker_info,
+            "total_reranked": result.get("total_reranked", 0),
+            "elapsed_time_seconds": round(elapsed_time, 2),
+        }
+        result["debug_info"] = debug_info
 
         # Giới hạn số lượng nguồn trả về theo tham số nếu người dùng yêu cầu
         if max_sources and result["sources"] and len(result["sources"]) > max_sources:
@@ -328,6 +359,7 @@ async def ask_question(
             "sources": request.sources,
             "timestamp": datetime.now().isoformat(),
             "answer": result["answer"],
+            "debug_info": debug_info,
         }
 
         return result

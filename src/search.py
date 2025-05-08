@@ -37,11 +37,31 @@ class SearchManager:
 
         # Tải trước model reranking để tránh tải lại mỗi lần cần rerank
         print("Đang tải model reranking...")
-        reranker_model = os.getenv(
-            "RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"
-        )
-        self.reranker = CrossEncoder(reranker_model)
-        print(f"Đã tải xong model reranking: {reranker_model}")
+
+        # Sử dụng model tốt hơn cho reranking tài liệu học thuật/kỹ thuật
+        # Một số model phù hợp:
+        # - "cross-encoder/ms-marco-MiniLM-L-12-v2" (tốt hơn L-6)
+        # - "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1" (hỗ trợ đa ngôn ngữ tốt, phù hợp tiếng Việt)
+        # - "cross-encoder/stsb-roberta-large" (chất lượng cao cho semantic similarity)
+        # - "vblagoje/dres-cross-encoder-roberta-base" (được tinh chỉnh cho tìm kiếm tài liệu)
+
+        # Cho phép cấu hình model thông qua biến môi trường
+        default_reranker_model = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"  # Mặc định là model đa ngôn ngữ tốt
+        reranker_model = os.getenv("RERANKER_MODEL", default_reranker_model)
+
+        try:
+            self.reranker = CrossEncoder(reranker_model)
+            print(f"Đã tải xong model reranking: {reranker_model}")
+        except Exception as e:
+            print(f"Lỗi khi tải model reranking {reranker_model}: {str(e)}")
+            print(f"Sử dụng model dự phòng...")
+            # Sử dụng model dự phòng nếu có lỗi
+            backup_model = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+            self.reranker = CrossEncoder(backup_model)
+            print(f"Đã tải model dự phòng: {backup_model}")
+
+        # Lưu thông tin về model đang sử dụng
+        self.reranker_model_name = reranker_model
 
     def _try_load_bm25_index(self):
         """Thử tải BM25 index từ file nếu tồn tại"""
@@ -337,7 +357,7 @@ class SearchManager:
         return sorted_results[:k]
 
     def rerank_results(self, query: str, results: List[Dict]) -> List[Dict]:
-        """Tái xếp hạng kết quả sử dụng cross-encoder"""
+        """Tái xếp hạng kết quả sử dụng cross-encoder và metadata phong phú"""
         if not results:
             return results
 
@@ -345,8 +365,124 @@ class SearchManager:
         pairs = [(query, result["text"]) for result in results]
         scores = self.reranker.predict(pairs)
 
+        # Nhận dạng loại truy vấn (definition, syntax, example, etc.)
+        query_type = self._detect_query_type(query)
+        print(f"Loại truy vấn được phát hiện: {query_type}")
+
         # Cập nhật điểm số và sắp xếp lại
         for idx, result in enumerate(results):
-            result["rerank_score"] = float(scores[idx])
+            # Điểm gốc từ reranker
+            base_score = float(scores[idx])
+            result["rerank_score"] = base_score
+
+            # Tăng điểm dựa trên metadata phong phú nếu phù hợp với loại truy vấn
+            metadata = result.get("metadata", {})
+            score_boost = 0.0
+
+            # Tăng trọng số cho các chunk phù hợp với loại truy vấn
+            if query_type == "definition" and metadata.get("chứa_định_nghĩa", False):
+                score_boost += 0.2  # Tăng 20%
+
+            elif query_type == "syntax" and metadata.get("chứa_cú_pháp", False):
+                score_boost += 0.25  # Tăng 25%
+
+                # Tăng thêm điểm cho các loại cú pháp SQL cụ thể
+                if "SELECT" in query and metadata.get("chứa_cú_pháp_select", False):
+                    score_boost += 0.1
+                elif "JOIN" in query and metadata.get("chứa_cú_pháp_join", False):
+                    score_boost += 0.1
+                elif ("CREATE" in query or "ALTER" in query) and metadata.get(
+                    "chứa_cú_pháp_ddl", False
+                ):
+                    score_boost += 0.1
+                elif (
+                    "INSERT" in query or "UPDATE" in query or "DELETE" in query
+                ) and metadata.get("chứa_cú_pháp_dml", False):
+                    score_boost += 0.1
+
+            elif query_type == "example" and metadata.get("chứa_mẫu_code", False):
+                score_boost += 0.2  # Tăng 20%
+
+            # Tăng điểm cho chunk có bảng nếu truy vấn liên quan đến tổ chức dữ liệu
+            if ("bảng" in query.lower() or "table" in query.lower()) and metadata.get(
+                "chứa_bảng", False
+            ):
+                score_boost += 0.15  # Tăng 15%
+
+            # Áp dụng điểm tăng thêm
+            if score_boost > 0:
+                result["metadata_boost"] = score_boost  # Lưu giá trị tăng để debug
+                result["rerank_score"] = base_score * (
+                    1 + score_boost
+                )  # Tăng theo phần trăm
+
+            # In thông tin boost để debug
+            if score_boost > 0:
+                print(
+                    f"Tăng điểm {score_boost:.2f} cho chunk có metadata phù hợp: {metadata}"
+                )
 
         return sorted(results, key=lambda x: x["rerank_score"], reverse=True)
+
+    def _detect_query_type(self, query: str) -> str:
+        """Phát hiện loại truy vấn: định nghĩa, cú pháp, hoặc ví dụ"""
+        query_lower = query.lower()
+
+        # Phát hiện truy vấn định nghĩa
+        definition_patterns = [
+            r"\b(định nghĩa|khái niệm|là gì|what is|define|mean by)\b",
+            r"\b(nghĩa của|ý nghĩa|meaning of)\b",
+        ]
+
+        # Phát hiện truy vấn cú pháp
+        syntax_patterns = [
+            r"\b(cú pháp|syntax|format|khai báo|declaration|statement)\b",
+            r"\b(sử dụng|cách sử dụng|usage|how to use)\b",
+            r"\b(SELECT|CREATE|ALTER|INSERT|UPDATE|DELETE)\b.*\b(như thế nào|ra sao|thế nào)\b",
+            r"\b(viết|write)\b.*\b(câu lệnh|lệnh|command|statement)\b",
+        ]
+
+        # Phát hiện truy vấn ví dụ
+        example_patterns = [
+            r"\b(ví dụ|minh họa|example|demonstrate|sample|mẫu)\b",
+            r"\b(show me|cho xem)\b",
+        ]
+
+        # Kiểm tra theo từng loại pattern
+        for pattern in definition_patterns:
+            if re.search(pattern, query_lower):
+                return "definition"
+
+        for pattern in syntax_patterns:
+            if re.search(pattern, query_lower):
+                return "syntax"
+
+        for pattern in example_patterns:
+            if re.search(pattern, query_lower):
+                return "example"
+
+        # Kiểm tra các từ khóa SQL cụ thể
+        sql_keywords = [
+            "SELECT",
+            "FROM",
+            "WHERE",
+            "JOIN",
+            "GROUP BY",
+            "HAVING",
+            "ORDER BY",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "CREATE",
+            "ALTER",
+            "DROP",
+        ]
+
+        for keyword in sql_keywords:
+            if keyword in query.upper():
+                return (
+                    "syntax"  # Nếu truy vấn chứa từ khóa SQL, coi như truy vấn cú pháp
+                )
+
+        # Mặc định trả về general nếu không phát hiện loại cụ thể
+        return "general"

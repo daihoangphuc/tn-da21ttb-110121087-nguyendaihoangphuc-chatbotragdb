@@ -12,8 +12,37 @@ from typing import List, Dict, Optional, Tuple, Any
 class DocumentProcessor:
     """Lớp quản lý việc tải và xử lý tài liệu"""
 
-    def __init__(self, chunk_size=800, chunk_overlap=150, enable_layout_detection=True):
+    def __init__(
+        self, chunk_size=None, chunk_overlap=None, enable_layout_detection=True
+    ):
         """Khởi tạo bộ xử lý tài liệu với kích thước chunk nhỏ hơn để tìm kiếm chính xác hơn"""
+        # Đọc cấu hình từ biến môi trường nếu có
+        default_chunk_size = 800
+        default_chunk_overlap = 150
+
+        # Đọc từ biến môi trường hoặc sử dụng các giá trị được cung cấp
+        try:
+            chunk_size_env = os.getenv("CHUNK_SIZE")
+            if chunk_size_env:
+                chunk_size = int(chunk_size_env)
+            else:
+                chunk_size = chunk_size or default_chunk_size
+
+            chunk_overlap_env = os.getenv("CHUNK_OVERLAP")
+            if chunk_overlap_env:
+                chunk_overlap = int(chunk_overlap_env)
+            else:
+                chunk_overlap = chunk_overlap or default_chunk_overlap
+
+            print(f"Cấu hình chunk: size={chunk_size}, overlap={chunk_overlap}")
+        except ValueError as e:
+            print(f"Lỗi khi đọc cấu hình chunk từ biến môi trường: {e}")
+            print(
+                f"Sử dụng giá trị mặc định: size={default_chunk_size}, overlap={default_chunk_overlap}"
+            )
+            chunk_size = default_chunk_size
+            chunk_overlap = default_chunk_overlap
+
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
@@ -229,7 +258,7 @@ class DocumentProcessor:
                 return None
         else:
             print("Đã có mô hình layout detection trong bộ nhớ")
-            return self._layout_model
+        return self._layout_model
 
     def detect_layout(self, image_path: str) -> Optional[List[Dict]]:
         """Phát hiện bố cục (layout) từ ảnh tài liệu"""
@@ -525,6 +554,11 @@ class DocumentProcessor:
                     "page", f"section_{i+1}"
                 )
 
+            # Phát hiện và thêm metadata phong phú
+            enhanced_metadata = self._enhance_chunk_metadata(
+                chunk_text, enhanced_metadata
+            )
+
             chunks.append(
                 {
                     "id": str(i),
@@ -625,6 +659,15 @@ class DocumentProcessor:
             else:
                 chunks = self._chunk_by_size(text, metadata)
 
+            # Thêm metadata phong phú cho từng chunk
+            for chunk in chunks:
+                chunk_text = chunk.get("text", "")
+                chunk_metadata = chunk.get("metadata", {})
+                enhanced_metadata = self._enhance_chunk_metadata(
+                    chunk_text, chunk_metadata
+                )
+                chunk["metadata"] = enhanced_metadata
+
             processed_chunks.extend(chunks)
 
         return processed_chunks
@@ -657,6 +700,74 @@ class DocumentProcessor:
 
         # Mặc định nếu không phân loại được
         return "general"
+
+    def _enhance_chunk_metadata(self, text: str, metadata: Dict) -> Dict:
+        """Phát hiện và thêm metadata phong phú cho chunk như định nghĩa, cú pháp, mẫu code"""
+        enhanced_metadata = dict(metadata)
+        text_lower = text.lower()
+
+        # Phát hiện định nghĩa
+        definition_patterns = [
+            r"\b(là|được định nghĩa là|được hiểu là|có nghĩa là|refers to|is defined as|is)\b",
+            r"^(định nghĩa|definition|khái niệm|concept)[\s\:]",
+            r"\b(nghĩa là|có nghĩa là|tức là|means|meaning)\b",
+        ]
+
+        # Phát hiện cú pháp
+        syntax_patterns = [
+            r"\b(cú pháp|syntax|format|khai báo|declaration|statement)\b",
+            r"(SELECT|CREATE|ALTER|DROP|INSERT|UPDATE|DELETE)[\s\w]+\b(FROM|TABLE|INTO|VALUES|SET|WHERE)\b",
+            r"(sử dụng|usage|how to use|cách sử dụng)\s+.+\s+(lệnh|command|statement)",
+            r"(general|standard|chuẩn)\s+(format|syntax|form)",
+        ]
+
+        # Phát hiện mẫu code
+        code_patterns = [
+            r"```\w*\n[\s\S]*?\n```",  # Markdown code blocks
+            r"(?:SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)[\s\S]*?;",
+            r"(?:^|\n)(?:  |\t)[\s\S]+(?:\n|$)",  # Indented code blocks
+            r"(?:Ví dụ|Example|For example)[\s\:][\s\S]*?(?:SELECT|INSERT|UPDATE|DELETE)[\s\S]*?;",
+        ]
+
+        # Kiểm tra và đánh dấu metadata
+        for pattern in definition_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                enhanced_metadata["chứa_định_nghĩa"] = True
+                break
+
+        for pattern in syntax_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                enhanced_metadata["chứa_cú_pháp"] = True
+                break
+
+        for pattern in code_patterns:
+            if re.search(pattern, text, re.MULTILINE):
+                enhanced_metadata["chứa_mẫu_code"] = True
+                break
+
+        # Phát hiện các từ khóa quan trọng về cú pháp SQL
+        if "SELECT" in text and "FROM" in text:
+            enhanced_metadata["chứa_cú_pháp_select"] = True
+
+        if "JOIN" in text and ("ON" in text or "USING" in text):
+            enhanced_metadata["chứa_cú_pháp_join"] = True
+
+        if ("CREATE" in text and "TABLE" in text) or (
+            "ALTER" in text and "TABLE" in text
+        ):
+            enhanced_metadata["chứa_cú_pháp_ddl"] = True
+
+        if "INSERT" in text or "UPDATE" in text or "DELETE" in text:
+            enhanced_metadata["chứa_cú_pháp_dml"] = True
+
+        # Phát hiện các bảng và hình vẽ
+        if "|" in text and "-" in text and re.search(r"\|\s*-+\s*\|", text):
+            enhanced_metadata["chứa_bảng"] = True
+
+        if re.search(r"!\[.*?\]\(.*?\)", text) or re.search(r"<img.*?>", text):
+            enhanced_metadata["chứa_hình_ảnh"] = True
+
+        return enhanced_metadata
 
     def load_document_with_category(
         self, file_path: str, category: str = None
@@ -712,13 +823,18 @@ class DocumentProcessor:
             # Chuyển đổi documents từ LangChain sang định dạng dict
             processed_chunks = []
             for idx, doc in enumerate(documents):
+                chunk_metadata = doc.metadata
+                # Thêm metadata phong phú
+                enhanced_metadata = self._enhance_chunk_metadata(
+                    doc.page_content, chunk_metadata
+                )
                 processed_chunks.append(
                     {
                         "id": str(idx),
                         "text": doc.page_content,
-                        "metadata": doc.metadata,
-                        "source": doc.metadata.get("source", "unknown"),
-                        "category": doc.metadata.get("category", "general"),
+                        "metadata": enhanced_metadata,
+                        "source": enhanced_metadata.get("source", "unknown"),
+                        "category": enhanced_metadata.get("category", "general"),
                     }
                 )
             return processed_chunks
@@ -753,13 +869,18 @@ class DocumentProcessor:
                 # Chuyển đổi documents từ LangChain sang định dạng dict
                 processed_chunks = []
                 for idx, doc in enumerate(documents):
+                    chunk_metadata = doc.metadata
+                    # Thêm metadata phong phú
+                    enhanced_metadata = self._enhance_chunk_metadata(
+                        doc.page_content, chunk_metadata
+                    )
                     processed_chunks.append(
                         {
                             "id": str(idx),
                             "text": doc.page_content,
-                            "metadata": doc.metadata,
-                            "source": doc.metadata.get("source", "unknown"),
-                            "category": doc.metadata.get("category", "general"),
+                            "metadata": enhanced_metadata,
+                            "source": enhanced_metadata.get("source", "unknown"),
+                            "category": enhanced_metadata.get("category", "general"),
                         }
                     )
                 print(
@@ -858,13 +979,18 @@ class DocumentProcessor:
                 # Chuyển đổi documents
                 processed_chunks = []
                 for idx, doc in enumerate(documents):
+                    chunk_metadata = doc.metadata
+                    # Thêm metadata phong phú
+                    enhanced_metadata = self._enhance_chunk_metadata(
+                        doc.page_content, chunk_metadata
+                    )
                     processed_chunks.append(
                         {
                             "id": str(idx),
                             "text": doc.page_content,
-                            "metadata": doc.metadata,
-                            "source": doc.metadata.get("source", "unknown"),
-                            "category": doc.metadata.get("category", "general"),
+                            "metadata": enhanced_metadata,
+                            "source": enhanced_metadata.get("source", "unknown"),
+                            "category": enhanced_metadata.get("category", "general"),
                         }
                     )
                 return processed_chunks
@@ -895,11 +1021,14 @@ class DocumentProcessor:
                     "chunk_type": chunk["type"],
                 }
 
+                # Thêm metadata phong phú
+                enhanced_metadata = self._enhance_chunk_metadata(text, chunk_metadata)
+
                 processed_chunks.append(
                     {
                         "id": str(i),
                         "text": text,
-                        "metadata": chunk_metadata,
+                        "metadata": enhanced_metadata,
                         "source": base_metadata["source"],
                         "category": base_metadata["category"],
                     }
@@ -915,13 +1044,18 @@ class DocumentProcessor:
             # Chuyển đổi documents từ LangChain sang định dạng dict
             processed_chunks = []
             for idx, doc in enumerate(documents):
+                chunk_metadata = doc.metadata
+                # Thêm metadata phong phú
+                enhanced_metadata = self._enhance_chunk_metadata(
+                    doc.page_content, chunk_metadata
+                )
                 processed_chunks.append(
                     {
                         "id": str(idx),
                         "text": doc.page_content,
-                        "metadata": doc.metadata,
-                        "source": doc.metadata.get("source", "unknown"),
-                        "category": doc.metadata.get("category", "general"),
+                        "metadata": enhanced_metadata,
+                        "source": enhanced_metadata.get("source", "unknown"),
+                        "category": enhanced_metadata.get("category", "general"),
                     }
                 )
 
