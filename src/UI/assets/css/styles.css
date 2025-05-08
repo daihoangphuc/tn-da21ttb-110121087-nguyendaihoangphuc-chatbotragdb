@@ -1642,4 +1642,29 @@ h3 {
     flex-direction: column;
     align-items: flex-start;
     gap: 0.25rem;
+}
+
+/* Định dạng cho hiệu ứng typing */
+.assistant-typing-content {
+    position: relative;
+    min-height: 24px;
+}
+
+.assistant-typing-content::after {
+    content: '|';
+    position: absolute;
+    display: inline-block;
+    animation: blink 0.7s infinite;
+    font-weight: bold;
+    color: var(--foreground);
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+
+/* Ẩn cursor khi đã đánh máy xong hết nội dung */
+.assistant-typing-content.typing-done::after {
+    display: none;
 } 

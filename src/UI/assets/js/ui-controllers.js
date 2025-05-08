@@ -605,17 +605,28 @@ class ConversationController {
                     ${formattedContent}
                 </div>
             `;
+            messagesContainer.appendChild(messageElement);
         } else {
+            // Với tin nhắn từ trợ lý, chỉ hiển thị avatar trước
             messageElement.innerHTML = `
                 ${avatar}
                 <div class="message-content">
-                    ${formattedContent}
+                    <div class="assistant-typing-content"></div>
                     ${this.renderSourcesHTML(sources)}
                 </div>
             `;
+            
+            messagesContainer.appendChild(messageElement);
+            
+            // Lấy phần nội dung để thêm hiệu ứng đánh máy
+            const typingContent = messageElement.querySelector('.assistant-typing-content');
+            
+            // Sử dụng timeout nhỏ để đảm bảo DOM đã được cập nhật
+            setTimeout(() => {
+                // Áp dụng hiệu ứng đánh máy
+                this.typeWriterEffect(typingContent, formattedContent);
+            }, 100);
         }
-        
-        messagesContainer.appendChild(messageElement);
         
         // In log để debug
         console.log(`Đã render tin nhắn: ${message.role}, element class: ${messageElement.className}`);
@@ -636,21 +647,27 @@ class ConversationController {
                 });
             });
             
-            // Thêm event listeners cho nút copy code
-            const codeBlocks = messageElement.querySelectorAll('.code-block');
-            codeBlocks.forEach(block => {
-                const copyBtn = block.querySelector('.code-copy-btn');
-                const codeContent = block.querySelector('.code-content').textContent;
-                
-                copyBtn.addEventListener('click', () => {
-                    navigator.clipboard.writeText(codeContent);
-                    copyBtn.innerHTML = '<i class="fas fa-check"></i>';
-                    
-                    setTimeout(() => {
-                        copyBtn.innerHTML = '<i class="fas fa-copy"></i>';
-                    }, 2000);
-                });
-            });
+            // Thêm event listeners cho nút copy code sau khi đánh máy hoàn tất
+            if (message.role === 'assistant') {
+                setTimeout(() => {
+                    const codeBlocks = messageElement.querySelectorAll('.code-block');
+                    codeBlocks.forEach(block => {
+                        const copyBtn = block.querySelector('.code-copy-btn');
+                        if (copyBtn) {
+                            const codeContent = block.querySelector('.code-content')?.textContent || '';
+                            
+                            copyBtn.addEventListener('click', () => {
+                                navigator.clipboard.writeText(codeContent);
+                                copyBtn.innerHTML = '<i class="fas fa-check"></i>';
+                                
+                                setTimeout(() => {
+                                    copyBtn.innerHTML = '<i class="fas fa-copy"></i>';
+                                }, 2000);
+                            });
+                        }
+                    });
+                }, 500); // Đợi một chút sau khi nội dung đã được đánh máy
+            }
         }
     }
 
@@ -859,6 +876,91 @@ class ConversationController {
     scrollToBottom() {
         const messagesContainer = document.getElementById('messagesContainer');
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    // Thêm hàm mới cho hiệu ứng đánh máy
+    typeWriterEffect(element, html) {
+        // Tạo một div tạm thời để phân tích HTML
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = html;
+        
+        // Xử lý từng phần tử HTML
+        this.processTypeWriterNodes(element, tempDiv, 20);
+    }
+    
+    // Hàm đệ quy để xử lý các node con
+    processTypeWriterNodes(targetElement, sourceParent, speed = 20) {
+        // Sao chép tất cả các node con
+        const nodes = Array.from(sourceParent.childNodes);
+        let currentIndex = 0;
+        
+        const processNextNode = () => {
+            if (currentIndex >= nodes.length) {
+                // Đã xử lý xong tất cả các node
+                // Thêm class typing-done để ẩn cursor
+                targetElement.classList.add('typing-done');
+                
+                // Cuộn xuống tin nhắn mới nhất
+                this.scrollToBottom();
+                return;
+            }
+            
+            const currentNode = nodes[currentIndex];
+            currentIndex++;
+            
+            if (currentNode.nodeType === Node.TEXT_NODE) {
+                // Nếu là text node, hiển thị từng ký tự một
+                this.typeWriterText(targetElement, currentNode.textContent, speed, processNextNode);
+            } else if (currentNode.nodeType === Node.ELEMENT_NODE) {
+                // Nếu là element node, tạo element tương ứng và xử lý các node con
+                const newElement = document.createElement(currentNode.tagName);
+                
+                // Sao chép tất cả các thuộc tính
+                Array.from(currentNode.attributes).forEach(attr => {
+                    newElement.setAttribute(attr.name, attr.value);
+                });
+                
+                // Thêm element mới vào target
+                targetElement.appendChild(newElement);
+                
+                // Xử lý các node con của element này
+                this.processTypeWriterNodes(newElement, currentNode, speed);
+                
+                // Tiếp tục với node tiếp theo
+                setTimeout(processNextNode, 10);
+            } else {
+                // Các loại node khác, bỏ qua và tiếp tục
+                processNextNode();
+            }
+        };
+        
+        // Bắt đầu xử lý node đầu tiên
+        processNextNode();
+    }
+    
+    // Hàm hiển thị từng ký tự text
+    typeWriterText(element, text, speed, callback) {
+        let index = 0;
+        
+        // Nếu text rỗng, gọi callback ngay
+        if (!text || text.length === 0) {
+            if (callback) callback();
+            return;
+        }
+        
+        // Hiển thị từng ký tự một
+        const typeNextChar = () => {
+            if (index < text.length) {
+                element.appendChild(document.createTextNode(text.charAt(index)));
+                index++;
+                setTimeout(typeNextChar, speed);
+            } else if (callback) {
+                // Hoàn thành việc hiển thị text, gọi callback
+                callback();
+            }
+        };
+        
+        typeNextChar();
     }
 }
 
