@@ -19,7 +19,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-.cursor/
+.cursor/rules
 MANIFEST
 
 # Môi trường ảo
@@ -33,7 +33,7 @@ src/data/*
 src/feedback/*
 !src/feedback/.gitkeep
 .cursorignore
-
+conversation_history/*
 
 # Qdrant
 .qdrant/
