@@ -495,11 +495,6 @@ class ConversationController {
                         mobileNavController.switchPanel('sourceView');
                     }
                 }
-                
-                // Kích hoạt lại input
-                messageInput.disabled = false;
-                sendButton.disabled = false;
-                messageInput.focus();
             });
             
             // Xử lý khi có lỗi
@@ -520,10 +515,17 @@ class ConversationController {
                     this.updateMessageContent(`${streamResponse}\n\nLỗi: ${error.message}. Kết nối bị ngắt.`, true);
                 }
                 
-                // Kích hoạt lại input
-                messageInput.disabled = false;
-                sendButton.disabled = false;
-                messageInput.focus();
+                // Tạo một độ trễ ngắn để đảm bảo tin nhắn lỗi đã được hiển thị hoàn tất
+                setTimeout(() => {
+                    // Kích hoạt lại input
+                    const messageInput = document.getElementById('messageInput');
+                    const sendButton = document.getElementById('sendButton');
+                    if (messageInput && sendButton) {
+                        messageInput.disabled = false;
+                        sendButton.disabled = messageInput.value.trim() === '';
+                        messageInput.focus();
+                    }
+                }, 500); // Đợi 500ms để đảm bảo UI đã được cập nhật
                 
                 // Hiển thị thông báo lỗi trong 5 giây
                 const apiAlert = document.getElementById('apiAlert');
@@ -545,10 +547,17 @@ class ConversationController {
             // Hiển thị tin nhắn lỗi
             this.addMessage(`Đã xảy ra lỗi khi xử lý truy vấn của bạn: ${error.message}. Vui lòng thử lại sau.`, 'assistant');
             
-            // Kích hoạt lại input
-            messageInput.disabled = false;
-            sendButton.disabled = false;
-            messageInput.focus();
+            // Tạo một độ trễ ngắn để đảm bảo tin nhắn lỗi đã được hiển thị hoàn tất
+            setTimeout(() => {
+                // Kích hoạt lại input
+                const messageInput = document.getElementById('messageInput');
+                const sendButton = document.getElementById('sendButton');
+                if (messageInput && sendButton) {
+                    messageInput.disabled = false;
+                    sendButton.disabled = messageInput.value.trim() === '';
+                    messageInput.focus();
+                }
+            }, 500); // Đợi 500ms để đảm bảo UI đã được cập nhật
         }
     }
 
@@ -665,6 +674,15 @@ class ConversationController {
                                 });
                             }
                         });
+                        
+                        // Kích hoạt lại input sau khi quá trình hiển thị hoàn tất
+                        const messageInput = document.getElementById('messageInput');
+                        const sendButton = document.getElementById('sendButton');
+                        if (messageInput && sendButton) {
+                            messageInput.disabled = false;
+                            sendButton.disabled = messageInput.value.trim() === '';
+                            messageInput.focus();
+                        }
                     }
                 };
                 

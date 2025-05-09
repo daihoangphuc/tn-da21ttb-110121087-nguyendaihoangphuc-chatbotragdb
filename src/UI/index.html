@@ -97,10 +97,20 @@
                             <div class="conversation-meta" id="conversationMeta">Hỏi đáp với tài liệu</div>
                         </div>
                     </div>
-                    <button class="btn btn-outline btn-sm mobile-only" id="viewSourcesBtn">
-                        <i class="fas fa-layer-group"></i>
-                        <span>Xem nguồn</span>
-                    </button>
+                    <div class="header-actions">
+                        <select id="search-type" class="search-type-select" title="Chọn phương thức tìm kiếm">
+                            <option value="hybrid">Hybrid</option>
+                            <option value="semantic">Semantic</option>
+                            <option value="keyword">Keyword</option>
+                        </select>
+                        <button class="btn btn-ghost btn-sm" id="clear-chat-btn" title="Xóa lịch sử hội thoại hiện tại">
+                            <i class="fas fa-broom"></i>
+                        </button>
+                        <button class="btn btn-outline btn-sm mobile-only" id="viewSourcesBtn">
+                            <i class="fas fa-layer-group"></i>
+                            <span>Xem nguồn</span>
+                        </button>
+                    </div>
                 </div>
                 <div class="messages-container" id="messagesContainer">
                     <div class="welcome-message">
@@ -237,8 +247,9 @@
             }
         });
     </script>
-    <script src="assets/js/main.js"></script>
     <script src="assets/js/api-service.js"></script>
     <script src="assets/js/ui-controllers.js"></script>
+    <script src="assets/js/chat.js"></script>
+    <script src="assets/js/main.js"></script>
 </body>
 </html> 

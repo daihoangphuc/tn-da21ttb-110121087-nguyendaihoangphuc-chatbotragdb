@@ -439,3 +439,161 @@ class PromptManager:
                 return matches.group(0).strip()
 
         return ""
+
+    def create_prompt_with_history(
+        self,
+        query: str,
+        context: List[Dict],
+        question_type: str = None,
+        conversation_history: str = "",
+    ) -> str:
+        """Tạo prompt phù hợp với loại câu hỏi, kèm theo lịch sử hội thoại"""
+        # Nếu không có loại câu hỏi, hãy phân loại
+        if question_type is None:
+            question_type = self.classify_question(query)
+
+        # Tạo văn bản ngữ cảnh từ các tài liệu đã truy xuất
+        context_str = "\n\n".join(
+            [
+                f"Source: {doc['metadata'].get('source', 'unknown')}\n"
+                + f"Page/Position: {doc['metadata'].get('page', 'unknown')}\n"
+                + f"Section: {doc['metadata'].get('chunk_type', 'unknown')}\n"
+                + f"Category: {doc['metadata'].get('category', 'general')}\n"
+                + f"Content: {doc['text']}"
+                for doc in context
+            ]
+        )
+
+        # Thêm hướng dẫn chặt chẽ để đảm bảo độ trung thực
+        strict_instruction = """
+        HƯỚNG DẪN NGHIÊM NGẶT:
+        1. CHỈ sử dụng thông tin từ các tài liệu được cung cấp ở trên để trả lời.
+        2. KHÔNG được thêm vào bất kỳ thông tin nào từ kiến thức cá nhân, trừ khi để giải thích bối cảnh hoặc đơn giản hóa.
+        3. Nếu tài liệu không chứa đủ thông tin để trả lời đầy đủ, hãy chỉ trả lời phần bạn CÓ THỂ trả lời từ tài liệu và nêu rõ phần nào chưa được đề cập.
+        4. Nếu tài liệu không chứa THÔNG TIN NÀO liên quan đến câu hỏi, hãy nói rõ "Tài liệu không chứa thông tin về chủ đề này."
+        5. Nêu rõ nguồn của từng phần thông tin trong câu trả lời bằng cách đề cập đến tên tài liệu, trang/vị trí, và phần cụ thể, ví dụ: [Tài liệu.pdf, Trang 5, Phần Table].
+        6. SỬ DỤNG NGỮ CẢNH CUỘC HỘI THOẠI để hiểu rõ hơn ý của người dùng, đặc biệt là các đại từ như "nó", "chúng", "chức năng này".
+        """
+
+        # Thêm hướng dẫn về định dạng Markdown
+        markdown_instruction = """
+        QUY ĐỊNH ĐỊNH DẠNG PHẢN HỒI (QUAN TRỌNG - PHẢI TUÂN THỦ):
+        Bạn PHẢI định dạng câu trả lời theo các quy tắc sau:
+
+        1. TIÊU ĐỀ VÀ CẤU TRÚC:
+           - Sử dụng ## cho tiêu đề chính của câu trả lời
+           - Sử dụng ### cho các phần, mục nhỏ
+           - Mỗi phần phải có cấu trúc rõ ràng với tiêu đề riêng
+
+        2. MÃ SQL VÀ MÃ LỆNH (QUAN TRỌNG):
+           - LUÔN đặt mã SQL/code trong khối lệnh với 3 dấu backtick và chỉ định ngôn ngữ:
+             ```sql
+             SELECT * FROM customers WHERE customer_id = 1;
+             ```
+           - Đối với các truy vấn SQL phức tạp, PHẢI thêm chú thích vào các dòng quan trọng:
+             ```sql
+             SELECT c.customer_name, o.order_date
+             FROM customers c         -- Bảng khách hàng
+             JOIN orders o            -- Kết nối với bảng đơn hàng
+             ON c.customer_id = o.customer_id
+             WHERE o.order_amount > 1000;
+             ```
+
+        3. BẢNG (QUAN TRỌNG):
+           - Khi cần trình bày dữ liệu dạng bảng, LUÔN sử dụng cú pháp bảng Markdown:
+             | Cột 1 | Cột 2 | Cột 3 |
+             |-------|-------|-------|
+             | Dữ liệu 1 | Dữ liệu 2 | Dữ liệu 3 |
+           - PHẢI căn chỉnh các cột cho dễ đọc
+           - PHẢI có hàng ngăn cách tiêu đề và nội dung
+
+        4. DANH SÁCH VÀ LIỆT KÊ (QUAN TRỌNG):
+           - Sử dụng danh sách có số cho các bước tuần tự:
+             1. Bước thứ nhất
+             2. Bước thứ hai
+           - Sử dụng danh sách có dấu gạch đầu dòng cho các mục không theo thứ tự:
+             - Mục thứ nhất
+             - Mục thứ hai
+           - Sử dụng danh sách lồng nhau khi cần:
+             - Mục chính
+               - Mục con
+
+        5. NHẤN MẠNH (QUAN TRỌNG):
+           - Sử dụng **in đậm** cho các thuật ngữ quan trọng và điểm chính
+           - Sử dụng *in nghiêng* cho các nhấn mạnh nhẹ hoặc thuật ngữ tiếng nước ngoài
+           - Sử dụng `highlight` cho các tên biến, lệnh ngắn hoặc từ khóa SQL
+
+        6. TRÍCH DẪN (BẮT BUỘC):
+           - Khi trích dẫn thông tin PHẢI sử dụng định dạng: **[Nguồn: Tài liệu, Trang X, Phần Y]**
+           - Sử dụng ký hiệu > cho các trích dẫn dài từ tài liệu:
+             > Đây là đoạn trích dẫn từ tài liệu gốc...
+
+        7. SO SÁNH VÀ ĐỐI CHIẾU (QUAN TRỌNG):
+           - Khi so sánh hai hoặc nhiều đối tượng, PHẢI dùng bảng:
+             | Đặc điểm | MySQL | PostgreSQL |
+             |----------|-------|------------|
+             | Hiệu suất | Tốt với ứng dụng đọc nhiều | Tốt với ứng dụng ghi nhiều |
+           - Hoặc sử dụng danh sách có cấu trúc:
+             - **MySQL**: 
+               - Ưu điểm: dễ cài đặt, hiệu suất tốt với ứng dụng đọc nhiều
+               - Nhược điểm: hỗ trợ hạn chế cho các tính năng nâng cao
+        
+        QUAN TRỌNG: Bạn PHẢI tuân theo các quy tắc định dạng trên trong MỌI câu trả lời. Hãy đảm bảo câu trả lời của bạn có cấu trúc rõ ràng, dễ đọc và chuyên nghiệp.
+        """
+
+        # Hướng dẫn về xử lý ngữ cảnh cuộc hội thoại
+        context_instruction = f"""
+        NGỮ CẢNH CUỘC HỘI THOẠI:
+        Dưới đây là lịch sử cuộc hội thoại giữa người dùng và hệ thống trước câu hỏi hiện tại.
+        Sử dụng ngữ cảnh này để hiểu rõ hơn ý định của người dùng, đặc biệt là các đại từ chỉ định.
+        
+        {conversation_history}
+        
+        Hãy trả lời câu hỏi hiện tại "{query}" dựa trên ngữ cảnh cuộc hội thoại ở trên và thông tin từ tài liệu.
+        """
+
+        # Lấy template phù hợp hoặc sử dụng template chung
+        template = self.templates.get(question_type, self.templates["general"])
+
+        # Thêm hướng dẫn bổ sung cho các loại câu hỏi đặc biệt
+        additional_instructions = ""
+
+        # Thêm hướng dẫn bổ sung dựa trên loại câu hỏi
+        if question_type == "sql_analysis" or question_type == "sql_generation":
+            additional_instructions = """
+            HƯỚNG DẪN BỔ SUNG CHO SQL:
+            - PHẢI đặt tất cả mã SQL trong khối ```sql và ```
+            - PHẢI chú thích từng phần của truy vấn phức tạp
+            - PHẢI giải thích chi tiết cách hoạt động của mỗi mệnh đề SQL
+            - Nếu có thể, hãy cung cấp ví dụ kết quả đầu ra dạng bảng
+            """
+        elif question_type == "comparison":
+            additional_instructions = """
+            HƯỚNG DẪN BỔ SUNG CHO SO SÁNH:
+            - PHẢI trình bày phần so sánh dưới dạng bảng Markdown
+            - PHẢI liệt kê rõ ràng các điểm giống và khác nhau
+            - PHẢI tổng kết lại các điểm chính của so sánh
+            """
+        elif question_type == "example":
+            additional_instructions = """
+            HƯỚNG DẪN BỔ SUNG CHO VÍ DỤ:
+            - PHẢI trình bày mã và lệnh trong khối ```
+            - PHẢI giải thích chi tiết từng bước trong ví dụ
+            - PHẢI sử dụng tiêu đề rõ ràng để phân biệt các ví dụ khác nhau
+            """
+        elif question_type == "definition" or question_type == "theory":
+            additional_instructions = """
+            HƯỚNG DẪN BỔ SUNG CHO ĐỊNH NGHĨA/LÝ THUYẾT:
+            - PHẢI bắt đầu bằng định nghĩa ngắn gọn được in đậm
+            - PHẢI tổ chức nội dung theo tiêu đề và danh mục
+            - PHẢI sử dụng ví dụ để minh họa khi cần thiết
+            """
+
+        # Điền vào template và thêm các hướng dẫn
+        prompt = template.format(context=context_str, query=query)
+        prompt += strict_instruction
+        prompt += context_instruction
+        prompt += markdown_instruction
+        prompt += additional_instructions
+
+        return prompt

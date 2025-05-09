@@ -7,8 +7,102 @@ class APIService {
     constructor(baseUrl) {
         this.baseUrl = baseUrl;
         console.log('APIService khởi tạo với baseUrl:', baseUrl);
+        
+        // Session ID cho hội thoại hiện tại
+        this.session_id = localStorage.getItem('rag_session_id') || this._generateSessionId();
+        
+        console.log('Khởi tạo ApiService với session_id:', this.session_id);
     }
 
+    _generateSessionId() {
+        // Tạo UUID đơn giản
+        const sessionId = 'session_' + Math.random().toString(36).substring(2, 15);
+        localStorage.setItem('rag_session_id', sessionId);
+        return sessionId;
+    }
+    
+    // Lấy session ID hiện tại
+    getSessionId() {
+        return this.session_id;
+    }
+    
+    // Đặt session ID mới
+    setSessionId(sessionId) {
+        this.session_id = sessionId;
+        localStorage.setItem('rag_session_id', sessionId);
+    }
+    
+    // Tạo session ID mới và xóa session cũ
+    resetSession() {
+        // Trước tiên, thử xóa session cũ
+        this.clearConversation(this.session_id)
+            .then(() => console.log('Đã xóa session cũ:', this.session_id))
+            .catch(err => console.error('Lỗi khi xóa session cũ:', err));
+            
+        // Sau đó tạo session mới
+        this.session_id = this._generateSessionId();
+        console.log('Đã tạo session mới:', this.session_id);
+        return this.session_id;
+    }
+    
+    // Phương thức để xóa hội thoại
+    async clearConversation(sessionId = null) {
+        const sid = sessionId || this.session_id;
+        try {
+            const response = await fetch(`${this.baseUrl}/conversation/clear`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    session_id: sid
+                })
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Lỗi khi xóa hội thoại');
+            }
+            
+            return await response.json();
+        } catch (error) {
+            console.error('Lỗi khi gọi API xóa hội thoại:', error);
+            throw error;
+        }
+    }
+    
+    // Phương thức để lấy lịch sử hội thoại
+    async getConversationHistory(sessionId = null) {
+        const sid = sessionId || this.session_id;
+        try {
+            const response = await fetch(`${this.baseUrl}/conversation/history?session_id=${sid}`);
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Lỗi khi lấy lịch sử hội thoại');
+            }
+            
+            return await response.json();
+        } catch (error) {
+            console.error('Lỗi khi gọi API lấy lịch sử hội thoại:', error);
+            throw error;
+        }
+    }
+    
+    // Kiểm tra kết nối API
+    async checkConnection() {
+        try {
+            const response = await fetch(`${this.baseUrl}/`);
+            if (response.ok) {
+                return true;
+            }
+            return false;
+        } catch (error) {
+            console.error('Lỗi kết nối API:', error);
+            return false;
+        }
+    }
+    
     // Hàm helper chung để gọi API
     async fetchApi(endpoint, options = {}) {
         const url = `${this.baseUrl}${endpoint}`;
@@ -53,7 +147,8 @@ class APIService {
                 question, 
                 search_type: searchType,
                 alpha: 0.7,
-                sources: sources || []
+                sources: sources || [],
+                session_id: this.session_id
             }),
         });
     }
@@ -71,7 +166,8 @@ class APIService {
             question,
             search_type: searchType,
             alpha: 0.7,
-            sources: sources || []
+            sources: sources || [],
+            session_id: this.session_id
         };
         
         // Biến lưu trạng thái

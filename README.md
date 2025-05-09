@@ -20,6 +20,7 @@ D:/DATN/V2/
     ├── api.py               # Module API FastAPI
     ├── .env                 # File cấu hình biến môi trường
     ├── .env.example         # File mẫu cấu hình biến môi trường
+    ├── conversation_history/ # Thư mục lưu trữ lịch sử hội thoại
     ├── UI/                  # Thư mục giao diện người dùng
     │   ├── index.html       # Trang chính của ứng dụng web
     │   └── assets/          # Thư mục tài nguyên
@@ -71,6 +72,22 @@ Hệ thống này đã loại bỏ hai tính năng để tối ưu hiệu suất
    - Giảm thời gian phản hồi
    - Loại bỏ phụ thuộc vào các mô hình và từ điển đồng nghĩa phức tạp
 
+## Tính năng lưu trữ lịch sử hội thoại
+
+Hệ thống bao gồm một tính năng lưu trữ lịch sử hội thoại, cho phép:
+
+- Lưu trữ tất cả các cuộc hội thoại giữa người dùng và hệ thống
+- Tạo session ID duy nhất cho mỗi phiên hội thoại
+- Lưu trữ lịch sử truy vấn, câu trả lời và các nguồn dữ liệu được tham khảo
+- Tự động lưu các phiên trong thư mục `conversation_history`
+- Phân tích và học hỏi từ các phiên trước để cải thiện phản hồi
+
+Các file hội thoại được lưu trữ dưới dạng JSON, bao gồm:
+- ID phiên hội thoại
+- Thời gian bắt đầu và kết thúc
+- Danh sách các tin nhắn (người dùng và hệ thống)
+- Thông tin về các nguồn dữ liệu được sử dụng
+
 ## SƠ ĐỒ HOẠT ĐỘNG
 
 ![Sơ đồ hoạt động hệ thống RAG](src/img/Diagram/image.png)
@@ -108,7 +125,8 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
 5. **Tính năng khác**:
    - **Chế độ tối/sáng**: Nhấn vào biểu tượng mặt trăng/mặt trời ở góc trên bên phải để chuyển đổi giữa chế độ tối và sáng
    - **Xem trên thiết bị di động**: Giao diện tự động điều chỉnh để phù hợp với màn hình thiết bị di động
-   - **Xóa tài liệu**: Nhấp vào biểu tượng thùng rác bên cạnh tên tài liệu để xóa tài liệu khỏi hệ thống
+   - **Xóa tài liệu**: Nhấp vào biểu tượng cây chổi bên cạnh tên tài liệu để xóa tài liệu khỏi hệ thống
+   - **Xóa hội thoại**: Nhấn vào biểu tượng cây chổi ở góc trên bên phải panel Hội thoại để xóa toàn bộ hội thoại hiện tại
 
 6. **Cấu hình kết nối API**:
    - Nếu API chạy trên URL khác, bạn có thể thay đổi cấu hình trong file `src/UI/assets/js/api-service.js` bằng cách sửa giá trị của biến `API_BASE_URL`
@@ -600,8 +618,65 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
 }
 ```
 
+### 19. Lấy lịch sử hội thoại
+**Endpoint**: `GET /api/conversations`
+
+**Mô tả**: Lấy danh sách tất cả các hội thoại đã lưu trữ
+
+**Tham số đầu vào**: Không có
+
+**Kết quả trả về**:
+```json
+{
+  "status": "success",
+  "message": "Đã tìm thấy 8 hội thoại",
+  "conversations": [
+    {
+      "session_id": "session_2uwagwprti7",
+      "last_updated": "2023-10-15T10:45:20",
+      "message_count": 8,
+      "first_message": "Phân biệt giữa INNER JOIN và LEFT JOIN?"
+    },
+    ...
+  ]
+}
+```
+
+### 20. Chi tiết hội thoại
+**Endpoint**: `GET /api/conversations/{session_id}`
+
+**Mô tả**: Lấy chi tiết hội thoại cho một phiên cụ thể
+
+**Tham số đầu vào**:
+- **Path Parameter**:
+  - `session_id`: ID phiên hội thoại cần lấy chi tiết
+
+**Kết quả trả về**:
+```json
+{
+  "status": "success",
+  "message": "Đã tìm thấy chi tiết hội thoại cho phiên session_2uwagwprti7",
+  "data": {
+    "session_id": "session_2uwagwprti7",
+    "last_updated": "2023-10-15T10:45:20",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Phân biệt giữa INNER JOIN và LEFT JOIN?"
+      },
+      {
+        "role": "assistant",
+        "content": "INNER JOIN chỉ trả về các hàng có sự trùng khớp..."
+      },
+      ...
+    ]
+  }
+}
+```
+
 ## Tùy chỉnh
 
 - Bạn có thể thêm dữ liệu mới vào thư mục `src/data`
 - Các file hỗ trợ: PDF, DOCX, TXT, SQL
 - Tùy chỉnh cấu hình API trong file `src/api.py`
+- Tùy chỉnh giao diện người dùng trong thư mục `src/UI`

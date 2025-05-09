@@ -1751,3 +1751,156 @@ h3 {
         transform: translateY(0);
     }
 } 
+
+/* Chat Controls */
+.chat-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    background-color: #f5f5f5;
+    border-top: 1px solid #ddd;
+    margin-top: 10px;
+}
+
+.chat-controls label {
+    font-size: 14px;
+    margin-right: 5px;
+}
+
+.chat-controls select {
+    padding: 5px;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+    background-color: white;
+    font-size: 14px;
+}
+
+.mini-btn {
+    padding: 5px 10px;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+    background-color: white;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.mini-btn:hover {
+    background-color: #f0f0f0;
+}
+
+.mini-btn i {
+    font-size: 14px;
+}
+
+#clear-chat-btn {
+    margin-left: auto;
+    background-color: #fff0f0;
+    border-color: #ffcfcf;
+    color: #e74c3c;
+}
+
+#clear-chat-btn:hover {
+    background-color: #ffe0e0;
+}
+
+/* System message and notification */
+.system-message .message-content {
+    background-color: #f8f9fa;
+    border: 1px dashed #dee2e6;
+    color: #495057;
+    font-style: italic;
+}
+
+.system-message .avatar {
+    background-color: #6c757d;
+    color: white;
+}
+
+.notification {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 12px 20px;
+    background-color: white;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    transition: all 0.3s ease;
+    opacity: 0;
+    transform: translateY(20px);
+    max-width: 80%;
+}
+
+.notification.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.notification-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.notification.success {
+    border-left: 4px solid #10b981;
+}
+
+.notification.error {
+    border-left: 4px solid #ef4444;
+}
+
+.notification.info {
+    border-left: 4px solid #3b82f6;
+}
+
+.notification.success i {
+    color: #10b981;
+}
+
+.notification.error i {
+    color: #ef4444;
+}
+
+.notification.info i {
+    color: #3b82f6;
+}
+
+/* Header Actions for Conversation Panel */
+.conversation-panel .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.search-type-select {
+    display: none; /* Ẩn ô chọn search-type */
+}
+
+/* Chỉnh sửa nút xóa hội thoại */
+#clear-chat-btn {
+    background: transparent;
+    color: var(--muted-foreground);
+    border: none;
+    transition: color 0.2s, background-color 0.2s;
+    height: 2rem;
+    width: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+
+#clear-chat-btn:hover {
+    color: var(--destructive);
+    background-color: var(--muted);
+}
+
+/* Xóa CSS không cần thiết cho chat-controls */
+.chat-controls {
+    display: none;
+}

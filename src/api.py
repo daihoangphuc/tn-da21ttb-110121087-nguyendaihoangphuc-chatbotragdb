@@ -7,6 +7,7 @@ from fastapi import (
     BackgroundTasks,
     Depends,
     Query,
+    Path,
 )
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +24,7 @@ from os import path
 from dotenv import load_dotenv
 
 from src.rag import AdvancedDatabaseRAG
+from src.conversation_memory import ConversationManager
 
 # Load biến môi trường từ .env
 load_dotenv()
@@ -51,6 +53,9 @@ app.add_middleware(
 # Khởi tạo hệ thống RAG
 rag_system = AdvancedDatabaseRAG()
 
+# Khởi tạo quản lý hội thoại
+conversation_manager = ConversationManager()
+
 # Đường dẫn lưu dữ liệu tạm thời
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "src/data")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -66,6 +71,7 @@ class QuestionRequest(BaseModel):
     search_type: Optional[str] = "hybrid"  # "semantic", "keyword", "hybrid"
     alpha: Optional[float] = 0.7  # Hệ số kết hợp giữa semantic và keyword search
     sources: Optional[List[str]] = None  # Danh sách các file nguồn cần tìm kiếm
+    session_id: Optional[str] = None  # ID phiên hội thoại, tự động tạo nếu không có
 
 
 class AnswerResponse(BaseModel):
@@ -205,6 +211,11 @@ class FileDeleteResponse(BaseModel):
     removed_points: Optional[int] = None
 
 
+# Thêm model để quản lý phiên hội thoại
+class ConversationRequest(BaseModel):
+    session_id: str
+
+
 # API routes
 @app.get(f"{PREFIX}/")
 async def root():
@@ -230,9 +241,14 @@ async def ask_question(
     - **search_type**: Loại tìm kiếm ("semantic", "keyword", "hybrid")
     - **alpha**: Hệ số kết hợp giữa semantic và keyword search (0.7 = 70% semantic + 30% keyword)
     - **sources**: Danh sách các file nguồn cần tìm kiếm, có thể là tên file đơn thuần hoặc đường dẫn đầy đủ
+    - **session_id**: ID phiên hội thoại để duy trì ngữ cảnh cuộc hội thoại
     - **max_sources**: Số lượng nguồn tham khảo tối đa trả về (query parameter)
     """
     try:
+        # Tạo hoặc lấy session_id
+        session_id = request.session_id or f"session_{uuid4().hex[:8]}"
+        print(f"Session ID: {session_id}")
+
         # Kiểm tra xem người dùng đã chọn nguồn hay chưa
         if not request.sources or len(request.sources) == 0:
             # Lấy danh sách các nguồn có sẵn
@@ -321,13 +337,24 @@ async def ask_question(
         # Bắt đầu đo thời gian xử lý
         start_time = time.time()
 
-        # Gọi RAG để lấy kết quả
+        # Thêm tin nhắn người dùng vào bộ nhớ hội thoại
+        conversation_manager.add_user_message(session_id, request.question)
+
+        # Lấy lịch sử hội thoại để sử dụng trong prompt
+        conversation_history = conversation_manager.format_for_prompt(session_id)
+        print(f"Lịch sử hội thoại: {conversation_history}")
+
+        # Gọi RAG để lấy kết quả, kèm theo lịch sử hội thoại
         result = rag_system.query_with_sources(
             request.question,
             search_type=request.search_type,
             alpha=request.alpha,
             sources=request.sources,
+            conversation_history=conversation_history,
         )
+
+        # Thêm câu trả lời của AI vào bộ nhớ hội thoại
+        conversation_manager.add_ai_message(session_id, result["answer"])
 
         # Kết thúc đo thời gian
         elapsed_time = time.time() - start_time
@@ -336,6 +363,7 @@ async def ask_question(
         result["question_id"] = question_id
         result["reranker_model"] = reranker_info
         result["processing_time"] = round(elapsed_time, 2)
+        result["session_id"] = session_id  # Trả về session_id cho client
 
         # Thêm thông tin số lượng kết quả được rerank vào debug info
         debug_info = {
@@ -360,6 +388,7 @@ async def ask_question(
             "timestamp": datetime.now().isoformat(),
             "answer": result["answer"],
             "debug_info": debug_info,
+            "session_id": session_id,  # Lưu session_id vào lịch sử
         }
 
         return result
@@ -384,9 +413,14 @@ async def ask_question_stream(
     - **search_type**: Loại tìm kiếm ("semantic", "keyword", "hybrid")
     - **alpha**: Hệ số kết hợp giữa semantic và keyword search (0.7 = 70% semantic + 30% keyword)
     - **sources**: Danh sách các file nguồn cần tìm kiếm, có thể là tên file đơn thuần hoặc đường dẫn đầy đủ
+    - **session_id**: ID phiên hội thoại để duy trì ngữ cảnh cuộc hội thoại
     - **max_sources**: Số lượng nguồn tham khảo tối đa trả về (query parameter)
     """
     try:
+        # Tạo hoặc lấy session_id
+        session_id = request.session_id or f"session_{uuid4().hex[:8]}"
+        print(f"Session ID (stream): {session_id}")
+
         # Kiểm tra xem người dùng đã chọn nguồn hay chưa
         if not request.sources or len(request.sources) == 0:
             # Lấy danh sách các nguồn có sẵn
@@ -460,6 +494,13 @@ async def ask_question_stream(
         # Tạo ID cho câu hỏi
         question_id = f"q_{uuid4().hex[:8]}"
 
+        # Thêm tin nhắn người dùng vào bộ nhớ hội thoại
+        conversation_manager.add_user_message(session_id, request.question)
+
+        # Lấy lịch sử hội thoại để sử dụng trong prompt
+        conversation_history = conversation_manager.format_for_prompt(session_id)
+        print(f"Lịch sử hội thoại (stream): {conversation_history}")
+
         # Hàm generator để cung cấp dữ liệu cho SSE
         async def generate_response_stream():
             try:
@@ -469,6 +510,7 @@ async def ask_question_stream(
                     search_type=request.search_type,
                     alpha=request.alpha,
                     sources=request.sources,
+                    conversation_history=conversation_history,
                 ):
                     # Xử lý chunk tùy theo loại
                     if chunk["type"] == "sources":
@@ -482,8 +524,9 @@ async def ask_question_stream(
                                 :max_sources
                             ]
 
-                        # Thêm question_id vào kết quả
+                        # Thêm question_id và session_id vào kết quả
                         chunk["data"]["question_id"] = question_id
+                        chunk["data"]["session_id"] = session_id
 
                         # Trả về nguồn dưới dạng SSE
                         yield f"event: sources\ndata: {json.dumps(chunk['data'])}\n\n"
@@ -495,9 +538,15 @@ async def ask_question_stream(
                     elif chunk["type"] == "end":
                         # Khi kết thúc, thêm thông tin bổ sung
                         chunk["data"]["question_id"] = question_id
+                        chunk["data"]["session_id"] = session_id
 
                         # Lưu vào lịch sử nếu đã có đủ dữ liệu
                         if hasattr(generate_response_stream, "full_answer"):
+                            # Thêm câu trả lời của AI vào bộ nhớ hội thoại
+                            conversation_manager.add_ai_message(
+                                session_id, generate_response_stream.full_answer
+                            )
+
                             questions_history[question_id] = {
                                 "question": request.question,
                                 "search_type": request.search_type,
@@ -506,6 +555,7 @@ async def ask_question_stream(
                                 "timestamp": datetime.now().isoformat(),
                                 "answer": generate_response_stream.full_answer,
                                 "processing_time": chunk["data"]["processing_time"],
+                                "session_id": session_id,
                             }
 
                         # Trả về sự kiện kết thúc
@@ -524,6 +574,7 @@ async def ask_question_stream(
                     "error": True,
                     "message": str(e),
                     "question_id": question_id,
+                    "session_id": session_id,
                 }
                 yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
                 print(f"Lỗi khi xử lý stream: {str(e)}")
@@ -1473,6 +1524,126 @@ async def delete_points_by_filter(filter_request: Dict):
         return JSONResponse(
             status_code=500,
             content={"status": "error", "message": f"Lỗi khi xóa điểm: {str(e)}"},
+        )
+
+
+@app.post(f"{PREFIX}/conversation/clear")
+async def clear_conversation(request: ConversationRequest):
+    """
+    Xóa lịch sử hội thoại cho một phiên cụ thể
+
+    - **session_id**: ID phiên hội thoại cần xóa
+    """
+    try:
+        session_id = request.session_id
+
+        # Xóa lịch sử hội thoại
+        conversation_manager.clear_memory(session_id)
+
+        return {
+            "status": "success",
+            "message": f"Đã xóa lịch sử hội thoại cho phiên {session_id}",
+            "session_id": session_id,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Lỗi khi xóa lịch sử hội thoại: {str(e)}"
+        )
+
+
+@app.get(f"{PREFIX}/conversations")
+async def get_all_conversations():
+    """
+    Lấy danh sách tất cả các hội thoại đã lưu trữ
+
+    Trả về danh sách các phiên hội thoại với thông tin cơ bản
+    """
+    try:
+        history_dir = os.path.join("src", "conversation_history")
+        conversations = []
+
+        # Duyệt qua tất cả các file JSON trong thư mục hội thoại
+        for filename in os.listdir(history_dir):
+            if filename.endswith(".json"):
+                file_path = os.path.join(history_dir, filename)
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+
+                    # Trích xuất thông tin cơ bản
+                    session_id = data.get("session_id", filename.replace(".json", ""))
+                    last_updated = data.get("last_updated", "Unknown")
+                    message_count = len(data.get("messages", []))
+
+                    # Lấy nội dung tin nhắn đầu tiên (nếu có)
+                    first_message = ""
+                    if message_count > 0:
+                        messages = data.get("messages", [])
+                        for msg in messages:
+                            if msg.get("role") == "user":
+                                first_message = msg.get("content", "")
+                                if len(first_message) > 100:
+                                    first_message = first_message[:100] + "..."
+                                break
+
+                    conversations.append(
+                        {
+                            "session_id": session_id,
+                            "last_updated": last_updated,
+                            "message_count": message_count,
+                            "first_message": first_message,
+                        }
+                    )
+                except Exception as e:
+                    print(f"Lỗi khi đọc file {filename}: {str(e)}")
+
+        # Sắp xếp theo thời gian cập nhật mới nhất
+        conversations.sort(key=lambda x: x.get("last_updated", ""), reverse=True)
+
+        return {
+            "status": "success",
+            "message": f"Đã tìm thấy {len(conversations)} hội thoại",
+            "conversations": conversations,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Lỗi khi lấy danh sách hội thoại: {str(e)}"
+        )
+
+
+@app.get(f"{PREFIX}/conversations/{{session_id}}")
+async def get_conversation_detail(
+    session_id: str = Path(..., description="ID phiên hội thoại cần lấy chi tiết")
+):
+    """
+    Lấy chi tiết hội thoại cho một phiên cụ thể
+
+    - **session_id**: ID phiên hội thoại cần lấy chi tiết
+    """
+    try:
+        # Đường dẫn đến file lịch sử hội thoại
+        history_dir = os.path.join("src", "conversation_history")
+        file_path = os.path.join(history_dir, f"{session_id}.json")
+
+        if not os.path.exists(file_path):
+            return {
+                "status": "error",
+                "message": f"Không tìm thấy hội thoại với ID {session_id}",
+                "session_id": session_id,
+            }
+
+        # Đọc nội dung file JSON
+        with open(file_path, "r", encoding="utf-8") as f:
+            conversation_data = json.load(f)
+
+        return {
+            "status": "success",
+            "message": f"Đã tìm thấy chi tiết hội thoại cho phiên {session_id}",
+            "data": conversation_data,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Lỗi khi lấy chi tiết hội thoại: {str(e)}"
         )
 
 
