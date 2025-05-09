@@ -529,14 +529,30 @@ class APIService {
 
     // Phương thức đăng nhập bằng Google
     async getGoogleAuthUrl() {
-        // Tạo redirect URL
         const redirectUrl = `${window.location.origin}/auth-callback.html`;
-        
         try {
             const result = await this.fetchApi(`/api/auth/google/url?redirect_url=${encodeURIComponent(redirectUrl)}`);
             return result.url;
         } catch (error) {
-            console.error('Lỗi khi lấy URL đăng nhập Google:', error);
+            console.error('Lỗi lấy URL đăng nhập Google:', error);
+            throw error;
+        }
+    }
+
+    // Xử lý OAuth callback
+    async handleOAuthCallback(code, provider = 'google') {
+        try {
+            const result = await this.fetchApi('/api/auth/google', {
+                method: 'POST',
+                body: JSON.stringify({ code, provider })
+            });
+            
+            // Lưu token và thông tin người dùng
+            localStorage.setItem('auth_token', result.access_token);
+            localStorage.setItem('user_info', JSON.stringify(result.user));
+            return result;
+        } catch (error) {
+            console.error(`Lỗi xử lý OAuth callback từ ${provider}:`, error);
             throw error;
         }
     }
@@ -549,35 +565,12 @@ class APIService {
                 body: JSON.stringify({ access_token: accessToken })
             });
             
-            // Lưu token và thông tin người dùng vào localStorage
+            // Lưu token và thông tin người dùng
             localStorage.setItem('auth_token', result.access_token);
             localStorage.setItem('user_info', JSON.stringify(result.user));
-            
             return result;
         } catch (error) {
             console.error('Lỗi đăng nhập với Google:', error);
-            throw error;
-        }
-    }
-
-    // Xử lý OAuth callback
-    async handleOAuthCallback(code, provider = 'google') {
-        try {
-            // Đối với Google, chúng ta cần đổi code lấy access token
-            // Nhưng Supabase đã xử lý việc này ở phía server
-            // Chúng ta chỉ cần gửi code về server
-            const result = await this.fetchApi('/api/auth/google', {
-                method: 'POST',
-                body: JSON.stringify({ code, provider })
-            });
-            
-            // Lưu token và thông tin người dùng vào localStorage
-            localStorage.setItem('auth_token', result.access_token);
-            localStorage.setItem('user_info', JSON.stringify(result.user));
-            
-            return result;
-        } catch (error) {
-            console.error(`Lỗi xử lý OAuth callback từ ${provider}:`, error);
             throw error;
         }
     }

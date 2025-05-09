@@ -5,231 +5,96 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Đăng nhập - RAG Cơ sở dữ liệu</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/styles.css">
-    <style>
-        body {
-            background-color: var(--color-bg-secondary);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
-            padding: 20px;
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Flowbite -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/flowbite/2.2.1/flowbite.min.css" rel="stylesheet" />
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {"50":"#eff6ff","100":"#dbeafe","200":"#bfdbfe","300":"#93c5fd","400":"#60a5fa","500":"#3b82f6","600":"#2563eb","700":"#1d4ed8","800":"#1e40af","900":"#1e3a8a","950":"#172554"}
+                    }
+                },
+                fontFamily: {
+                    'body': [
+                        'Inter', 
+                        'ui-sans-serif', 
+                        'system-ui', 
+                        'sans-serif'
+                    ],
+                    'sans': [
+                        'Inter', 
+                        'ui-sans-serif', 
+                        'system-ui', 
+                        'sans-serif'
+                    ]
+                }
+            }
         }
-        
-        .auth-container {
-            background-color: var(--color-bg-primary);
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            padding: 40px;
-            width: 100%;
-            max-width: 400px;
-        }
-        
-        .auth-header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        
-        .auth-header h1 {
-            font-size: 24px;
-            color: var(--color-text-primary);
-            margin-bottom: 10px;
-        }
-        
-        .auth-header p {
-            color: var(--color-text-secondary);
-            font-size: 14px;
-        }
-        
-        .form-group {
-            margin-bottom: 20px;
-        }
-        
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 500;
-            color: var(--color-text-primary);
-        }
-        
-        .input-wrapper {
-            position: relative;
-        }
-        
-        .input-wrapper i {
-            position: absolute;
-            top: 50%;
-            left: 12px;
-            transform: translateY(-50%);
-            color: var(--color-text-secondary);
-        }
-        
-        .input-wrapper input {
-            width: 100%;
-            padding: 12px 12px 12px 40px;
-            border: 1px solid var(--color-border);
-            border-radius: 4px;
-            font-size: 14px;
-            background-color: var(--color-bg-primary);
-            color: var(--color-text-primary);
-            transition: border-color 0.3s;
-        }
-        
-        .input-wrapper input:focus {
-            border-color: var(--color-primary);
-            outline: none;
-        }
-        
-        .toggle-password {
-            position: absolute;
-            top: 50%;
-            right: 12px;
-            transform: translateY(-50%);
-            cursor: pointer;
-            color: var(--color-text-secondary);
-        }
-        
-        .btn-auth {
-            width: 100%;
-            padding: 12px;
-            background-color: var(--color-primary);
-            color: white;
-            border: none;
-            border-radius: 4px;
-            font-size: 16px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
-        
-        .btn-auth:hover {
-            background-color: var(--color-primary-dark);
-        }
-        
-        .auth-footer {
-            margin-top: 20px;
-            text-align: center;
-            font-size: 14px;
-            color: var(--color-text-secondary);
-        }
-        
-        .auth-footer a {
-            color: var(--color-primary);
-            text-decoration: none;
-        }
-        
-        .auth-footer a:hover {
-            text-decoration: underline;
-        }
-        
-        .auth-alert {
-            background-color: var(--color-danger-bg);
-            color: var(--color-danger);
-            padding: 12px;
-            border-radius: 4px;
-            margin-bottom: 20px;
-            display: none;
-        }
-        
-        .auth-divider {
-            margin: 20px 0;
-            text-align: center;
-            position: relative;
-        }
-        
-        .auth-divider::before {
-            content: "";
-            position: absolute;
-            top: 50%;
-            left: 0;
-            right: 0;
-            height: 1px;
-            background-color: var(--color-border);
-        }
-        
-        .auth-divider span {
-            background-color: var(--color-bg-primary);
-            padding: 0 10px;
-            position: relative;
-            z-index: 1;
-        }
-        
-        .btn-google {
-            width: 100%;
-            padding: 12px;
-            background-color: white;
-            color: var(--color-text-primary);
-            border: 1px solid var(--color-border);
-            border-radius: 4px;
-            font-size: 16px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: background-color 0.3s;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-        
-        .btn-google:hover {
-            background-color: var(--color-bg-secondary);
-        }
-        
-        .btn-google img {
-            width: 20px;
-            height: 20px;
-            margin-right: 10px;
-        }
-    </style>
+    </script>
 </head>
-<body>
-    <div class="auth-container">
-        <div class="auth-header">
-            <h1>Đăng nhập</h1>
-            <p>Đăng nhập để sử dụng hệ thống RAG</p>
-        </div>
-        
-        <div class="auth-alert" id="loginAlert"></div>
-        
-        <form id="loginForm">
-            <div class="form-group">
-                <label for="email">Email</label>
-                <div class="input-wrapper">
-                    <i class="fas fa-envelope"></i>
-                    <input type="email" id="email" name="email" placeholder="Email của bạn" required>
+<body class="bg-gray-50 dark:bg-gray-900">
+    <div class="flex flex-col items-center justify-center px-6 py-8 mx-auto md:h-screen lg:py-0">
+        <div class="w-full bg-white rounded-lg shadow dark:border md:mt-0 sm:max-w-md xl:p-0 dark:bg-gray-800 dark:border-gray-700">
+            <div class="p-6 space-y-4 md:space-y-6 sm:p-8">
+                <h1 class="text-xl font-bold leading-tight tracking-tight text-gray-900 md:text-2xl dark:text-white">
+                    Đăng nhập vào tài khoản
+                </h1>
+                
+                <div id="loginAlert" class="p-4 mb-4 text-sm text-red-800 rounded-lg bg-red-50 dark:bg-gray-800 dark:text-red-400 hidden" role="alert">
                 </div>
+                
+                <form id="loginForm" class="space-y-4 md:space-y-6">
+                    <div>
+                        <label for="email" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Email</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 start-0 flex items-center ps-3.5 pointer-events-none">
+                                <i class="fas fa-envelope text-gray-400"></i>
+                            </div>
+                            <input type="email" name="email" id="email" class="bg-gray-50 border border-gray-300 text-gray-900 sm:text-sm rounded-lg focus:ring-primary-600 focus:border-primary-600 block w-full ps-10 p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500" placeholder="name@company.com" required>
+                        </div>
+                    </div>
+                    <div>
+                        <label for="password" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Mật khẩu</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 start-0 flex items-center ps-3.5 pointer-events-none">
+                                <i class="fas fa-lock text-gray-400"></i>
+                            </div>
+                            <input type="password" name="password" id="password" placeholder="••••••••" class="bg-gray-50 border border-gray-300 text-gray-900 sm:text-sm rounded-lg focus:ring-primary-600 focus:border-primary-600 block w-full ps-10 p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500" required>
+                            <button type="button" id="togglePassword" class="absolute inset-y-0 right-0 flex items-center pr-3">
+                                <i class="fas fa-eye text-gray-400"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" id="loginButton" class="w-full text-white bg-primary-600 hover:bg-primary-700 focus:ring-4 focus:outline-none focus:ring-primary-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-primary-600 dark:hover:bg-primary-700 dark:focus:ring-primary-800">
+                        <span id="loginText">Đăng nhập</span>
+                        <i id="loginSpinner" class="fas fa-spinner fa-spin hidden"></i>
+                    </button>
+                    
+                    <div class="inline-flex items-center justify-center w-full">
+                        <hr class="w-full h-px my-4 bg-gray-200 border-0 dark:bg-gray-700">
+                        <span class="absolute px-3 text-gray-500 -translate-x-1/2 bg-white left-1/2 dark:text-gray-400 dark:bg-gray-800">Hoặc</span>
+                    </div>
+                    
+                    <button type="button" id="googleLoginButton" class="w-full py-2.5 px-5 text-sm font-medium text-gray-900 focus:outline-none bg-white rounded-lg border border-gray-200 hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-4 focus:ring-gray-100 dark:focus:ring-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-700 flex justify-center items-center">
+                        <img class="w-5 h-5 mr-2" src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google logo">
+                        Đăng nhập bằng Google
+                    </button>
+                    
+                    <p class="text-sm font-light text-gray-500 dark:text-gray-400">
+                        Chưa có tài khoản? <a href="signup.html" class="font-medium text-primary-600 hover:underline dark:text-primary-500">Đăng ký ngay</a>
+                    </p>
+                </form>
             </div>
-            
-            <div class="form-group">
-                <label for="password">Mật khẩu</label>
-                <div class="input-wrapper">
-                    <i class="fas fa-lock"></i>
-                    <input type="password" id="password" name="password" placeholder="Mật khẩu của bạn" required>
-                    <i class="fas fa-eye toggle-password" id="togglePassword"></i>
-                </div>
-            </div>
-            
-            <button type="submit" class="btn-auth" id="loginButton">
-                <span id="loginText">Đăng nhập</span>
-                <i class="fas fa-spinner fa-spin" id="loginSpinner" style="display: none;"></i>
-            </button>
-        </form>
-        
-        <div class="auth-divider">
-            <span>Hoặc</span>
-        </div>
-        
-        <button class="btn-google" id="googleLoginButton">
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google Logo">
-            <span>Đăng nhập bằng Google</span>
-        </button>
-        
-        <div class="auth-footer">
-            <p>Chưa có tài khoản? <a href="signup.html">Đăng ký ngay</a></p>
         </div>
     </div>
     
     <script src="assets/js/api-service.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/flowbite/2.2.1/flowbite.min.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             // Kiểm tra nếu đã đăng nhập thì chuyển hướng đến trang chính
@@ -251,8 +116,9 @@
             togglePassword.addEventListener('click', function() {
                 const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
                 passwordInput.setAttribute('type', type);
-                this.classList.toggle('fa-eye');
-                this.classList.toggle('fa-eye-slash');
+                const icon = this.querySelector('i');
+                icon.classList.toggle('fa-eye');
+                icon.classList.toggle('fa-eye-slash');
             });
             
             // Xử lý đăng nhập
@@ -261,9 +127,9 @@
                 
                 // Hiển thị trạng thái đang xử lý
                 loginButton.disabled = true;
-                loginText.style.display = 'none';
-                loginSpinner.style.display = 'inline-block';
-                loginAlert.style.display = 'none';
+                loginText.classList.add('hidden');
+                loginSpinner.classList.remove('hidden');
+                loginAlert.classList.add('hidden');
                 
                 const email = document.getElementById('email').value;
                 const password = document.getElementById('password').value;
@@ -277,25 +143,23 @@
                 } catch (error) {
                     // Hiển thị thông báo lỗi
                     loginAlert.textContent = error.message || 'Đăng nhập thất bại. Vui lòng kiểm tra lại email và mật khẩu.';
-                    loginAlert.style.display = 'block';
+                    loginAlert.classList.remove('hidden');
                     
                     // Khôi phục trạng thái nút đăng nhập
                     loginButton.disabled = false;
-                    loginText.style.display = 'inline';
-                    loginSpinner.style.display = 'none';
+                    loginText.classList.remove('hidden');
+                    loginSpinner.classList.add('hidden');
                 }
             });
             
             // Xử lý đăng nhập Google
             googleLoginButton.addEventListener('click', async function() {
                 try {
-                    // Hiển thị thông báo đang xử lý
+                    // Hiển thị trạng thái xử lý
                     googleLoginButton.disabled = true;
                     
-                    // Lấy URL đăng nhập Google
+                    // Lấy URL đăng nhập và mở popup
                     const authUrl = await apiService.getGoogleAuthUrl();
-                    
-                    // Mở popup để đăng nhập
                     const googleWindow = window.open(
                         authUrl, 
                         'googleLogin', 
@@ -306,48 +170,44 @@
                         throw new Error("Popup bị chặn. Vui lòng cho phép popup cho trang web này.");
                     }
                     
-                    // Lắng nghe sự kiện từ popup
-                    window.addEventListener('message', function(event) {
-                        // Kiểm tra loại thông điệp
-                        if (event.data && event.data.type === 'auth_result') {
-                            // Đóng popup nếu còn mở
-                            if (googleWindow && !googleWindow.closed) {
-                                googleWindow.close();
-                            }
-                            
-                            // Xử lý kết quả đăng nhập
-                            if (event.data.success) {
-                                loginAlert.textContent = 'Đăng nhập với Google thành công! Đang chuyển hướng...';
-                                loginAlert.style.display = 'block';
-                                loginAlert.style.backgroundColor = '#d4edda';
-                                loginAlert.style.color = '#155724';
-                                
-                                // Chuyển hướng đến trang chính
-                                setTimeout(() => {
-                                    window.location.href = 'index.html';
-                                }, 1000);
-                            } else {
-                                // Hiển thị lỗi
-                                const errorMessage = event.data.data?.error || 'Không thể đăng nhập với Google.';
-                                loginAlert.textContent = errorMessage;
-                                loginAlert.style.display = 'block';
-                                googleLoginButton.disabled = false;
-                            }
-                        }
-                    });
-                    
-                    // Nếu popup bị đóng mà không có callback
-                    const checkPopupClosed = setInterval(function() {
-                        if (googleWindow && googleWindow.closed) {
-                            clearInterval(checkPopupClosed);
+                    // Xử lý kết quả từ popup
+                    const messageHandler = function(event) {
+                        if (!event.data || event.data.type !== 'auth_result') return;
+                        
+                        // Đóng popup nếu còn mở
+                        if (googleWindow && !googleWindow.closed) googleWindow.close();
+                        
+                        if (event.data.success) {
+                            // Đăng nhập thành công
+                            loginAlert.textContent = 'Đăng nhập thành công! Đang chuyển hướng...';
+                            loginAlert.classList.remove('hidden');
+                            loginAlert.classList.remove('text-red-800', 'bg-red-50', 'dark:text-red-400');
+                            loginAlert.classList.add('text-green-800', 'bg-green-50', 'dark:text-green-400');
+                            setTimeout(() => window.location.href = 'index.html', 1000);
+                        } else {
+                            // Hiển thị lỗi
+                            const errorMessage = event.data.data?.error || 'Không thể đăng nhập với Google.';
+                            loginAlert.textContent = errorMessage;
+                            loginAlert.classList.remove('hidden');
                             googleLoginButton.disabled = false;
                         }
-                    }, 500);
+                    };
                     
+                    // Thêm và loại bỏ event listener
+                    window.addEventListener('message', messageHandler);
+                    
+                    // Kiểm tra nếu popup đóng
+                    const popupCheck = setInterval(() => {
+                        if (googleWindow && googleWindow.closed) {
+                            clearInterval(popupCheck);
+                            googleLoginButton.disabled = false;
+                            window.removeEventListener('message', messageHandler);
+                        }
+                    }, 500);
                 } catch (error) {
-                    console.error('Lỗi khi mở trang đăng nhập Google:', error);
-                    loginAlert.textContent = 'Lỗi khi mở trang đăng nhập Google. Vui lòng thử lại sau.';
-                    loginAlert.style.display = 'block';
+                    console.error('Lỗi đăng nhập Google:', error);
+                    loginAlert.textContent = error.message || 'Lỗi khi mở trang đăng nhập Google.';
+                    loginAlert.classList.remove('hidden');
                     googleLoginButton.disabled = false;
                 }
             });
@@ -357,7 +217,7 @@
             const error = urlParams.get('error');
             if (error) {
                 loginAlert.textContent = `Lỗi xác thực: ${error}`;
-                loginAlert.style.display = 'block';
+                loginAlert.classList.remove('hidden');
             }
         });
     </script>

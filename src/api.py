@@ -248,21 +248,11 @@ class GoogleAuthRequest(BaseModel):
 
     @validator("code", "access_token")
     def check_auth_method(cls, v, values, **kwargs):
-        # Nếu đã qua field đầu tiên và không có giá trị nào được set
-        if "code" in values or "access_token" in values:
-            # Nếu ít nhất một field đã có giá trị thì không sao
-            if values.get("code") or values.get("access_token"):
-                return v
-
-        # Đối với field đầu tiên, chúng ta không kiểm tra gì cả
-        if "code" not in values and "access_token" not in values:
-            return v
-
-        # Nếu cả hai field đều chưa có giá trị, field hiện tại phải có giá trị
-        if not v:
-            if "code" in values and "access_token" in values:
-                # Đã qua cả hai field mà không có giá trị
-                raise ValueError("Phải cung cấp một trong hai: code hoặc access_token")
+        if (
+            not any([values.get("code"), values.get("access_token")])
+            and len(values) == 2
+        ):
+            raise ValueError("Phải cung cấp một trong hai: code hoặc access_token")
         return v
 
 
@@ -1986,31 +1976,28 @@ async def login_with_google(request: GoogleAuthRequest):
         )
 
     try:
-        print(
-            f"Đang xử lý đăng nhập Google: code={request.code is not None}, access_token={request.access_token is not None}, provider={request.provider}"
-        )
+        log_prefix = f"[GoogleAuth] Code: {bool(request.code)}, Token: {bool(request.access_token)}"
+        print(f"{log_prefix} - Bắt đầu xử lý")
 
-        # Xử lý dựa trên loại thông tin xác thực nhận được
+        # Xử lý dựa trên thông tin đăng nhập được cung cấp
         if request.code:
-            print(
-                f"Đang xác thực với Google bằng authorization code: {request.code[:15]}..."
-            )
+            print(f"{log_prefix} - Sử dụng authorization code")
             try:
-                # Đổi code lấy session
+                # Cách 1: Trực tiếp
                 auth_response = supabase_client.auth.exchange_code_for_session(
                     request.code
                 )
-                session = auth_response.session
             except Exception as e:
-                print(f"Lỗi exchange_code_for_session: {str(e)}")
-                # Thử cách khác
+                print(
+                    f"{log_prefix} - Lỗi exchange_code_for_session trực tiếp: {str(e)}"
+                )
+                # Cách 2: Với object
                 auth_response = supabase_client.auth.exchange_code_for_session(
                     {"auth_code": request.code}
                 )
-                session = auth_response.session
+            session = auth_response.session
         elif request.access_token:
-            print(f"Đang xác thực với Google bằng access token")
-            # Đăng nhập với access token
+            print(f"{log_prefix} - Sử dụng access token")
             auth_response = supabase_client.auth.sign_in_with_idp(
                 {
                     "provider": request.provider,
@@ -2024,14 +2011,11 @@ async def login_with_google(request: GoogleAuthRequest):
         if not session:
             raise ValueError("Không thể tạo phiên đăng nhập")
 
-        # Lấy thông tin user và token
+        # Lấy user data từ session
         user = session.user
-        access_token = session.access_token
-        refresh_token = session.refresh_token
+        print(f"{log_prefix} - Đăng nhập thành công cho user: {user.email}")
 
-        print(f"Đăng nhập thành công cho user {user.email}")
-
-        # Trả về thông tin người dùng và token
+        # Trả về thông tin người dùng, token và các thông tin khác
         return {
             "user": {
                 "id": user.id,
@@ -2039,21 +2023,17 @@ async def login_with_google(request: GoogleAuthRequest):
                 "name": user.user_metadata.get("name", user.email),
                 "avatar_url": user.user_metadata.get("avatar_url", None),
             },
-            "access_token": access_token,
-            "refresh_token": refresh_token,
+            "access_token": session.access_token,
+            "refresh_token": session.refresh_token,
             "provider": request.provider,
         }
     except ValueError as e:
-        print(f"Lỗi giá trị trong quá trình đăng nhập Google: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
+        print(f"Lỗi xác thực Google: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-        print(f"Lỗi đăng nhập với Google: {str(e)}")
+        print(f"Lỗi không xác định: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Lỗi xác thực Google: {str(e)}",
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Lỗi xác thực: {str(e)}"
         )
 
 
@@ -2061,41 +2041,37 @@ async def login_with_google(request: GoogleAuthRequest):
 async def google_sign_in_url(
     redirect_url: str = Query(
         None, description="URL chuyển hướng sau khi đăng nhập Google"
-    ),
+    )
 ):
-    """
-    Lấy URL để chuyển hướng đến trang đăng nhập Google
-
-    - **redirect_url**: URL sẽ chuyển hướng đến sau khi đăng nhập Google thành công
-    """
+    """Lấy URL để chuyển hướng đến trang đăng nhập Google"""
     if not supabase_client:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Dịch vụ xác thực chưa được cấu hình",
         )
 
-    try:
-        if not redirect_url:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Thiếu redirect_url"
-            )
+    if not redirect_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Thiếu redirect_url"
+        )
 
+    try:
         print(f"Lấy URL đăng nhập Google với redirect URL: {redirect_url}")
 
-        # Tạo URL xác thực từ Supabase
+        # Thử sử dụng các phương thức Supabase để lấy URL xác thực
         try:
-            # Phương thức này chỉ có trong phiên bản mới của Supabase
-            sign_in_data = supabase_client.auth.sign_in_with_oauth(
+            # Cách 1: Sử dụng sign_in_with_oauth
+            auth_data = supabase_client.auth.sign_in_with_oauth(
                 {
                     "provider": "google",
                     "options": {"redirect_to": redirect_url, "scopes": "email profile"},
                 }
             )
-            auth_url = sign_in_data.url
+            auth_url = auth_data.url
         except Exception as e:
-            print(f"Error with sign_in_with_oauth: {str(e)}")
+            print(f"Lỗi sign_in_with_oauth: {str(e)}")
 
-            # Fallback to older version
+            # Cách 2: Sử dụng get_sign_in_with_oauth
             auth_url = supabase_client.auth.get_sign_in_with_oauth(
                 {
                     "provider": "google",
@@ -2104,17 +2080,13 @@ async def google_sign_in_url(
             ).url
 
         if not auth_url:
-            raise Exception("Không thể lấy URL xác thực từ Supabase")
+            raise ValueError("Không thể lấy URL xác thực")
 
-        print(f"Auth URL: {auth_url}")
         return {"url": auth_url}
-    except HTTPException:
-        raise
     except Exception as e:
-        print(f"Lỗi khi lấy Google auth URL: {str(e)}")
+        print(f"Lỗi lấy Google auth URL: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Lỗi khi lấy URL đăng nhập Google: {str(e)}",
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Lỗi: {str(e)}"
         )
 
 
