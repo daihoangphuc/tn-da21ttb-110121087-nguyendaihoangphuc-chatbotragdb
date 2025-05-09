@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Đang xử lý đăng nhập...</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f5f5f5;
+            color: #333;
+            text-align: center;
+        }
+        
+        .loader {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 2s linear infinite;
+            margin-bottom: 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        h2 {
+            margin-bottom: 10px;
+        }
+        
+        p {
+            color: #666;
+            max-width: 80%;
+        }
+        
+        .error {
+            color: #e74c3c;
+            background-color: #fdecea;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            max-width: 80%;
+            display: none;
+        }
+
+        .success {
+            color: #27ae60;
+            background-color: #e8f5e9;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            max-width: 80%;
+            display: none;
+        }
+
+        .manual-redirect {
+            margin-top: 30px;
+            display: none;
+        }
+
+        .btn {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+
+        .btn:hover {
+            background-color: #2980b9;
+        }
+
+        .countdown {
+            font-weight: bold;
+            color: #3498db;
+        }
+    </style>
+</head>
+<body>
+    <div class="loader" id="loader"></div>
+    <h2>Đang xử lý đăng nhập</h2>
+    <p id="status-message">Vui lòng đợi trong giây lát, chúng tôi đang xử lý thông tin đăng nhập của bạn...</p>
+    <div class="error" id="error-message"></div>
+    <div class="success" id="success-message">
+        Đăng nhập thành công! Bạn sẽ được chuyển hướng đến trang chính trong <span id="countdown" class="countdown">3</span> giây...
+    </div>
+    <div class="manual-redirect" id="manual-redirect">
+        <p>Nếu bạn không được chuyển hướng tự động, vui lòng nhấn nút bên dưới:</p>
+        <button class="btn" onclick="window.location.href='index.html'">Đi đến trang chính</button>
+    </div>
+    
+    <script src="assets/js/api-service.js"></script>
+    <script>
+        // Biến toàn cục
+        let redirectTimeout;
+        let countdownInterval;
+        let countdownValue = 3;
+
+        // Hiển thị lỗi
+        function showError(message) {
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('status-message').textContent = 'Đã xảy ra lỗi khi xử lý đăng nhập.';
+            const errorEl = document.getElementById('error-message');
+            errorEl.textContent = message;
+            errorEl.style.display = 'block';
+            
+            // Hiển thị nút chuyển hướng thủ công sau 5 giây nếu có lỗi
+            setTimeout(() => {
+                document.getElementById('manual-redirect').style.display = 'block';
+            }, 5000);
+        }
+
+        // Hiển thị thành công và bắt đầu đếm ngược
+        function showSuccess() {
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('status-message').textContent = 'Đăng nhập thành công!';
+            document.getElementById('success-message').style.display = 'block';
+            document.getElementById('manual-redirect').style.display = 'block';
+            
+            // Bắt đầu đếm ngược
+            countdownInterval = setInterval(() => {
+                countdownValue--;
+                document.getElementById('countdown').textContent = countdownValue;
+                
+                if (countdownValue <= 0) {
+                    clearInterval(countdownInterval);
+                }
+            }, 1000);
+            
+            // Thiết lập chuyển hướng tự động
+            redirectTimeout = setTimeout(() => {
+                window.location.href = 'index.html';
+            }, 3000);
+        }
+
+        // Thông báo cho trang chính nếu đây là popup
+        function notifyParentWindow(success, data) {
+            if (window.opener) {
+                window.opener.postMessage({
+                    type: 'auth_result',
+                    success: success,
+                    data: data
+                }, '*');
+                
+                // Đóng popup sau khi gửi thông báo
+                setTimeout(() => {
+                    window.close();
+                }, 1000);
+            }
+        }
+
+        // Xử lý đăng nhập khi trang được tải
+        async function handleAuth() {
+            try {
+                // Parse URL parameters
+                const urlParams = new URLSearchParams(window.location.search);
+                const code = urlParams.get('code');
+                const provider = urlParams.get('provider') || 'google';
+                const error = urlParams.get('error');
+                
+                console.log('Auth callback received:', { code: code?.substring(0, 10) + '...', provider, error });
+                
+                // Nếu có lỗi
+                if (error) {
+                    showError(`Lỗi từ ${provider}: ${error}`);
+                    notifyParentWindow(false, { error });
+                    return;
+                }
+                
+                // Nếu không có code
+                if (!code) {
+                    showError('Không nhận được mã xác thực từ nhà cung cấp đăng nhập.');
+                    notifyParentWindow(false, { error: 'Không nhận được mã xác thực' });
+                    return;
+                }
+                
+                document.getElementById('status-message').textContent = 'Đang xác thực với máy chủ...';
+                
+                // Gọi API để xử lý OAuth callback
+                const response = await fetch(`${apiService.baseUrl}/api/auth/google`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        code: code,
+                        provider: provider 
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.text();
+                    console.error('Lỗi API:', errorData);
+                    showError(`Lỗi máy chủ (${response.status}): ${errorData}`);
+                    notifyParentWindow(false, { error: errorData });
+                    return;
+                }
+                
+                const data = await response.json();
+                console.log('Đăng nhập thành công:', data);
+                
+                // Lưu token và thông tin người dùng
+                localStorage.setItem('auth_token', data.access_token);
+                localStorage.setItem('user_info', JSON.stringify(data.user));
+                
+                // Thông báo thành công và chuyển hướng
+                document.getElementById('status-message').textContent = 'Đăng nhập thành công! Đang chuyển hướng...';
+                
+                // Thông báo cho parent window nếu đây là popup
+                if (window.opener) {
+                    console.log('Đây là popup, gửi thông báo cho trang chính...');
+                    notifyParentWindow(true, data);
+                    // Không cần chuyển hướng vì popup sẽ đóng
+                } else {
+                    console.log('Chuyển hướng đến trang chính...');
+                    // Hiển thị thông báo thành công và bắt đầu đếm ngược
+                    showSuccess();
+                }
+                
+            } catch (error) {
+                console.error('Lỗi xử lý OAuth callback:', error);
+                showError(`Lỗi: ${error.message}`);
+                notifyParentWindow(false, { error: error.message });
+            }
+        }
+        
+        // Xử lý khi trang được tải
+        window.onload = handleAuth;
+    </script>
+</body>
+</html> 

@@ -108,18 +108,39 @@ class APIService {
         const url = `${this.baseUrl}${endpoint}`;
         console.log(`Gọi API: ${options.method || 'GET'} ${url}`);
         
+        // Thêm token xác thực vào header nếu người dùng đã đăng nhập
+        const authToken = this.getAuthToken();
+        const headers = {
+            'Content-Type': 'application/json',
+            ...options.headers,
+        };
+        
+        if (authToken) {
+            headers['Authorization'] = `Bearer ${authToken}`;
+        }
+        
         try {
             const response = await fetch(url, {
                 ...options,
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...options.headers,
-                },
+                headers: headers,
             });
     
             if (!response.ok) {
                 const errorText = await response.text();
                 console.error(`Lỗi API (${response.status}):`, errorText);
+                
+                // Xử lý trường hợp token hết hạn
+                if (response.status === 401) {
+                    console.warn('Phiên đăng nhập đã hết hạn, đang đăng xuất...');
+                    localStorage.removeItem('auth_token');
+                    localStorage.removeItem('user_info');
+                    
+                    // Chuyển hướng đến trang đăng nhập nếu cần
+                    if (window.location.pathname !== '/login.html') {
+                        window.location.href = '/login.html';
+                    }
+                }
+                
                 throw new Error(`API error (${response.status}): ${errorText}`);
             }
     
@@ -354,16 +375,20 @@ class APIService {
     async uploadFile(file, onProgress, category) {
         const formData = new FormData();
         formData.append('file', file);
-        
         if (category) {
             formData.append('category', category);
         }
+        
+        return this._uploadFileWithProgress(formData, onProgress);
+    }
 
+    // Phương thức hỗ trợ upload file với hiển thị tiến trình
+    _uploadFileWithProgress(formData, onProgress) {
         // Tạo một promise để xử lý upload
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             
-            // Theo dõi tiến trình upload (chỉ dùng khi cần, giờ không cần hiển thị tiến trình)
+            // Theo dõi tiến trình upload
             if (typeof onProgress === 'function') {
                 xhr.upload.addEventListener('progress', (event) => {
                     if (event.lengthComputable) {
@@ -401,7 +426,165 @@ class APIService {
             xhr.send(formData);
         });
     }
+
+    // Các phương thức xác thực
+
+    // Đăng ký tài khoản mới
+    async signup(email, password) {
+        return this.fetchApi('/api/auth/signup', {
+            method: 'POST',
+            body: JSON.stringify({ email, password }),
+        });
+    }
+
+    // Đăng nhập
+    async login(email, password) {
+        try {
+            const result = await this.fetchApi('/api/auth/login', {
+                method: 'POST',
+                body: JSON.stringify({ email, password }),
+            });
+            
+            // Lưu token và thông tin người dùng vào localStorage
+            localStorage.setItem('auth_token', result.access_token);
+            localStorage.setItem('user_info', JSON.stringify(result.user));
+            
+            return result;
+        } catch (error) {
+            console.error('Lỗi đăng nhập:', error);
+            throw error;
+        }
+    }
+
+    // Đăng xuất
+    async logout() {
+        try {
+            // Gọi API đăng xuất
+            await this.fetchApi('/api/auth/logout', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.getAuthToken()}`
+                }
+            });
+            
+            // Xóa token và thông tin người dùng khỏi localStorage
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('user_info');
+            
+            return { success: true };
+        } catch (error) {
+            console.error('Lỗi đăng xuất:', error);
+            // Xóa token và thông tin người dùng khỏi localStorage ngay cả khi có lỗi
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('user_info');
+            throw error;
+        }
+    }
+
+    // Lấy thông tin người dùng hiện tại
+    async getCurrentUser() {
+        try {
+            return await this.fetchApi('/api/auth/user', {
+                headers: {
+                    'Authorization': `Bearer ${this.getAuthToken()}`
+                }
+            });
+        } catch (error) {
+            console.error('Lỗi lấy thông tin người dùng:', error);
+            throw error;
+        }
+    }
+
+    // Kiểm tra phiên đăng nhập
+    async checkSession() {
+        try {
+            const result = await this.fetchApi('/api/auth/session', {
+                headers: {
+                    'Authorization': `Bearer ${this.getAuthToken()}`
+                }
+            });
+            
+            return result.is_authenticated;
+        } catch (error) {
+            console.error('Lỗi kiểm tra phiên đăng nhập:', error);
+            return false;
+        }
+    }
+
+    // Lấy token từ localStorage
+    getAuthToken() {
+        return localStorage.getItem('auth_token');
+    }
+
+    // Kiểm tra xem người dùng đã đăng nhập chưa
+    isLoggedIn() {
+        return !!this.getAuthToken();
+    }
+
+    // Lấy thông tin người dùng từ localStorage
+    getUserInfo() {
+        const userInfo = localStorage.getItem('user_info');
+        return userInfo ? JSON.parse(userInfo) : null;
+    }
+
+    // Phương thức đăng nhập bằng Google
+    async getGoogleAuthUrl() {
+        // Tạo redirect URL
+        const redirectUrl = `${window.location.origin}/auth-callback.html`;
+        
+        try {
+            const result = await this.fetchApi(`/api/auth/google/url?redirect_url=${encodeURIComponent(redirectUrl)}`);
+            return result.url;
+        } catch (error) {
+            console.error('Lỗi khi lấy URL đăng nhập Google:', error);
+            throw error;
+        }
+    }
+
+    // Xác thực với Google oauth token
+    async loginWithGoogle(accessToken) {
+        try {
+            const result = await this.fetchApi('/api/auth/google', {
+                method: 'POST',
+                body: JSON.stringify({ access_token: accessToken })
+            });
+            
+            // Lưu token và thông tin người dùng vào localStorage
+            localStorage.setItem('auth_token', result.access_token);
+            localStorage.setItem('user_info', JSON.stringify(result.user));
+            
+            return result;
+        } catch (error) {
+            console.error('Lỗi đăng nhập với Google:', error);
+            throw error;
+        }
+    }
+
+    // Xử lý OAuth callback
+    async handleOAuthCallback(code, provider = 'google') {
+        try {
+            // Đối với Google, chúng ta cần đổi code lấy access token
+            // Nhưng Supabase đã xử lý việc này ở phía server
+            // Chúng ta chỉ cần gửi code về server
+            const result = await this.fetchApi('/api/auth/google', {
+                method: 'POST',
+                body: JSON.stringify({ code, provider })
+            });
+            
+            // Lưu token và thông tin người dùng vào localStorage
+            localStorage.setItem('auth_token', result.access_token);
+            localStorage.setItem('user_info', JSON.stringify(result.user));
+            
+            return result;
+        } catch (error) {
+            console.error(`Lỗi xử lý OAuth callback từ ${provider}:`, error);
+            throw error;
+        }
+    }
 }
 
-// Khởi tạo service
-const apiService = new APIService(API_BASE_URL); 
+// Khởi tạo đối tượng APIService dùng chung toàn ứng dụng
+const apiService = new APIService(API_BASE_URL);
+
+// Export đối tượng apiService
+window.apiService = apiService; 

@@ -8,10 +8,23 @@ from fastapi import (
     Depends,
     Query,
     Path,
+    Header,
+    Cookie,
+    Response,
+    status,
+    APIRouter,
+    Body,
+    Request,
 )
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import (
+    JSONResponse,
+    StreamingResponse,
+    HTMLResponse,
+    FileResponse,
+)
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel, EmailStr, validator
 from typing import List, Dict, Optional
 import os
 import uvicorn
@@ -22,6 +35,7 @@ import json
 from datetime import datetime
 from os import path
 from dotenv import load_dotenv
+import supabase
 
 from src.rag import AdvancedDatabaseRAG
 from src.conversation_memory import ConversationManager
@@ -214,6 +228,120 @@ class FileDeleteResponse(BaseModel):
 # Thêm model để quản lý phiên hội thoại
 class ConversationRequest(BaseModel):
     session_id: str
+
+
+# Models cho API xác thực
+class UserSignUpRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class UserLoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class GoogleAuthRequest(BaseModel):
+    code: Optional[str] = None
+    access_token: Optional[str] = None
+    provider: str = "google"
+
+    @validator("code", "access_token")
+    def check_auth_method(cls, v, values, **kwargs):
+        # Nếu đã qua field đầu tiên và không có giá trị nào được set
+        if "code" in values or "access_token" in values:
+            # Nếu ít nhất một field đã có giá trị thì không sao
+            if values.get("code") or values.get("access_token"):
+                return v
+
+        # Đối với field đầu tiên, chúng ta không kiểm tra gì cả
+        if "code" not in values and "access_token" not in values:
+            return v
+
+        # Nếu cả hai field đều chưa có giá trị, field hiện tại phải có giá trị
+        if not v:
+            if "code" in values and "access_token" in values:
+                # Đã qua cả hai field mà không có giá trị
+                raise ValueError("Phải cung cấp một trong hai: code hoặc access_token")
+        return v
+
+
+class UserResponse(BaseModel):
+    id: str
+    email: str
+    created_at: str
+
+
+class AuthResponse(BaseModel):
+    user: UserResponse
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: Optional[int] = None
+
+
+# Khởi tạo thư viện xác thực
+auth_bearer = HTTPBearer(auto_error=False)
+
+# Khởi tạo client Supabase
+supabase_url = os.getenv("SUPABASE_URL")
+supabase_key = os.getenv("SUPABASE_KEY")
+supabase_client = None
+
+if supabase_url and supabase_key:
+    try:
+        supabase_client = supabase.create_client(supabase_url, supabase_key)
+    except Exception as e:
+        print(f"Lỗi khi khởi tạo Supabase client: {str(e)}")
+else:
+    print("Cảnh báo: Chưa cấu hình SUPABASE_URL và SUPABASE_KEY trong .env")
+
+
+# Hàm để lấy người dùng hiện tại từ token
+async def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(auth_bearer),
+):
+    if not supabase_client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dịch vụ xác thực chưa được cấu hình",
+        )
+
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Không tìm thấy thông tin xác thực",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        # Thử lấy thông tin người dùng hiện tại bằng token
+        try:
+            # Lấy phiên từ access token
+            user_response = supabase_client.auth.get_user()
+        except Exception as e:
+            print(f"Lỗi khi lấy thông tin người dùng từ token: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token không hợp lệ hoặc đã hết hạn",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        if not user_response or not user_response.user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Phiên đăng nhập không hợp lệ hoặc đã hết hạn",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        return user_response.user
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Lỗi xác thực: {str(e)}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 # API routes
@@ -1273,7 +1401,7 @@ async def get_available_sources():
         for doc in all_docs:
             # Kiểm tra cả trong metadata.source và source trực tiếp
             meta_source = doc.get("metadata", {}).get("source", None)
-            direct_source = doc.get("source", None)
+            direct_source = doc.get("source", "unknown")
 
             if meta_source:
                 sources.add(meta_source)
@@ -1299,7 +1427,7 @@ async def get_available_sources():
         for doc in samples:
             # Tính toán filenames
             meta_source = doc.get("metadata", {}).get("source", "not_found")
-            direct_source = doc.get("source", "not_found")
+            direct_source = doc.get("source", "unknown")
             meta_filename = (
                 os.path.basename(meta_source)
                 if meta_source != "not_found" and os.path.sep in meta_source
@@ -1644,6 +1772,418 @@ async def get_conversation_detail(
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Lỗi khi lấy chi tiết hội thoại: {str(e)}"
+        )
+
+
+# API xác thực (authentication)
+@app.post(f"{PREFIX}/auth/signup", response_model=AuthResponse)
+async def signup(request: UserSignUpRequest):
+    """
+    Đăng ký tài khoản mới với email và mật khẩu
+
+    - **email**: Email đăng ký tài khoản
+    - **password**: Mật khẩu đăng ký tài khoản
+    """
+    if not supabase_client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dịch vụ xác thực chưa được cấu hình",
+        )
+
+    try:
+        print(f"Đang đăng ký tài khoản cho email: {request.email}")
+        result = supabase_client.auth.sign_up(
+            {"email": request.email, "password": request.password}
+        )
+
+        if not result.user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Đăng ký thất bại, vui lòng thử lại",
+            )
+
+        # Chuyển đổi created_at từ datetime sang string nếu cần
+        created_at = result.user.created_at
+        if hasattr(created_at, "isoformat"):
+            created_at = created_at.isoformat()
+
+        # Trả về thông tin người dùng và token
+        return {
+            "user": {
+                "id": result.user.id,
+                "email": result.user.email,
+                "created_at": created_at,
+            },
+            "access_token": result.session.access_token if result.session else "",
+            "expires_in": result.session.expires_in if result.session else None,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Lỗi khi đăng ký tài khoản: {str(e)}",
+        )
+
+
+@app.post(f"{PREFIX}/auth/login", response_model=AuthResponse)
+async def login(request: UserLoginRequest, response: Response):
+    """
+    Đăng nhập với email và mật khẩu
+
+    - **email**: Email đăng nhập
+    - **password**: Mật khẩu đăng nhập
+    """
+    if not supabase_client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dịch vụ xác thực chưa được cấu hình",
+        )
+
+    try:
+        print(f"Đang đăng nhập với email: {request.email}")
+        result = supabase_client.auth.sign_in_with_password(
+            {"email": request.email, "password": request.password}
+        )
+
+        if not result.user or not result.session:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Đăng nhập thất bại, kiểm tra lại email và mật khẩu",
+            )
+
+        # Chuyển đổi created_at từ datetime sang string nếu cần
+        created_at = result.user.created_at
+        if hasattr(created_at, "isoformat"):
+            created_at = created_at.isoformat()
+
+        # Trả về thông tin người dùng và token
+        return {
+            "user": {
+                "id": result.user.id,
+                "email": result.user.email,
+                "created_at": created_at,
+            },
+            "access_token": result.session.access_token,
+            "expires_in": result.session.expires_in,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Lỗi khi đăng nhập: {str(e)}",
+        )
+
+
+@app.post(f"{PREFIX}/auth/logout")
+async def logout(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(auth_bearer),
+):
+    """
+    Đăng xuất khỏi hệ thống, vô hiệu hóa token hiện tại
+    """
+    if not supabase_client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dịch vụ xác thực chưa được cấu hình",
+        )
+
+    if not credentials:
+        return {"message": "Đã đăng xuất"}
+
+    try:
+        # Đăng xuất khỏi phiên hiện tại
+        supabase_client.auth.sign_out()
+        return {"message": "Đăng xuất thành công"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Lỗi khi đăng xuất: {str(e)}",
+        )
+
+
+@app.get(f"{PREFIX}/auth/user", response_model=UserResponse)
+async def get_user(current_user=Depends(get_current_user)):
+    """
+    Lấy thông tin người dùng hiện tại
+    """
+    # Chuyển đổi created_at từ datetime sang string nếu cần
+    created_at = current_user.created_at
+    if hasattr(created_at, "isoformat"):
+        created_at = created_at.isoformat()
+
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "created_at": created_at,
+    }
+
+
+@app.get(f"{PREFIX}/auth/session")
+async def session_info(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(auth_bearer),
+):
+    """
+    Kiểm tra thông tin phiên hiện tại
+    """
+    if not supabase_client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dịch vụ xác thực chưa được cấu hình",
+        )
+
+    if not credentials:
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={
+                "is_authenticated": False,
+                "message": "Không có thông tin xác thực",
+            },
+        )
+
+    try:
+        # Kiểm tra phiên
+        session = supabase_client.auth.get_user()
+
+        if not session or not session.user:
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={
+                    "is_authenticated": False,
+                    "message": "Phiên không hợp lệ hoặc đã hết hạn",
+                },
+            )
+
+        # Chuyển đổi created_at từ datetime sang string nếu cần
+        created_at = session.user.created_at
+        if hasattr(created_at, "isoformat"):
+            created_at = created_at.isoformat()
+
+        # Trả về thông tin người dùng đơn giản
+        return {
+            "is_authenticated": True,
+            "user_id": session.user.id,
+            "email": session.user.email,
+            "created_at": created_at,
+        }
+    except Exception as e:
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"is_authenticated": False, "message": f"Lỗi: {str(e)}"},
+        )
+
+
+@app.post(f"{PREFIX}/auth/google")
+async def login_with_google(request: GoogleAuthRequest):
+    """
+    Đăng nhập/đăng ký với Google OAuth
+
+    - **code**: Authorization code nhận được từ Google OAuth (nếu có)
+    - **access_token**: Access token Google đã cấp (nếu có)
+    - **provider**: OAuth provider (mặc định là google)
+    """
+    if not supabase_client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dịch vụ xác thực chưa được cấu hình",
+        )
+
+    try:
+        print(
+            f"Đang xử lý đăng nhập Google: code={request.code is not None}, access_token={request.access_token is not None}, provider={request.provider}"
+        )
+
+        # Xử lý dựa trên loại thông tin xác thực nhận được
+        if request.code:
+            print(
+                f"Đang xác thực với Google bằng authorization code: {request.code[:15]}..."
+            )
+            try:
+                # Đổi code lấy session
+                auth_response = supabase_client.auth.exchange_code_for_session(
+                    request.code
+                )
+                session = auth_response.session
+            except Exception as e:
+                print(f"Lỗi exchange_code_for_session: {str(e)}")
+                # Thử cách khác
+                auth_response = supabase_client.auth.exchange_code_for_session(
+                    {"auth_code": request.code}
+                )
+                session = auth_response.session
+        elif request.access_token:
+            print(f"Đang xác thực với Google bằng access token")
+            # Đăng nhập với access token
+            auth_response = supabase_client.auth.sign_in_with_idp(
+                {
+                    "provider": request.provider,
+                    "access_token": request.access_token,
+                }
+            )
+            session = auth_response.session
+        else:
+            raise ValueError("Thiếu thông tin xác thực")
+
+        if not session:
+            raise ValueError("Không thể tạo phiên đăng nhập")
+
+        # Lấy thông tin user và token
+        user = session.user
+        access_token = session.access_token
+        refresh_token = session.refresh_token
+
+        print(f"Đăng nhập thành công cho user {user.email}")
+
+        # Trả về thông tin người dùng và token
+        return {
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "name": user.user_metadata.get("name", user.email),
+                "avatar_url": user.user_metadata.get("avatar_url", None),
+            },
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "provider": request.provider,
+        }
+    except ValueError as e:
+        print(f"Lỗi giá trị trong quá trình đăng nhập Google: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        print(f"Lỗi đăng nhập với Google: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Lỗi xác thực Google: {str(e)}",
+        )
+
+
+@app.get(f"{PREFIX}/auth/google/url")
+async def google_sign_in_url(
+    redirect_url: str = Query(
+        None, description="URL chuyển hướng sau khi đăng nhập Google"
+    ),
+):
+    """
+    Lấy URL để chuyển hướng đến trang đăng nhập Google
+
+    - **redirect_url**: URL sẽ chuyển hướng đến sau khi đăng nhập Google thành công
+    """
+    if not supabase_client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dịch vụ xác thực chưa được cấu hình",
+        )
+
+    try:
+        if not redirect_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Thiếu redirect_url"
+            )
+
+        print(f"Lấy URL đăng nhập Google với redirect URL: {redirect_url}")
+
+        # Tạo URL xác thực từ Supabase
+        try:
+            # Phương thức này chỉ có trong phiên bản mới của Supabase
+            sign_in_data = supabase_client.auth.sign_in_with_oauth(
+                {
+                    "provider": "google",
+                    "options": {"redirect_to": redirect_url, "scopes": "email profile"},
+                }
+            )
+            auth_url = sign_in_data.url
+        except Exception as e:
+            print(f"Error with sign_in_with_oauth: {str(e)}")
+
+            # Fallback to older version
+            auth_url = supabase_client.auth.get_sign_in_with_oauth(
+                {
+                    "provider": "google",
+                    "options": {"redirect_to": redirect_url, "scopes": "email profile"},
+                }
+            ).url
+
+        if not auth_url:
+            raise Exception("Không thể lấy URL xác thực từ Supabase")
+
+        print(f"Auth URL: {auth_url}")
+        return {"url": auth_url}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Lỗi khi lấy Google auth URL: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Lỗi khi lấy URL đăng nhập Google: {str(e)}",
+        )
+
+
+@app.get(f"{PREFIX}/auth/callback")
+async def auth_callback(
+    code: str = Query(
+        None, description="Authorization code được trả về từ OAuth provider"
+    ),
+    error: str = Query(None, description="Error trả về từ OAuth provider nếu có lỗi"),
+    provider: str = Query("google", description="OAuth provider (mặc định là google)"),
+):
+    """
+    Xử lý callback từ OAuth provider
+
+    - **code**: Authorization code từ OAuth provider
+    - **error**: Lỗi từ OAuth provider nếu có
+    - **provider**: OAuth provider (mặc định là google)
+    """
+    if not supabase_client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dịch vụ xác thực chưa được cấu hình",
+        )
+
+    if error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Lỗi xác thực OAuth: {error}",
+        )
+
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Thiếu authorization code",
+        )
+
+    try:
+        print(f"Nhận code từ {provider}: {code[:10]}...")
+
+        # Sử dụng code để xác thực với provider
+        auth_result = supabase_client.auth.exchange_code_for_session(
+            {"auth_code": code}
+        )
+
+        # Lấy phiên và token
+        session = auth_result.session
+        access_token = session.access_token
+        refresh_token = session.refresh_token
+
+        # Lấy thông tin người dùng
+        user = session.user
+
+        # Trả về thông tin người dùng và token
+        return {
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "name": user.user_metadata.get("name", user.email),
+                "avatar_url": user.user_metadata.get("avatar_url", None),
+            },
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "provider": provider,
+        }
+    except Exception as e:
+        print(f"Lỗi xử lý OAuth callback: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Lỗi xác thực OAuth: {str(e)}",
         )
 
 

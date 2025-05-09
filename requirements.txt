@@ -16,3 +16,4 @@ pydantic
 python-multipart
 PyMuPDF
 python-dotenv
+pydantic[email]

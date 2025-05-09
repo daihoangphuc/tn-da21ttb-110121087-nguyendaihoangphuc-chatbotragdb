@@ -9,6 +9,26 @@
     <link rel="stylesheet" href="assets/css/styles.css">
 </head>
 <body>
+    <!-- Kiểm tra đăng nhập -->
+    <script>
+        // Kiểm tra xem người dùng đã đăng nhập hay chưa
+        if(typeof apiService === 'undefined') {
+            document.write('<script src="assets/js/api-service.js"><\/script>');
+            document.addEventListener('DOMContentLoaded', function() {
+                checkLoginStatus();
+            });
+        } else {
+            checkLoginStatus();
+        }
+        
+        function checkLoginStatus() {
+            if (!apiService.isLoggedIn()) {
+                // Chuyển hướng đến trang đăng nhập nếu chưa đăng nhập
+                window.location.href = 'login.html';
+            }
+        }
+    </script>
+
     <div class="app-container">
         <!-- Header -->
         <header class="header">
@@ -22,31 +42,31 @@
                     </button>
                     <div class="user-dropdown">
                         <button class="user-dropdown-trigger">
-                            <div class="avatar">
-                                <span>ND</span>
+                            <div class="avatar" id="userAvatar">
+                                <span id="userInitials">ND</span>
                             </div>
-                            <span class="user-name">Người dùng</span>
+                            <span class="user-name" id="userDisplayName">Người dùng</span>
                             <i class="fas fa-chevron-down"></i>
                         </button>
                         <div class="user-dropdown-content">
                             <div class="user-info">
                                 <div class="avatar">
-                                    <span>ND</span>
+                                    <span id="userDropdownInitials">ND</span>
                                 </div>
                                 <div class="user-details">
-                                    <p class="user-full-name">Nguyễn Văn A</p>
-                                    <p class="user-email">nguyenvana@example.com</p>
+                                    <p class="user-full-name" id="userFullName">Người dùng</p>
+                                    <p class="user-email" id="userEmail">user@example.com</p>
                                 </div>
                             </div>
                             <div class="dropdown-divider"></div>
                             <ul class="dropdown-menu">
-                                <li><a href="#"><i class="fas fa-user"></i> Hồ sơ</a></li>
-                                <li><a href="#"><i class="fas fa-cog"></i> Cài đặt</a></li>
-                                <li><a href="#"><i class="fas fa-question-circle"></i> Trợ giúp</a></li>
+                                <li><a href="#" id="profileLink"><i class="fas fa-user"></i> Hồ sơ</a></li>
+                                <li><a href="#" id="settingsLink"><i class="fas fa-cog"></i> Cài đặt</a></li>
+                                <li><a href="#" id="helpLink"><i class="fas fa-question-circle"></i> Trợ giúp</a></li>
                             </ul>
                             <div class="dropdown-divider"></div>
                             <ul class="dropdown-menu">
-                                <li><a href="#" class="text-danger"><i class="fas fa-sign-out-alt"></i> Đăng xuất</a></li>
+                                <li><a href="#" class="text-danger" id="logoutLink"><i class="fas fa-sign-out-alt"></i> Đăng xuất</a></li>
                             </ul>
                         </div>
                     </div>
@@ -251,5 +271,87 @@
     <script src="assets/js/ui-controllers.js"></script>
     <script src="assets/js/chat.js"></script>
     <script src="assets/js/main.js"></script>
+    <!-- Xử lý thông tin người dùng và đăng xuất -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Lấy thông tin người dùng từ localStorage
+            const userInfo = apiService.getUserInfo();
+            
+            if (userInfo) {
+                // Xử lý hiển thị thông tin người dùng
+                updateUserInfo(userInfo);
+            } else {
+                // Người dùng có thể đã đăng nhập nhưng chưa có thông tin trong localStorage
+                // Thử lấy thông tin từ server
+                apiService.getCurrentUser()
+                    .then(userInfo => {
+                        updateUserInfo(userInfo);
+                    })
+                    .catch(error => {
+                        console.error('Lỗi khi lấy thông tin người dùng:', error);
+                        // Nếu không lấy được thông tin, đăng xuất và quay lại trang đăng nhập
+                        apiService.logout()
+                            .finally(() => {
+                                window.location.href = 'login.html';
+                            });
+                    });
+            }
+            
+            // Xử lý đăng xuất
+            const logoutLink = document.getElementById('logoutLink');
+            if (logoutLink) {
+                logoutLink.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    
+                    // Gọi API đăng xuất
+                    apiService.logout()
+                        .then(() => {
+                            // Chuyển hướng đến trang đăng nhập
+                            window.location.href = 'login.html';
+                        })
+                        .catch(error => {
+                            console.error('Lỗi khi đăng xuất:', error);
+                            // Vẫn chuyển hướng đến trang đăng nhập nếu có lỗi
+                            window.location.href = 'login.html';
+                        });
+                });
+            }
+            
+            // Cập nhật thông tin người dùng trên giao diện
+            function updateUserInfo(userInfo) {
+                const userDisplayName = document.getElementById('userDisplayName');
+                const userInitials = document.getElementById('userInitials');
+                const userDropdownInitials = document.getElementById('userDropdownInitials');
+                const userFullName = document.getElementById('userFullName');
+                const userEmail = document.getElementById('userEmail');
+                
+                if (userEmail) {
+                    userEmail.textContent = userInfo.email;
+                }
+                
+                // Lấy tên hiển thị từ email (phần trước @)
+                const displayName = userInfo.email.split('@')[0];
+                
+                if (userDisplayName) {
+                    userDisplayName.textContent = displayName;
+                }
+                
+                if (userFullName) {
+                    userFullName.textContent = displayName;
+                }
+                
+                // Tạo chữ cái đầu cho avatar
+                const initials = displayName.substring(0, 2).toUpperCase();
+                
+                if (userInitials) {
+                    userInitials.textContent = initials;
+                }
+                
+                if (userDropdownInitials) {
+                    userDropdownInitials.textContent = initials;
+                }
+            }
+        });
+    </script>
 </body>
 </html> 
