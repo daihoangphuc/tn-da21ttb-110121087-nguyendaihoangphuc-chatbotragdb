@@ -1392,43 +1392,6 @@ async def get_source_details(
         )
 
 
-@app.get(f"{PREFIX}/check/layoutparser")
-async def check_layoutparser_installation():
-    """
-    Kiểm tra cài đặt LayoutParser và các thư viện liên quan - Endpoint không còn hoạt động
-    """
-    return {
-        "status": "deprecated",
-        "message": "Tính năng layout detection đã bị loại bỏ khỏi hệ thống",
-        "ready_for_layout_detection": False,
-    }
-
-
-@app.put(f"{PREFIX}/config/layoutdetection")
-async def toggle_layout_detection(enable: bool = True):
-    """
-    Bật hoặc tắt chức năng Layout Detection cho xử lý PDF - Endpoint không còn hoạt động
-
-    - **enable**: True để bật, False để tắt
-    """
-    return {
-        "status": "deprecated",
-        "message": "Tính năng layout detection đã bị loại bỏ khỏi hệ thống",
-        "layout_detection_enabled": False,
-    }
-
-
-@app.post(f"{PREFIX}/check/layoutparser/reset")
-async def reset_layoutparser_configuration():
-    """
-    Đặt lại cấu hình layoutparser - Endpoint không còn hoạt động
-    """
-    return {
-        "status": "deprecated",
-        "message": "Tính năng layout detection đã bị loại bỏ khỏi hệ thống",
-    }
-
-
 @app.post(f"{PREFIX}/collections/delete-by-filter")
 async def delete_points_by_filter(filter_request: Dict):
     """

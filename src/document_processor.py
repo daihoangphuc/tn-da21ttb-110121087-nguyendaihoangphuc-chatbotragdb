@@ -138,59 +138,6 @@ class DocumentProcessor:
         # Áp dụng chunking cấu trúc mặc định
         self.use_structural_chunking = True
 
-    def detect_layout(self, image_path: str) -> Optional[List[Dict]]:
-        """Phương thức đơn giản thay thế cho layout detection, trả về None để sử dụng phương pháp chunking thông thường"""
-        print("Layout detection đã bị tắt. Sử dụng phương pháp chunking thông thường")
-        return None
-
-    def extract_text_from_regions(self, image, regions, ocr_engine=None):
-        """Phương thức giữ lại để đảm bảo khả năng tương thích, không còn chức năng"""
-        print(
-            "Phương thức extract_text_from_regions không hoạt động vì layout detection đã bị tắt"
-        )
-        return regions
-
-    def filter_and_group_regions(self, regions: List[Dict]) -> List[Dict]:
-        """Phương thức giữ lại để đảm bảo khả năng tương thích, trả về danh sách trống"""
-        print(
-            "Phương thức filter_and_group_regions không hoạt động vì layout detection đã bị tắt"
-        )
-        return []
-
-    def process_pdf_with_layout(
-        self, pdf_path: str, category: str = None
-    ) -> List[Dict]:
-        """Xử lý tài liệu PDF không sử dụng layout detection, mà sử dụng phương pháp chunking thông thường"""
-        print(
-            f"Xử lý {os.path.basename(pdf_path)} với phương pháp chunking thông thường (không dùng layout detection)"
-        )
-
-        # Sử dụng phương pháp tải tài liệu thông thường
-        documents = self.load_document_with_category(pdf_path, category)
-
-        # Chuyển đổi documents
-        processed_chunks = []
-        for idx, doc in enumerate(documents):
-            chunk_metadata = doc.metadata
-            # Thêm metadata phong phú
-            enhanced_metadata = self._enhance_chunk_metadata(
-                doc.page_content, chunk_metadata
-            )
-            processed_chunks.append(
-                {
-                    "id": str(idx),
-                    "text": doc.page_content,
-                    "metadata": enhanced_metadata,
-                    "source": enhanced_metadata.get("source", "unknown"),
-                    "category": enhanced_metadata.get("category", "general"),
-                }
-            )
-
-        print(
-            f"Đã xử lý {len(processed_chunks)} chunks với phương pháp chunking thông thường"
-        )
-        return processed_chunks
-
     def _chunk_by_structure(self, text: str, metadata: Dict) -> List[Dict]:
         """Chia văn bản thành các đoạn theo cấu trúc"""
         chunks = []

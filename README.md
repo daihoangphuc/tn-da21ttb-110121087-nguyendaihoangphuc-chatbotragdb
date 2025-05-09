@@ -15,7 +15,7 @@ D:/DATN/V2/
     ├── document_processor.py # Module xử lý tài liệu
     ├── prompt_manager.py    # Module quản lý prompt
     ├── search.py            # Module quản lý tìm kiếm
-    ├── query_processor.py   # Module xử lý và mở rộng truy vấn
+    ├── query_processor.py   # Module xử lý truy vấn đơn giản
     ├── rag.py               # Module tổng hợp hệ thống RAG
     ├── api.py               # Module API FastAPI
     ├── .env                 # File cấu hình biến môi trường
@@ -56,6 +56,20 @@ D:/DATN/V2/
    ```
    python -m uvicorn src.api:app --host 0.0.0.0 --port 8000 --reload
    ```
+
+## Lưu ý về tính năng đã loại bỏ
+
+Hệ thống này đã loại bỏ hai tính năng để tối ưu hiệu suất và đơn giản hóa mã nguồn:
+
+1. **Layout Detection**: Đã loại bỏ tính năng phân tích layout của PDF. Tài liệu PDF giờ đây được xử lý bằng phương pháp chunking thông thường, giúp:
+   - Giảm phụ thuộc vào các thư viện phức tạp như layoutparser, opencv, pdf2image, pytesseract
+   - Cải thiện tốc độ xử lý tài liệu
+   - Tăng tính ổn định khi xử lý nhiều định dạng PDF khác nhau
+
+2. **Query Expansion**: Đã loại bỏ tính năng mở rộng truy vấn, giúp:
+   - Đơn giản hóa quá trình tìm kiếm
+   - Giảm thời gian phản hồi
+   - Loại bỏ phụ thuộc vào các mô hình và từ điển đồng nghĩa phức tạp
 
 ## SƠ ĐỒ HOẠT ĐỘNG
 
