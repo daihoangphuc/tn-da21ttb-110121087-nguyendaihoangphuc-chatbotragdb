@@ -706,6 +706,8 @@ h3 {
     overflow: hidden;
     background-color: #1e1e1e;
     border: 1px solid #333;
+    contain: content;
+    will-change: contents;
 }
 
 .dark-theme .code-block {
@@ -751,6 +753,8 @@ h3 {
     font-size: 0.875rem;
     line-height: 1.5;
     white-space: pre;
+    contain: content;
+    will-change: contents;
 }
 
 /* Syntax highlighting in code blocks */
@@ -1112,6 +1116,8 @@ h3 {
 /* Markdown styling */
 .markdown {
     line-height: 1.6;
+    contain: content;
+    will-change: contents;
 }
 
 .markdown p {
@@ -1648,23 +1654,100 @@ h3 {
 .assistant-typing-content {
     position: relative;
     min-height: 24px;
+    transition: opacity 0.3s ease;
+    will-change: contents;
+    contain: content;
 }
 
 .assistant-typing-content::after {
     content: '|';
     position: absolute;
     display: inline-block;
+    margin-left: 2px;
     animation: blink 0.7s infinite;
     font-weight: bold;
     color: var(--foreground);
+    opacity: 0.7;
 }
 
 @keyframes blink {
-    0%, 100% { opacity: 1; }
+    0%, 100% { opacity: 0.7; }
     50% { opacity: 0; }
 }
 
 /* Ẩn cursor khi đã đánh máy xong hết nội dung */
 .assistant-typing-content.typing-done::after {
     display: none;
+}
+
+/* Làm mượt transition khi nội dung thay đổi */
+.message-content {
+    transition: none; /* Bỏ transition để tránh hiệu ứng nhấp nháy */
+    contain: content; /* Giúp tối ưu performance */
+    will-change: contents;
+}
+
+/* Hiệu ứng cho typing indicator */
+.typing-indicator-inline {
+    display: inline-flex;
+    align-items: center;
+    column-gap: 4px;
+    padding: 6px 0;
+    height: 24px;
+    opacity: 0.8;
+    transition: opacity 0.3s ease;
+    contain: content;
+    will-change: contents;
+}
+
+.typing-indicator-inline span {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    background-color: var(--muted-foreground);
+    border-radius: 50%;
+    opacity: 0.6;
+    animation: typingBounce 1.4s infinite ease-in-out;
+}
+
+.typing-indicator-inline span:nth-child(1) {
+    animation-delay: 0s;
+}
+
+.typing-indicator-inline span:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.typing-indicator-inline span:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+@keyframes typingBounce {
+    0%, 100% {
+        transform: translateY(0);
+        opacity: 0.6;
+    }
+    50% {
+        transform: translateY(-3px);
+        opacity: 1;
+    }
+}
+
+/* Hiệu ứng fade in cho tin nhắn mới */
+.message {
+    opacity: 0;
+    animation: messageAppear 0.3s ease forwards;
+    contain: content;
+    will-change: transform, opacity;
+}
+
+@keyframes messageAppear {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 } 

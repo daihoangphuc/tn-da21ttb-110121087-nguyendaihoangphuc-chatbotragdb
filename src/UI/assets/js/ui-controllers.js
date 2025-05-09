@@ -425,88 +425,117 @@ class ConversationController {
         try {
             console.log('Gọi API với câu hỏi:', message);
             
-            // Đảm bảo hiệu ứng loading hiển thị ít nhất 1 giây
-            const minLoadingTime = 1000; // 1 giây
-            const loadingStartTime = Date.now();
+            // Bắt đầu streaming
+            let streamResponse = '';
+            let sources = [];
+            let isStreaming = false;
             
-            let response;
+            // Sử dụng streaming API
+            const stream = apiService.queryRAGStream(
+                message,
+                'hybrid',
+                undefined,
+                selectedSources
+            );
             
-            try {
-                // Gọi API để lấy phản hồi
-                response = await apiService.queryRAG(
-                    message, 
-                    'hybrid', 
-                    undefined, 
-                    selectedSources
-                );
-            } catch (apiError) {
-                console.error('Không thể kết nối đến API:', apiError);
+            // Xử lý khi nhận được sources
+            stream.onSources(sourcesData => {
+                console.log('Nhận được sources:', sourcesData);
+                sources = sourcesData.sources || [];
                 
                 // Xóa loading message
                 this.removeLoadingMessage();
                 
-                // Hiển thị thông báo lỗi cho người dùng
-                this.addMessage(`Không thể kết nối đến hệ thống. Vui lòng kiểm tra lại kết nối mạng và API. Lỗi: ${apiError.message}`, 'assistant');
+                // Thêm message trống cho assistant, sẽ được cập nhật dần dần
+                this.addMessage('', 'assistant', sources);
+                
+                // Thêm indicator cho nội dung sẽ được cập nhật
+                this.updateMessageContent('', false);
+                
+                // Cập nhật trạng thái đang streaming
+                isStreaming = true;
+            });
+            
+            // Xử lý khi nhận được từng đoạn nội dung
+            stream.onContent(content => {
+                if (!isStreaming) return; // Đảm bảo sources đã được xử lý trước
+                
+                console.log('Nhận được nội dung:', content);
+                streamResponse += content;
+                
+                // Cập nhật nội dung tin nhắn trong UI
+                this.updateMessageContent(streamResponse);
+            });
+            
+            // Xử lý khi kết thúc stream
+            stream.onEnd(endData => {
+                console.log('Stream kết thúc:', endData);
+                
+                // Hoàn tất tin nhắn
+                if (streamResponse) {
+                    // Đã có nội dung, cập nhật lần cuối
+                    this.updateMessageContent(streamResponse, true);
+                } else {
+                    // Phòng trường hợp không có nội dung nào được stream
+                    this.updateMessageContent("Không nhận được phản hồi từ hệ thống. Vui lòng thử lại sau.", true);
+                }
+                
+                // Cập nhật meta thông tin
+                this.updateConversationMeta();
+                
+                // Nếu có sources, hiển thị nguồn đầu tiên
+                if (sources && sources.length > 0) {
+                    const sourceViewController = new SourceViewController();
+                    sourceViewController.showSource(sources[0]);
+                    console.log('Hiển thị nguồn đầu tiên');
+                    
+                    // Trên mobile, tự động chuyển sang source view
+                    if (window.innerWidth < 640) {
+                        const mobileNavController = new MobileNavController();
+                        mobileNavController.switchPanel('sourceView');
+                    }
+                }
+                
+                // Kích hoạt lại input
+                messageInput.disabled = false;
+                sendButton.disabled = false;
+                messageInput.focus();
+            });
+            
+            // Xử lý khi có lỗi
+            stream.onError(error => {
+                console.error('Lỗi stream:', error);
+                
+                // Xóa loading message nếu còn
+                if (this.loadingMessage) {
+                    this.removeLoadingMessage();
+                }
+                
+                // Hiển thị tin nhắn lỗi
+                if (!isStreaming) {
+                    // Chưa hiển thị tin nhắn nào, thêm tin nhắn lỗi mới
+                    this.addMessage(`Đã xảy ra lỗi khi xử lý truy vấn của bạn: ${error.message}. Vui lòng thử lại sau.`, 'assistant');
+                } else {
+                    // Đã có tin nhắn, cập nhật tin nhắn hiện tại
+                    this.updateMessageContent(`${streamResponse}\n\nLỗi: ${error.message}. Kết nối bị ngắt.`, true);
+                }
                 
                 // Kích hoạt lại input
                 messageInput.disabled = false;
                 sendButton.disabled = false;
                 messageInput.focus();
                 
-                // Hiển thị thông báo lỗi trong 3 giây
+                // Hiển thị thông báo lỗi trong 5 giây
                 const apiAlert = document.getElementById('apiAlert');
                 const apiAlertMessage = document.getElementById('apiAlertMessage');
                 if (apiAlert && apiAlertMessage) {
-                    apiAlertMessage.textContent = `Không thể kết nối đến API: ${apiError.message}`;
+                    apiAlertMessage.textContent = `Lỗi: ${error.message}`;
                     apiAlert.style.display = 'flex';
                     setTimeout(() => {
                         apiAlert.style.display = 'none';
                     }, 5000);
                 }
-                
-                return; // Kết thúc sớm hàm xử lý
-            }
-            
-            // Tính thời gian đã trôi qua
-            const elapsedTime = Date.now() - loadingStartTime;
-            
-            // Nếu phản hồi quá nhanh, đợi thêm để hiệu ứng loading hiển thị đủ lâu
-            if (elapsedTime < minLoadingTime) {
-                await new Promise(resolve => setTimeout(resolve, minLoadingTime - elapsedTime));
-            }
-            
-            console.log('Nhận phản hồi từ API:', response);
-            
-            // Xóa loading message
-            this.removeLoadingMessage();
-            console.log('Đã xóa loading message');
-            
-            // Đợi một khoảng thời gian ngắn để đảm bảo hiệu ứng loading biến mất
-            await new Promise(resolve => setTimeout(resolve, 100));
-            
-            // Thêm tin nhắn từ hệ thống và hiển thị sources
-            this.addMessage(response.answer, 'assistant', response.sources);
-            console.log('Đã thêm câu trả lời vào UI');
-            
-            // Kiểm tra DOM sau khi thêm câu trả lời
-            console.log('Số tin nhắn người dùng sau khi thêm câu trả lời:', document.querySelectorAll('.user-message').length);
-            console.log('Số tin nhắn trợ lý sau khi thêm câu trả lời:', document.querySelectorAll('.assistant-message').length);
-            
-            // Cập nhật meta thông tin
-            this.updateConversationMeta();
-            
-            // Nếu có sources, hiển thị nguồn đầu tiên
-            if (response.sources && response.sources.length > 0) {
-                const sourceViewController = new SourceViewController();
-                sourceViewController.showSource(response.sources[0]);
-                console.log('Hiển thị nguồn đầu tiên');
-                
-                // Trên mobile, tự động chuyển sang source view
-                if (window.innerWidth < 640) {
-                    const mobileNavController = new MobileNavController();
-                    mobileNavController.switchPanel('sourceView');
-                }
-            }
+            });
         } catch (error) {
             console.error('Lỗi khi xử lý câu hỏi:', error);
             
@@ -515,11 +544,135 @@ class ConversationController {
             
             // Hiển thị tin nhắn lỗi
             this.addMessage(`Đã xảy ra lỗi khi xử lý truy vấn của bạn: ${error.message}. Vui lòng thử lại sau.`, 'assistant');
-        } finally {
-            // Kích hoạt lại input sau khi hoàn thành, cho dù thành công hay thất bại
+            
+            // Kích hoạt lại input
             messageInput.disabled = false;
             sendButton.disabled = false;
             messageInput.focus();
+        }
+    }
+
+    // Thêm phương thức mới để cập nhật nội dung tin nhắn hiện tại
+    updateMessageContent(content, isComplete = false) {
+        // Tìm tin nhắn assistant cuối cùng
+        const assistantMessages = document.querySelectorAll('.assistant-message');
+        if (assistantMessages.length === 0) return;
+        
+        const lastAssistantMessage = assistantMessages[assistantMessages.length - 1];
+        const contentElement = lastAssistantMessage.querySelector('.message-content');
+        if (!contentElement) return;
+        
+        // Cập nhật nội dung markdown
+        const typingContent = contentElement.querySelector('.assistant-typing-content');
+        if (typingContent) {
+            // Nếu không có nội dung, hiển thị typing indicator
+            if (!content) {
+                typingContent.innerHTML = '<div class="typing-indicator-inline"><span></span><span></span><span></span></div>';
+                return;
+            }
+
+            // Nếu đã hoàn thành và nội dung giống nhau, không cần cập nhật
+            if (isComplete && typingContent.getAttribute('data-content') === content) {
+                return;
+            }
+
+            // Lưu nội dung hiện tại để so sánh
+            const currentContent = typingContent.getAttribute('data-content') || '';
+            
+            // Nếu nội dung mới ngắn hơn nội dung hiện tại, có thể là do stream bị ngắt
+            if (content.length < currentContent.length && !isComplete) {
+                return;
+            }
+
+            // Tạo hiệu ứng đánh máy
+            if (currentContent === '') {
+                // Lần đầu tiên nhận được nội dung
+                typingContent.setAttribute('data-content', content);
+                typingContent.innerHTML = this.formatMessageContent(content);
+                typingContent.style.opacity = '0.7';
+            } else {
+                // Cập nhật dần dần với độ trễ
+                const delay = 15; // Giảm độ trễ xuống 15ms
+                const newContent = content;
+                const oldContent = currentContent;
+                
+                // Tìm vị trí bắt đầu khác nhau
+                let diffIndex = 0;
+                while (diffIndex < oldContent.length && 
+                       diffIndex < newContent.length && 
+                       oldContent[diffIndex] === newContent[diffIndex]) {
+                    diffIndex++;
+                }
+                
+                // Chỉ cập nhật phần khác biệt
+                const remainingContent = newContent.slice(diffIndex);
+                let currentIndex = 0;
+                let buffer = '';
+                let lastRenderTime = 0;
+                
+                const typeNextChar = () => {
+                    const now = Date.now();
+                    
+                    // Tích lũy các ký tự vào buffer
+                    while (currentIndex < remainingContent.length) {
+                        buffer += remainingContent[currentIndex];
+                        currentIndex++;
+                        
+                        // Nếu gặp ký tự đặc biệt hoặc đã đủ 5 ký tự, render ngay
+                        if (buffer.length >= 5 || 
+                            buffer.includes('\n') || 
+                            buffer.includes('`') || 
+                            buffer.includes('*') ||
+                            currentIndex === remainingContent.length) {
+                            break;
+                        }
+                    }
+                    
+                    if (buffer.length > 0) {
+                        // Cập nhật nội dung
+                        const updatedContent = newContent.slice(0, diffIndex + currentIndex - buffer.length) + buffer;
+                        typingContent.setAttribute('data-content', updatedContent);
+                        
+                        // Chỉ render markdown khi cần thiết
+                        if (now - lastRenderTime > 50 || currentIndex === remainingContent.length) {
+                            typingContent.innerHTML = this.formatMessageContent(updatedContent);
+                            lastRenderTime = now;
+                        }
+                        
+                        buffer = '';
+                    }
+                    
+                    if (currentIndex < remainingContent.length) {
+                        setTimeout(typeNextChar, delay);
+                    } else if (isComplete) {
+                        // Khi hoàn thành, render lại lần cuối và thêm các event listeners
+                        typingContent.innerHTML = this.formatMessageContent(newContent);
+                        typingContent.classList.add('typing-done');
+                        typingContent.style.opacity = '1';
+                        
+                        // Thêm event listeners cho nút copy code
+                        const codeBlocks = typingContent.querySelectorAll('.code-block');
+                        codeBlocks.forEach(block => {
+                            const copyBtn = block.querySelector('.code-copy-btn');
+                            if (copyBtn) {
+                                const codeContent = block.querySelector('.code-content')?.textContent || '';
+                                copyBtn.addEventListener('click', () => {
+                                    navigator.clipboard.writeText(codeContent);
+                                    copyBtn.innerHTML = '<i class="fas fa-check"></i>';
+                                    setTimeout(() => {
+                                        copyBtn.innerHTML = '<i class="fas fa-copy"></i>';
+                                    }, 2000);
+                                });
+                            }
+                        });
+                    }
+                };
+                
+                typeNextChar();
+            }
+            
+            // Cuộn xuống tin nhắn mới nhất
+            this.scrollToBottom();
         }
     }
 
@@ -570,7 +723,7 @@ class ConversationController {
         const messageElement = document.createElement('div');
         messageElement.className = `message ${message.role}-message`;
         messageElement.setAttribute('data-role', message.role);
-        console.log(`Hiển thị tin nhắn: ${message.role}, nội dung: ${message.content.slice(0, 30)}...`);
+        console.log(`Hiển thị tin nhắn: ${message.role}, nội dung: ${message.content ? message.content.slice(0, 30) + '...' : 'rỗng'}`);
         
         // Avatar và nội dung tin nhắn
         let avatar = '';
@@ -590,15 +743,10 @@ class ConversationController {
         
         // Format nội dung tin nhắn
         let formattedContent = '';
-        if (message.role === 'assistant') {
-            formattedContent = this.formatMessageContent(message.content);
-        } else {
+        if (message.role === 'user') {
             // Xử lý đặc biệt cho tin nhắn người dùng để hiển thị rõ ràng
             formattedContent = `<p>${message.content}</p>`;
-        }
-        
-        // Tạo HTML cho tin nhắn
-        if (message.role === 'user') {
+            
             messageElement.innerHTML = `
                 ${avatar}
                 <div class="message-content">
@@ -607,7 +755,8 @@ class ConversationController {
             `;
             messagesContainer.appendChild(messageElement);
         } else {
-            // Với tin nhắn từ trợ lý, chỉ hiển thị avatar trước
+            // Với tin nhắn từ trợ lý, không hiển thị nội dung ngay, mà chỉ hiển thị avatar 
+            // và placeholder để cập nhật sau bằng updateMessageContent
             messageElement.innerHTML = `
                 ${avatar}
                 <div class="message-content">
@@ -617,15 +766,6 @@ class ConversationController {
             `;
             
             messagesContainer.appendChild(messageElement);
-            
-            // Lấy phần nội dung để thêm hiệu ứng đánh máy
-            const typingContent = messageElement.querySelector('.assistant-typing-content');
-            
-            // Sử dụng timeout nhỏ để đảm bảo DOM đã được cập nhật
-            setTimeout(() => {
-                // Áp dụng hiệu ứng đánh máy
-                this.typeWriterEffect(typingContent, formattedContent);
-            }, 100);
         }
         
         // In log để debug
@@ -646,33 +786,11 @@ class ConversationController {
                     }
                 });
             });
-            
-            // Thêm event listeners cho nút copy code sau khi đánh máy hoàn tất
-            if (message.role === 'assistant') {
-                setTimeout(() => {
-                    const codeBlocks = messageElement.querySelectorAll('.code-block');
-                    codeBlocks.forEach(block => {
-                        const copyBtn = block.querySelector('.code-copy-btn');
-                        if (copyBtn) {
-                            const codeContent = block.querySelector('.code-content')?.textContent || '';
-                            
-                            copyBtn.addEventListener('click', () => {
-                                navigator.clipboard.writeText(codeContent);
-                                copyBtn.innerHTML = '<i class="fas fa-check"></i>';
-                                
-                                setTimeout(() => {
-                                    copyBtn.innerHTML = '<i class="fas fa-copy"></i>';
-                                }, 2000);
-                            });
-                        }
-                    });
-                }, 500); // Đợi một chút sau khi nội dung đã được đánh máy
-            }
         }
     }
 
     formatMessageContent(content) {
-        if (!content) return '<p>Không có nội dung</p>';
+        if (!content) return '';
         
         try {
             // Cấu hình marked.js để xử lý code blocks đúng cách

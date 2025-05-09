@@ -8,8 +8,8 @@ from fastapi import (
     Depends,
     Query,
 )
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 import os
@@ -364,6 +364,183 @@ async def ask_question(
 
         return result
     except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý câu hỏi: {str(e)}")
+
+
+@app.post(f"{PREFIX}/ask/stream")
+async def ask_question_stream(
+    request: QuestionRequest,
+    max_sources: Optional[int] = Query(
+        None,
+        description="Số lượng nguồn tham khảo tối đa trả về. Để None để hiển thị tất cả.",
+        ge=1,
+        le=50,
+    ),
+):
+    """
+    Đặt câu hỏi và nhận câu trả lời từ hệ thống RAG dưới dạng stream
+
+    - **question**: Câu hỏi cần trả lời
+    - **search_type**: Loại tìm kiếm ("semantic", "keyword", "hybrid")
+    - **alpha**: Hệ số kết hợp giữa semantic và keyword search (0.7 = 70% semantic + 30% keyword)
+    - **sources**: Danh sách các file nguồn cần tìm kiếm, có thể là tên file đơn thuần hoặc đường dẫn đầy đủ
+    - **max_sources**: Số lượng nguồn tham khảo tối đa trả về (query parameter)
+    """
+    try:
+        # Kiểm tra xem người dùng đã chọn nguồn hay chưa
+        if not request.sources or len(request.sources) == 0:
+            # Lấy danh sách các nguồn có sẵn
+            all_docs = rag_system.vector_store.get_all_documents(limit=1000)
+            available_sources = set()
+            available_filenames = set()  # Tập hợp tên file không có đường dẫn
+
+            for doc in all_docs:
+                source = doc.get("metadata", {}).get(
+                    "source", doc.get("source", "unknown")
+                )
+                if source != "unknown":
+                    available_sources.add(source)
+                    # Thêm tên file đơn thuần
+                    if os.path.sep in source:
+                        available_filenames.add(os.path.basename(source))
+                    else:
+                        available_filenames.add(source)
+
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "Vui lòng chọn ít nhất một nguồn tài liệu để tìm kiếm.",
+                    "available_sources": sorted(list(available_sources)),
+                    "available_filenames": sorted(list(available_filenames)),
+                    "note": "Bạn có thể dùng tên file đơn thuần hoặc đường dẫn đầy đủ",
+                },
+            )
+
+        # Kiểm tra xem sources có tồn tại không nếu đã chỉ định
+        if request.sources and len(request.sources) > 0:
+            # Lấy danh sách các nguồn có sẵn
+            all_docs = rag_system.vector_store.get_all_documents(limit=1000)
+            available_sources = set()
+            available_filenames = set()  # Tập hợp tên file không có đường dẫn
+
+            for doc in all_docs:
+                # Lấy nguồn từ cả metadata và direct
+                source = doc.get("metadata", {}).get(
+                    "source", doc.get("source", "unknown")
+                )
+                if source != "unknown":
+                    available_sources.add(source)
+                    # Thêm tên file đơn thuần
+                    if os.path.sep in source:
+                        available_filenames.add(os.path.basename(source))
+                    else:
+                        available_filenames.add(source)
+
+            # Kiểm tra xem các nguồn được yêu cầu có tồn tại không (tính cả tên file đơn thuần)
+            missing_sources = []
+            for s in request.sources:
+                # Kiểm tra cả đường dẫn đầy đủ và tên file đơn thuần
+                filename = os.path.basename(s) if os.path.sep in s else s
+                if s not in available_sources and filename not in available_filenames:
+                    missing_sources.append(s)
+
+            if missing_sources:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "status": "error",
+                        "message": f"Không tìm thấy các nguồn: {', '.join(missing_sources)}",
+                        "available_sources": sorted(list(available_sources)),
+                        "available_filenames": sorted(list(available_filenames)),
+                        "note": "Bạn có thể dùng tên file đơn thuần hoặc đường dẫn đầy đủ",
+                    },
+                )
+
+        # Tạo ID cho câu hỏi
+        question_id = f"q_{uuid4().hex[:8]}"
+
+        # Hàm generator để cung cấp dữ liệu cho SSE
+        async def generate_response_stream():
+            try:
+                # Gọi RAG để lấy kết quả dạng stream
+                async for chunk in rag_system.query_with_sources_streaming(
+                    request.question,
+                    search_type=request.search_type,
+                    alpha=request.alpha,
+                    sources=request.sources,
+                ):
+                    # Xử lý chunk tùy theo loại
+                    if chunk["type"] == "sources":
+                        # Giới hạn số lượng nguồn trả về theo tham số nếu người dùng yêu cầu
+                        if (
+                            max_sources
+                            and chunk["data"]["sources"]
+                            and len(chunk["data"]["sources"]) > max_sources
+                        ):
+                            chunk["data"]["sources"] = chunk["data"]["sources"][
+                                :max_sources
+                            ]
+
+                        # Thêm question_id vào kết quả
+                        chunk["data"]["question_id"] = question_id
+
+                        # Trả về nguồn dưới dạng SSE
+                        yield f"event: sources\ndata: {json.dumps(chunk['data'])}\n\n"
+
+                    elif chunk["type"] == "content":
+                        # Trả về từng đoạn nội dung
+                        yield f"event: content\ndata: {json.dumps({'content': chunk['data']})}\n\n"
+
+                    elif chunk["type"] == "end":
+                        # Khi kết thúc, thêm thông tin bổ sung
+                        chunk["data"]["question_id"] = question_id
+
+                        # Lưu vào lịch sử nếu đã có đủ dữ liệu
+                        if hasattr(generate_response_stream, "full_answer"):
+                            questions_history[question_id] = {
+                                "question": request.question,
+                                "search_type": request.search_type,
+                                "alpha": request.alpha,
+                                "sources": request.sources,
+                                "timestamp": datetime.now().isoformat(),
+                                "answer": generate_response_stream.full_answer,
+                                "processing_time": chunk["data"]["processing_time"],
+                            }
+
+                        # Trả về sự kiện kết thúc
+                        yield f"event: end\ndata: {json.dumps(chunk['data'])}\n\n"
+
+                    # Thu thập toàn bộ nội dung để lưu lịch sử
+                    if chunk["type"] == "content":
+                        if not hasattr(generate_response_stream, "full_answer"):
+                            generate_response_stream.full_answer = chunk["data"]
+                        else:
+                            generate_response_stream.full_answer += chunk["data"]
+
+            except Exception as e:
+                # Trả về lỗi dưới dạng SSE
+                error_data = {
+                    "error": True,
+                    "message": str(e),
+                    "question_id": question_id,
+                }
+                yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
+                print(f"Lỗi khi xử lý stream: {str(e)}")
+
+        # Trả về StreamingResponse với định dạng SSE
+        return StreamingResponse(
+            generate_response_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",  # Vô hiệu hóa buffering cho nginx
+            },
+        )
+
+    except Exception as e:
+        # Trả về lỗi dưới dạng JSON thông thường
         raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý câu hỏi: {str(e)}")
 
 

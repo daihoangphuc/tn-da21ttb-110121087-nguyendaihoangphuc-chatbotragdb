@@ -297,10 +297,10 @@ class AdvancedDatabaseRAG:
 
         # Chỉ rerank nếu không phải kết quả từ hybrid search (đã được rerank)
         if search_type != "hybrid":
-        # Tái xếp hạng kết quả
+            # Tái xếp hạng kết quả
             print(f"Đang rerank {len(retrieved)} kết quả...")
         retrieved = self.rerank_results(query, retrieved)
-            # Giới hạn số lượng kết quả sau rerank
+        # Giới hạn số lượng kết quả sau rerank
         retrieved = retrieved[:10]
 
         # Xác định loại câu hỏi
@@ -527,6 +527,133 @@ class AdvancedDatabaseRAG:
             "total_reranked": total_reranked,  # Thêm tổng số kết quả được rerank
             "filtered_sources": sources,
         }
+
+    async def query_with_sources_streaming(
+        self,
+        query: str,
+        search_type: str = "hybrid",
+        alpha: float = None,
+        sources: List[str] = None,
+    ):
+        """Tạo câu trả lời kèm theo thông tin nguồn tham khảo dưới dạng streaming"""
+        # Sử dụng alpha mặc định nếu không được chỉ định
+        if alpha is None:
+            alpha = self.default_alpha
+
+        start_time = time.time()
+        print(f"Bắt đầu xử lý truy vấn streaming: '{query}'")
+
+        # Tăng số lượng kết quả ban đầu để có nhiều hơn cho reranking
+        search_k = 25  # Tăng lên 25 kết quả đầu vào
+
+        # Xác định loại tìm kiếm
+        if search_type == "semantic":
+            retrieved = self.semantic_search(query, k=search_k, sources=sources)
+        elif search_type == "keyword":
+            retrieved = self.search_manager.keyword_search(
+                query, k=search_k, sources=sources
+            )
+        else:
+            retrieved = self.hybrid_search(
+                query, k=search_k, alpha=alpha, sources=sources
+            )
+
+        # Nếu không có kết quả tìm kiếm, trả về thông báo không tìm thấy
+        if not retrieved:
+            yield {
+                "type": "sources",
+                "data": {
+                    "sources": [],
+                    "question": query,
+                    "search_method": search_type,
+                    "message": "Không tìm thấy thông tin liên quan đến câu hỏi này trong cơ sở dữ liệu.",
+                },
+            }
+            return
+
+        # Lưu thông tin về số lượng kết quả được rerank
+        total_reranked = 0
+        for result in retrieved:
+            if "total_reranked" in result:
+                total_reranked = max(total_reranked, result["total_reranked"])
+
+        if total_reranked == 0:
+            total_reranked = len(retrieved)
+
+        # Chỉ rerank nếu không phải hybrid search (đã được rerank)
+        if search_type != "hybrid":
+            # Tái xếp hạng kết quả
+            retrieved = self.rerank_results(query, retrieved)
+            # Giới hạn số lượng kết quả
+            retrieved = retrieved[:10]
+
+        # Xác định loại câu hỏi
+        question_type = self.prompt_manager.classify_question(query)
+
+        # Tạo prompt phù hợp
+        prompt = self.prompt_manager.create_prompt(query, retrieved, question_type)
+
+        # Chuẩn bị phần thông tin về nguồn tham khảo
+        sources_info = []
+        for idx, doc in enumerate(retrieved[:10]):  # Giới hạn hiển thị 10 nguồn
+            # Lấy metadata
+            metadata = doc.get("metadata", {})
+
+            # Tính điểm nâng cao từ metadata nếu có
+            metadata_boost = doc.get("metadata_boost", 0.0)
+
+            # Kiểm tra các metadata đặc biệt
+            special_metadata = {}
+            for key in [
+                "chứa_định_nghĩa",
+                "chứa_cú_pháp",
+                "chứa_mẫu_code",
+                "chứa_cú_pháp_select",
+                "chứa_cú_pháp_join",
+                "chứa_cú_pháp_ddl",
+                "chứa_cú_pháp_dml",
+            ]:
+                if key in metadata and metadata[key]:
+                    special_metadata[key] = True
+
+            source_info = {
+                "source": metadata.get("source", doc.get("source", "Unknown")),
+                "page": metadata.get("page", "Unknown"),
+                "section": metadata.get(
+                    "position", metadata.get("chunk_type", "Unknown")
+                ),
+                "content_snippet": doc["text"][:300] + "...",  # Hiển thị preview
+                "score": doc.get("score", 0.0),
+                "rerank_score": doc.get("rerank_score", 0.0),  # Điểm sau rerank
+                "metadata_boost": metadata_boost,  # Thêm thông tin về điểm nâng cao từ metadata
+                "special_metadata": special_metadata,  # Các metadata đặc biệt
+            }
+            sources_info.append(source_info)
+
+        # Đầu tiên, trả về thông tin nguồn tham khảo
+        sources_data = {
+            "type": "sources",
+            "data": {
+                "sources": sources_info,
+                "question": query,
+                "search_method": search_type,
+                "total_reranked": total_reranked,
+                "filtered_sources": sources,
+            },
+        }
+        yield sources_data
+
+        # Tiếp theo, gọi LLM với streaming và trả về từng phần câu trả lời
+        print("Bắt đầu streaming từ LLM...")
+        async for content_chunk in self.llm.invoke_streaming(prompt):
+            yield {"type": "content", "data": content_chunk}
+
+        # Báo hiệu kết thúc streaming
+        end_time = time.time()
+        total_time = end_time - start_time
+        print(f"Tổng thời gian xử lý streaming: {total_time:.2f}s")
+
+        yield {"type": "end", "data": {"processing_time": round(total_time, 2)}}
 
     def generate_response_with_context(
         self, query: str, retrieved: List[Dict], search_type: str = "hybrid"
