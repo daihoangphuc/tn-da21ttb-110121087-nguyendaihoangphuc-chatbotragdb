@@ -19,36 +19,19 @@ load_dotenv()
 class AdvancedDatabaseRAG:
     """Lớp chính kết hợp tất cả các thành phần của hệ thống RAG"""
 
-    def __init__(
-        self, api_key=None, enable_layout_detection=True, enable_query_expansion=True
-    ):
+    def __init__(self, api_key=None):
         """Khởi tạo hệ thống RAG"""
         # Khởi tạo các thành phần riêng biệt
         self.embedding_model = EmbeddingModel()
         self.llm = GeminiLLM(api_key)
         self.vector_store = VectorStore()
-        self.document_processor = DocumentProcessor(
-            enable_layout_detection=enable_layout_detection
-        )
+        self.document_processor = DocumentProcessor()
         self.prompt_manager = PromptManager()
         self.search_manager = SearchManager(self.vector_store, self.embedding_model)
 
-        # Khởi tạo QueryProcessor cho query expansion
-        self.enable_query_expansion = enable_query_expansion
-        synonyms_file = os.getenv("SYNONYMS_FILE", "src/data/synonyms/synonyms.json")
-        if enable_query_expansion:
-            print("Đang khởi tạo QueryProcessor cho query expansion...")
-            self.query_processor = QueryProcessor(
-                synonyms_file=synonyms_file if os.path.exists(synonyms_file) else None,
-                use_model=True,  # Sử dụng model để tạo biến thể query
-            )
-            print("Đã khởi tạo xong QueryProcessor")
-        else:
-            self.query_processor = None
-            print("Query expansion bị tắt")
-
-        # Lưu trạng thái layout detection
-        self.enable_layout_detection = enable_layout_detection
+        # Không sử dụng QueryProcessor vì đã loại bỏ tính năng query expansion
+        self.query_processor = None
+        print("Query expansion bị tắt")
 
         # Đọc tham số alpha mặc định từ biến môi trường
         try:

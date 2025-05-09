@@ -49,7 +49,7 @@ app.add_middleware(
 )
 
 # Khởi tạo hệ thống RAG
-rag_system = AdvancedDatabaseRAG(enable_query_expansion=False)
+rag_system = AdvancedDatabaseRAG()
 
 # Đường dẫn lưu dữ liệu tạm thời
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "src/data")
@@ -575,67 +575,32 @@ async def upload_document(
         # Xử lý file vừa tải lên
         print(f"Bắt đầu xử lý file {file.filename}...")
 
-        # Sử dụng phương pháp xử lý nâng cao cho PDF
-        if ext.lower() == ".pdf":
-            try:
-                print(f"Sử dụng layout detection để xử lý {file.filename}...")
-                processed_chunks = (
-                    rag_system.document_processor.process_pdf_with_layout(
-                        file_location, category
-                    )
-                )
-                if processed_chunks:
-                    print(
-                        f"Đã xử lý {len(processed_chunks)} chunks với layout detection"
-                    )
-                else:
-                    # Fallback to regular loading
-                    documents = (
-                        rag_system.document_processor.load_document_with_category(
-                            file_location, category
-                        )
-                    )
-                    processed_chunks = rag_system.document_processor.process_documents(
-                        documents
-                    )
-            except Exception as e:
-                print(f"Lỗi khi xử lý PDF với layout: {str(e)}")
-                # Fallback to regular processing
-                documents = rag_system.document_processor.load_document_with_category(
-                    file_location, category
-                )
-                processed_chunks = rag_system.document_processor.process_documents(
-                    documents
-                )
+        # Tải tài liệu bằng loader thích hợp
+        if category:
+            documents = rag_system.document_processor.load_document_with_category(
+                file_location, category
+            )
         else:
-            # Tải file bằng loader thích hợp cho các định dạng khác
-            if category:
-                documents = rag_system.document_processor.load_document_with_category(
-                    file_location, category
-                )
+            ext = os.path.splitext(file_location)[1].lower()
+            if ext in rag_system.document_processor.loaders:
+                loader = rag_system.document_processor.loaders[ext](file_location)
+                documents = loader.load()
             else:
-                ext = os.path.splitext(file_location)[1].lower()
-                if ext in rag_system.document_processor.loaders:
-                    loader = rag_system.document_processor.loaders[ext](file_location)
-                    documents = loader.load()
-                else:
-                    return {
-                        "filename": file.filename,
-                        "status": "error",
-                        "message": f"Không hỗ trợ định dạng {ext}",
-                    }
-
-            if not documents:
                 return {
                     "filename": file.filename,
                     "status": "error",
-                    "message": "Không thể tải tài liệu hoặc tài liệu rỗng",
+                    "message": f"Không hỗ trợ định dạng {ext}",
                 }
 
-            # Sử dụng chunking cấu trúc cho các định dạng không phải PDF
-            processed_chunks = rag_system.document_processor.process_documents(
-                documents
-            )
+        if not documents:
+            return {
+                "filename": file.filename,
+                "status": "error",
+                "message": "Không thể tải tài liệu hoặc tài liệu rỗng",
+            }
+
+        # Sử dụng phương pháp chunking thông thường
+        processed_chunks = rag_system.document_processor.process_documents(documents)
 
         # Index lên vector store
         if processed_chunks:
@@ -654,23 +619,12 @@ async def upload_document(
                 processed_chunks, embeddings, user_id="default_user"
             )
 
-            # Tính toán thống kê layout nếu có
-            layout_stats = {}
-            if ext.lower() == ".pdf":
-                # Đếm số lượng chunk theo loại
-                chunk_types = {}
-                for chunk in processed_chunks:
-                    chunk_type = chunk["metadata"].get("chunk_type", "unknown")
-                    chunk_types[chunk_type] = chunk_types.get(chunk_type, 0) + 1
-                layout_stats["chunk_types"] = chunk_types
-
             return {
                 "filename": file.filename,
                 "status": "success",
                 "message": f"Đã tải lên và index thành công {len(processed_chunks)} chunks từ tài liệu",
                 "chunks_count": len(processed_chunks),
                 "category": category,
-                "layout_stats": layout_stats if layout_stats else None,
             }
         else:
             return {
@@ -1441,214 +1395,38 @@ async def get_source_details(
 @app.get(f"{PREFIX}/check/layoutparser")
 async def check_layoutparser_installation():
     """
-    Kiểm tra cài đặt LayoutParser và các thư viện liên quan
+    Kiểm tra cài đặt LayoutParser và các thư viện liên quan - Endpoint không còn hoạt động
     """
-    try:
-        # Thực hiện kiểm tra
-        results = rag_system.document_processor.check_layoutparser_installation()
-
-        # Thêm hướng dẫn cài đặt
-        tips = {
-            "windows": [
-                "Trên Windows, cài đặt Tesseract từ: https://github.com/UB-Mannheim/tesseract/wiki",
-                "Cài đặt Poppler từ: https://github.com/oschwartz10612/poppler-windows/releases",
-                "Thêm cả hai vào PATH hoặc đặt biến TESSDATA_PREFIX và POPPLER_PATH",
-            ],
-            "linux": [
-                "Trên Linux: sudo apt-get install tesseract-ocr",
-                "Trên Linux: sudo apt-get install poppler-utils",
-            ],
-            "layoutparser": [
-                "pip install layoutparser[effdet]",
-                "pip install pdf2image pytesseract Pillow",
-            ],
-        }
-
-        return {
-            "status": "success",
-            "installation_status": results,
-            "tips": tips,
-            "ready_for_layout_detection": results["ready"],
-        }
-    except Exception as e:
-        return {"status": "error", "message": f"Lỗi khi kiểm tra cài đặt: {str(e)}"}
+    return {
+        "status": "deprecated",
+        "message": "Tính năng layout detection đã bị loại bỏ khỏi hệ thống",
+        "ready_for_layout_detection": False,
+    }
 
 
 @app.put(f"{PREFIX}/config/layoutdetection")
 async def toggle_layout_detection(enable: bool = True):
     """
-    Bật hoặc tắt chức năng Layout Detection cho xử lý PDF
+    Bật hoặc tắt chức năng Layout Detection cho xử lý PDF - Endpoint không còn hoạt động
 
     - **enable**: True để bật, False để tắt
     """
-    try:
-        # Gán trạng thái
-        rag_system.enable_layout_detection = enable
-        rag_system.document_processor.enable_layout_detection = enable
-
-        # Kiểm tra cài đặt nếu bật
-        installation_status = None
-        if enable:
-            installation_status = (
-                rag_system.document_processor.check_layoutparser_installation()
-            )
-
-        return {
-            "status": "success",
-            "message": f"Layout Detection đã được {'BẬT' if enable else 'TẮT'}",
-            "layout_detection_enabled": enable,
-            "installation_check": installation_status,
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Lỗi khi thay đổi cấu hình Layout Detection: {str(e)}",
-        }
+    return {
+        "status": "deprecated",
+        "message": "Tính năng layout detection đã bị loại bỏ khỏi hệ thống",
+        "layout_detection_enabled": False,
+    }
 
 
 @app.post(f"{PREFIX}/check/layoutparser/reset")
 async def reset_layoutparser_configuration():
     """
-    Khởi động lại cài đặt layout detection và cập nhật đường dẫn Poppler và Tesseract
+    Đặt lại cấu hình layoutparser - Endpoint không còn hoạt động
     """
-    try:
-        # Đặt lại trạng thái layout detection
-        rag_system.enable_layout_detection = True
-        rag_system.document_processor.enable_layout_detection = True
-
-        # Cấu hình lại đường dẫn
-        if os.name == "nt":  # Windows
-            # Cấu hình Poppler
-            poppler_paths = [
-                r"C:\Program Files\poppler\bin",
-                r"C:\Program Files\poppler\Library\bin",
-                r"C:\poppler\bin",
-                r"C:\poppler\Library\bin",
-            ]
-
-            poppler_found = False
-            for path in poppler_paths:
-                if os.path.exists(path):
-                    print(f"Tìm thấy Poppler tại: {path}")
-                    os.environ["POPPLER_PATH"] = path
-                    poppler_found = True
-
-                    # Kiểm tra file thực thi
-                    exes = ["pdftoppm.exe", "pdfinfo.exe"]
-                    exe_found = False
-                    for exe in exes:
-                        exe_path = os.path.join(path, exe)
-                        if os.path.exists(exe_path):
-                            print(f"Tìm thấy {exe} tại: {exe_path}")
-                            exe_found = True
-                            break
-
-                    if not exe_found:
-                        print(f"Cảnh báo: Không tìm thấy executables trong {path}")
-
-                    break
-
-            if not poppler_found:
-                print("Không tìm thấy thư mục Poppler!")
-
-            # Cấu hình Tesseract
-            tesseract_paths = [r"C:\Program Files\Tesseract-OCR", r"C:\Tesseract-OCR"]
-
-            tessexe_paths = [
-                r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-                r"C:\Tesseract-OCR\tesseract.exe",
-            ]
-
-            tesseract_found = False
-            # Đặt TESSDATA_PREFIX
-            for path in tesseract_paths:
-                if os.path.exists(path):
-                    print(f"Tìm thấy Tesseract tại: {path}")
-                    tessdata_path = os.path.join(path, "tessdata")
-                    if os.path.exists(tessdata_path):
-                        os.environ["TESSDATA_PREFIX"] = tessdata_path
-                        print(f"Đặt TESSDATA_PREFIX = {tessdata_path}")
-                        tesseract_found = True
-                    else:
-                        print(f"Cảnh báo: Không tìm thấy thư mục tessdata trong {path}")
-                    break
-
-            if not tesseract_found:
-                print("Không tìm thấy thư mục Tesseract OCR!")
-
-            # Cấu hình pytesseract
-            try:
-                import pytesseract
-
-                tesseract_exe_found = False
-                for path in tessexe_paths:
-                    if os.path.exists(path):
-                        print(f"Cấu hình tesseract.exe tại: {path}")
-                        pytesseract.pytesseract.tesseract_cmd = path
-                        tesseract_exe_found = True
-                        break
-
-                if not tesseract_exe_found:
-                    print("Không tìm thấy tesseract.exe!")
-            except ImportError:
-                print("Không thể import pytesseract")
-
-        # Kiểm tra lại cài đặt
-        installation_status = (
-            rag_system.document_processor.check_layoutparser_installation()
-        )
-
-        # Thu thập thông tin môi trường
-        env_info = {
-            "OS": os.name,
-            "PATH": os.environ.get("PATH", "N/A"),
-            "POPPLER_PATH": os.environ.get("POPPLER_PATH", "Không được đặt"),
-            "TESSDATA_PREFIX": os.environ.get("TESSDATA_PREFIX", "Không được đặt"),
-            "CWD": os.getcwd(),
-        }
-
-        # Kiểm tra file thực thi
-        executable_check = {}
-        poppler_path = os.environ.get("POPPLER_PATH", "")
-        if poppler_path:
-            for exe in ["pdftoppm.exe", "pdfinfo.exe"]:
-                exe_path = os.path.join(poppler_path, exe)
-                executable_check[exe] = {
-                    "path": exe_path,
-                    "exists": os.path.exists(exe_path),
-                }
-
-        try:
-            import pytesseract
-
-            env_info["TESSERACT_CMD"] = pytesseract.pytesseract.tesseract_cmd
-
-            # Kiểm tra phiên bản
-            try:
-                version = pytesseract.get_tesseract_version()
-                env_info["TESSERACT_VERSION"] = str(version)
-            except Exception as e:
-                env_info["TESSERACT_ERROR"] = str(e)
-        except:
-            env_info["TESSERACT_CMD"] = "Không thể truy cập"
-
-        return {
-            "status": "success",
-            "message": "Đã khởi động lại cài đặt layout detection",
-            "installation_status": installation_status,
-            "environment_variables": env_info,
-            "executable_check": executable_check,
-            "ready_for_layout_detection": installation_status["ready"],
-        }
-    except Exception as e:
-        import traceback
-
-        traceback_str = traceback.format_exc()
-        return {
-            "status": "error",
-            "message": f"Lỗi khi khởi động lại layout detection: {str(e)}",
-            "traceback": traceback_str,
-        }
+    return {
+        "status": "deprecated",
+        "message": "Tính năng layout detection đã bị loại bỏ khỏi hệ thống",
+    }
 
 
 @app.post(f"{PREFIX}/collections/delete-by-filter")
