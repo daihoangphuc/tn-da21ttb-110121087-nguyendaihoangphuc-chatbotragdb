@@ -136,7 +136,9 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
   ```json
   {
     "question": "string",
-    "search_type": "hybrid" // tùy chọn: "semantic", "keyword", "hybrid"
+    "search_type": "hybrid", // tùy chọn: "semantic", "keyword", "hybrid"
+    "alpha": 0.7, // tùy chọn: hệ số kết hợp giữa semantic và keyword search
+    "sources": ["file1.pdf", "file2.docx"] // tùy chọn: danh sách các file nguồn
   }
   ```
 - **Query Parameters**:
@@ -160,7 +162,47 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
 }
 ```
 
-### 2. Tải lên tài liệu
+### 2. Đặt câu hỏi dạng stream
+**Endpoint**: `POST /api/ask/stream`
+
+**Mô tả**: Đặt câu hỏi và nhận câu trả lời từ hệ thống RAG dưới dạng stream, giúp hiển thị từng phần câu trả lời ngay khi được tạo ra thay vì đợi toàn bộ câu trả lời hoàn thành.
+
+**Tham số đầu vào**:
+- **Body** (JSON): Giống như endpoint `/api/ask`
+  ```json
+  {
+    "question": "string",
+    "search_type": "hybrid", // tùy chọn: "semantic", "keyword", "hybrid"
+    "alpha": 0.7, // tùy chọn: hệ số kết hợp giữa semantic và keyword search
+    "sources": ["file1.pdf", "file2.docx"] // tùy chọn: danh sách các file nguồn
+  }
+  ```
+- **Query Parameters**:
+  - `max_sources`: Số lượng nguồn tham khảo tối đa trả về. (1-50)
+
+**Kết quả trả về**: Server-Sent Events (SSE) với các loại sự kiện:
+- **sources**: Danh sách các nguồn tham khảo
+  ```
+  event: sources
+  data: {"sources": [...], "question": "string", "search_method": "string", ...}
+  ```
+- **content**: Từng phần nội dung của câu trả lời
+  ```
+  event: content
+  data: {"content": "phần nội dung câu trả lời"}
+  ```
+- **end**: Đánh dấu kết thúc quá trình trả lời
+  ```
+  event: end
+  data: {"processing_time": 2.5}
+  ```
+- **error**: Thông báo lỗi (nếu có)
+  ```
+  event: error
+  data: {"error": true, "message": "Mô tả lỗi"}
+  ```
+
+### 3. Tải lên tài liệu
 **Endpoint**: `POST /api/upload`
 
 **Mô tả**: Tải lên một tài liệu để thêm vào hệ thống. Tài liệu sẽ được tự động xử lý và index.
@@ -181,7 +223,7 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
 }
 ```
 
-### 3. Index tài liệu
+### 4. Index tài liệu
 **Endpoint**: `POST /api/index`
 
 **Mô tả**: Bắt đầu quá trình indexing tất cả tài liệu trong thư mục data
@@ -196,7 +238,7 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
 }
 ```
 
-### 4. Kiểm tra trạng thái indexing
+### 5. Kiểm tra trạng thái indexing
 **Endpoint**: `GET /api/index/status`
 
 **Mô tả**: Kiểm tra trạng thái của quá trình indexing
@@ -212,7 +254,7 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
 }
 ```
 
-### 5. Thông tin collection
+### 6. Thông tin collection
 **Endpoint**: `GET /api/collection/info`
 
 **Mô tả**: Lấy thông tin về collection trong vector store
@@ -233,7 +275,7 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
 }
 ```
 
-### 6. Gửi phản hồi
+### 7. Gửi phản hồi
 **Endpoint**: `POST /api/feedback`
 
 **Mô tả**: Gửi phản hồi về câu trả lời của hệ thống
@@ -262,7 +304,7 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
 }
 ```
 
-### 7. Xem thống kê phản hồi
+### 8. Xem thống kê phản hồi
 **Endpoint**: `GET /api/feedback/stats`
 
 **Mô tả**: Lấy thống kê về phản hồi người dùng
@@ -287,7 +329,7 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
 }
 ```
 
-### 8. Phân tích SQL
+### 9. Phân tích SQL
 **Endpoint**: `POST /api/analyze/sql`
 
 **Mô tả**: Phân tích và đề xuất cải tiến cho truy vấn SQL
@@ -314,7 +356,7 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
 }
 ```
 
-### 9. Tìm kiếm ngữ nghĩa
+### 10. Tìm kiếm ngữ nghĩa
 **Endpoint**: `POST /api/search/semantic`
 
 **Mô tả**: Tìm kiếm ngữ nghĩa theo câu truy vấn
@@ -344,7 +386,7 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
 }
 ```
 
-### 10. Tìm kiếm kết hợp (hybrid)
+### 11. Tìm kiếm kết hợp (hybrid)
 **Endpoint**: `POST /api/search/hybrid`
 
 **Mô tả**: Tìm kiếm kết hợp (hybrid) theo câu truy vấn
@@ -375,7 +417,7 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
 }
 ```
 
-### 11. Thống kê danh mục
+### 12. Thống kê danh mục
 **Endpoint**: `GET /api/categories`
 
 **Mô tả**: Lấy thống kê về các danh mục tài liệu
@@ -396,7 +438,7 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
 }
 ```
 
-### 12. Reset collection
+### 13. Reset collection
 **Endpoint**: `DELETE /api/collection/reset`
 
 **Mô tả**: Xóa toàn bộ dữ liệu đã index trong collection
@@ -412,7 +454,7 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
 }
 ```
 
-### 13. Lấy danh sách file
+### 14. Lấy danh sách file
 **Endpoint**: `GET /api/files`
 
 **Mô tả**: Lấy danh sách các file đã được upload vào hệ thống
@@ -444,7 +486,7 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
 }
 ```
 
-### 14. Xóa file
+### 15. Xóa file
 **Endpoint**: `DELETE /api/files/{filename}`
 
 **Mô tả**: Xóa file đã upload và các index liên quan trong vector store
@@ -460,6 +502,101 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
   "status": "success",
   "message": "Đã xóa file sql_basics.pdf và 45 index liên quan",
   "removed_points": 45
+}
+```
+
+### 16. Lấy danh sách nguồn
+**Endpoint**: `GET /api/files/sources`
+
+**Mô tả**: Lấy danh sách các file nguồn có thể sử dụng để tìm kiếm
+
+**Tham số đầu vào**: Không có
+
+**Kết quả trả về**:
+```json
+{
+  "total_sources": 5,
+  "sources": ["src/data/file1.pdf", "src/data/file2.docx", ...],
+  "filenames": ["file1.pdf", "file2.docx", ...],
+  "recommendation": "Bạn có thể sử dụng sources là tên file đơn thuần hoặc đường dẫn đầy đủ"
+}
+```
+
+### 17. Xem chi tiết nguồn
+**Endpoint**: `GET /api/files/sources/details`
+
+**Mô tả**: Lấy thông tin chi tiết về một nguồn tài liệu cụ thể hoặc tất cả các nguồn
+
+**Tham số đầu vào**:
+- **Query Parameters**:
+  - `source_name`: (Tùy chọn) Tên file nguồn cần kiểm tra chi tiết
+
+**Kết quả trả về khi không chỉ định source_name**:
+```json
+{
+  "total_sources": 5,
+  "sources": {
+    "file1.pdf": {
+      "count": 25,
+      "categories": ["sql", "database_design"]
+    },
+    "file2.docx": {
+      "count": 15,
+      "categories": ["nosql"]
+    }
+  }
+}
+```
+
+**Kết quả trả về khi chỉ định source_name**:
+```json
+{
+  "source_name": "file1.pdf",
+  "total_chunks": 25,
+  "chunks": [
+    {
+      "text": "Đoạn văn bản mẫu...",
+      "category": "sql",
+      "full_length": 1500
+    },
+    ...
+  ]
+}
+```
+
+### 18. Xóa dữ liệu theo bộ lọc
+**Endpoint**: `POST /api/collections/delete-by-filter`
+
+**Mô tả**: Xóa các điểm dữ liệu trong vector store theo bộ lọc được chỉ định
+
+**Tham số đầu vào**:
+- **Body** (JSON):
+  ```json
+  {
+    "filter": {
+      "must": [
+        {
+          "key": "source",
+          "match": {
+            "value": "tên_file.pdf"
+          }
+        },
+        {
+          "key": "user_id",
+          "match": {
+            "value": "default_user"
+          }
+        }
+      ]
+    }
+  }
+  ```
+
+**Kết quả trả về**:
+```json
+{
+  "status": "success",
+  "message": "Đã xóa thành công các điểm dữ liệu khớp với bộ lọc"
 }
 ```
 
