@@ -1983,18 +1983,25 @@ async def login_with_google(request: GoogleAuthRequest):
         if request.code:
             print(f"{log_prefix} - Sử dụng authorization code")
             try:
-                # Cách 1: Trực tiếp
+                # Sửa: Truyền code dưới dạng dictionary với khóa "auth_code"
                 auth_response = supabase_client.auth.exchange_code_for_session(
-                    request.code
+                    {"auth_code": request.code}
                 )
             except Exception as e:
                 print(
                     f"{log_prefix} - Lỗi exchange_code_for_session trực tiếp: {str(e)}"
                 )
-                # Cách 2: Với object
-                auth_response = supabase_client.auth.exchange_code_for_session(
-                    {"auth_code": request.code}
-                )
+                # Thử phương pháp khác nếu cần
+                try:
+                    # Phương pháp dự phòng nếu cần
+                    auth_response = supabase_client.auth.exchange_code_for_session(
+                        {"auth_code": request.code}
+                    )
+                except Exception as e2:
+                    print(f"{log_prefix} - Lỗi phương pháp dự phòng: {str(e2)}")
+                    raise ValueError(
+                        f"Không thể xác thực với code: {str(e)}, {str(e2)}"
+                    )
             session = auth_response.session
         elif request.access_token:
             print(f"{log_prefix} - Sử dụng access token")
