@@ -258,6 +258,7 @@ class APIService {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${this.getAuthToken()}`
                     },
                     body: JSON.stringify(payload),
                     signal: abortController.signal

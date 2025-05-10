@@ -6,7 +6,7 @@ import os
 
 # Thay đổi import để tránh xung đột
 import supabase as supabase_lib
-from supabase.lib import Client
+from supabase.client import Client
 
 
 class SupabaseClient:
@@ -27,12 +27,16 @@ class SupabaseClient:
             return
 
         self.url = url or os.getenv("SUPABASE_URL")
-        self.key = key or os.getenv("SUPABASE_KEY")
+        # Ưu tiên sử dụng service_key nếu có, còn không thì sử dụng key thông thường
+        self.key = key or os.getenv("SUPABASE_SERVICE_KEY", os.getenv("SUPABASE_KEY"))
 
         if not self.url or not self.key:
             raise ValueError(
-                "SUPABASE_URL and SUPABASE_KEY must be provided in .env file or as parameters"
+                "SUPABASE_URL and SUPABASE_KEY/SUPABASE_SERVICE_KEY must be provided in .env file or as parameters"
             )
+
+        print(f"Kết nối Supabase URL: {self.url}")
+        print(f"Sử dụng service key: {self.key.startswith('eyJ') and 'Có' or 'Không'}")
 
         # Create Supabase client
         self.client = supabase_lib.create_client(self.url, self.key)

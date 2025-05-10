@@ -472,7 +472,7 @@ class PromptManager:
         3. Nếu tài liệu không chứa đủ thông tin để trả lời đầy đủ, hãy chỉ trả lời phần bạn CÓ THỂ trả lời từ tài liệu và nêu rõ phần nào chưa được đề cập.
         4. Nếu tài liệu không chứa THÔNG TIN NÀO liên quan đến câu hỏi, hãy nói rõ "Tài liệu không chứa thông tin về chủ đề này."
         5. Nêu rõ nguồn của từng phần thông tin trong câu trả lời bằng cách đề cập đến tên tài liệu, trang/vị trí, và phần cụ thể, ví dụ: [Tài liệu.pdf, Trang 5, Phần Table].
-        6. SỬ DỤNG NGỮ CẢNH CUỘC HỘI THOẠI để hiểu rõ hơn ý của người dùng, đặc biệt là các đại từ như "nó", "chúng", "chức năng này".
+        6. SỬ DỤNG NGỮ CẢNH CUỘC HỘI THOẠI để hiểu rõ hơn ý của người dùng, đặc biệt là các đại từ chỉ định.
         """
 
         # Thêm hướng dẫn về định dạng Markdown

@@ -1,0 +1,14 @@
+{
+  "session_id": "session_6dceluxgge3",
+  "last_updated": "2025-05-09T16:32:56.895908",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Read data trong hadoop là gì?"
+    },
+    {
+      "role": "assistant",
+      "content": "## Đọc dữ liệu (Read Data)\n\n**Đọc dữ liệu (Read Data) là quá trình truy xuất dữ liệu từ một hoặc nhiều bảng, khung nhìn trong cơ sở dữ liệu để sử dụng cho các mục đích khác nhau, như tạo báo cáo hoặc phân tích.** [Nguồn: src/data\\Hệ_QT_CSDl.pdf, Trang 42, Phần Ngôn ngữ thao tác dữ liệu]\n\n### Các khái niệm liên quan\n\n*   **Ngôn ngữ thao tác dữ liệu (DML - Data Manipulation Language):** Nhóm các câu lệnh trong SQL được sử dụng để truy vấn và thao tác dữ liệu, bao gồm `SELECT`, `INSERT`, `UPDATE`, và `DELETE`. [Nguồn: src/data\\Hệ_QT_CSDl.pdf, Trang 42, Phần Ngôn ngữ thao tác dữ liệu]\n*   **Câu lệnh SELECT:** Câu lệnh SQL được sử dụng để truy xuất dữ liệu từ một hoặc nhiều bảng. [Nguồn: src/data\\Hệ_QT_CSDl.pdf, Trang 42, Phần Ngôn ngữ thao tác dữ liệu]\n*   **Phép chọn (Selection):** Truy xuất một tập con các dòng trong một hoặc nhiều bảng. [Nguồn: src/data\\Hệ_QT_CSDl.pdf, Trang 42, Phần Ngôn ngữ thao tác dữ liệu]\n*   **Phép chiếu (Projection):** Truy xuất một tập con các cột trong một hoặc nhiều bảng. [Nguồn: src/data\\Hệ_QT_CSDl.pdf, Trang 42, Phần Ngôn ngữ thao tác dữ liệu]\n*   **Phép nối (Join):** Liên kết các dòng trong hai hay nhiều bảng để truy xuất dữ liệu. [Nguồn: src/data\\Hệ_QT_CSDl.pdf, Trang 42, Phần Ngôn ngữ thao tác dữ liệu]\n*   **Khung nhìn (View):** Một bảng \"ảo\" trong cơ sở dữ liệu có nội dung được định nghĩa thông qua một truy vấn (câu lệnh `SELECT`). [Nguồn: src/data\\Hệ_QT_CSDl.pdf, Trang 90, Phần Làm việc với View ( khung nhìn )]\n\n### Ví dụ về câu lệnh SELECT\n\n```sql\nSELECT hodem,ten,ngaysinh FROM sinhvien,lop WHERE tenlop='Tin K24' AND sinhvien.malop=lop.malop\n```\n\nCâu lệnh SQL này truy xuất họ đệm, tên và ngày sinh từ bảng `sinhvien` và `lop` với điều kiện tên lớp là 'Tin K24' và mã lớp của sinh viên phải trùng với mã lớp trong bảng `lop`. [Nguồn: src/data\\Hệ_QT_CSDl.pdf, Trang 65, Phần Sử dụng phép nối trong SQL2]\n"
+    }
+  ]
+}

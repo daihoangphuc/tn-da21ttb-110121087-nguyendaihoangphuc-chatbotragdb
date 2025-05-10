@@ -26,9 +26,35 @@ class SupabaseConversationManager:
 
         # Ensure the conversation history table exists
         try:
+            print("Bắt đầu tạo/kiểm tra bảng conversation_history...")
+            # Tạo bảng trước khi cố gắng kiểm tra
             self.db.create_conversation_history_table()
+
+            # Thử kiểm tra bảng bằng cách truy vấn đơn giản mà không sử dụng count(*)
+            try:
+                result = (
+                    self.supabase_client.table("conversation_history")
+                    .select("id")
+                    .limit(1)
+                    .execute()
+                )
+                if hasattr(result, "data"):
+                    record_count = len(result.data)
+                    print(
+                        f"Bảng conversation_history đã tồn tại, đã tìm thấy {record_count} bản ghi mẫu"
+                    )
+                else:
+                    print("Bảng conversation_history đã tạo nhưng chưa có dữ liệu")
+            except Exception as e:
+                print(f"Lỗi khi kiểm tra dữ liệu trong bảng: {str(e)}")
+
+            print("Đã tạo/kiểm tra bảng conversation_history thành công")
+
         except Exception as e:
             print(f"Warning: Could not create conversation history table: {str(e)}")
+            import traceback
+
+            print(f"Chi tiết lỗi khi tạo bảng: {traceback.format_exc()}")
             print("Conversation history might not be properly stored in the database.")
 
     def add_user_message(
@@ -43,13 +69,46 @@ class SupabaseConversationManager:
             user_id: Optional user identifier for authenticated users
         """
         try:
-            self.db.save_conversation_message(
+            # Phương pháp 1: Sử dụng SupabaseDatabase
+            result = self.db.save_conversation_message(
                 session_id=session_id, role="user", content=message, user_id=user_id
             )
+            # In ra kết quả thành công để debug
+            print(
+                f"Đã lưu tin nhắn người dùng thành công, ID: {result.data[0].get('id') if hasattr(result, 'data') and result.data else 'không có ID'}"
+            )
         except Exception as e:
-            print(f"Warning: Failed to save user message to database: {str(e)}")
-            # Fallback to local file storage
-            self._save_locally(session_id, "user", message, user_id)
+            print(
+                f"Warning: Failed to save user message to database using SupabaseDatabase: {str(e)}"
+            )
+            import traceback
+
+            print(f"Chi tiết lỗi: {traceback.format_exc()}")
+
+            # Phương pháp 2: Thử trực tiếp với supabase_client
+            try:
+                print("Thử lưu tin nhắn người dùng trực tiếp với supabase_client")
+                result = (
+                    self.supabase_client.table("conversation_history")
+                    .insert(
+                        {
+                            "session_id": session_id,
+                            "role": "user",
+                            "content": message,
+                            "user_id": user_id if user_id else None,
+                        }
+                    )
+                    .execute()
+                )
+                print(
+                    f"Đã lưu tin nhắn người dùng thành công với phương pháp trực tiếp: {result.data[0].get('id') if hasattr(result, 'data') and result.data else 'không có ID'}"
+                )
+            except Exception as e2:
+                print(
+                    f"Warning: Failed to save user message to database directly: {str(e2)}"
+                )
+                # Fallback to local file storage
+                self._save_locally(session_id, "user", message, user_id)
 
     def add_ai_message(
         self,
@@ -68,46 +127,97 @@ class SupabaseConversationManager:
             user_id: Optional user identifier for authenticated users
         """
         try:
-            self.db.save_conversation_message(
+            # Phương pháp 1: Sử dụng SupabaseDatabase
+            result = self.db.save_conversation_message(
                 session_id=session_id,
                 role="assistant",
                 content=message,
                 user_id=user_id,
                 metadata=metadata,
             )
+            # In ra kết quả thành công để debug
+            print(
+                f"Đã lưu tin nhắn AI thành công, ID: {result.data[0].get('id') if hasattr(result, 'data') and result.data else 'không có ID'}"
+            )
         except Exception as e:
-            print(f"Warning: Failed to save AI message to database: {str(e)}")
-            # Fallback to local file storage
-            self._save_locally(session_id, "assistant", message, user_id, metadata)
+            print(
+                f"Warning: Failed to save AI message to database using SupabaseDatabase: {str(e)}"
+            )
+            import traceback
+
+            print(f"Chi tiết lỗi: {traceback.format_exc()}")
+
+            # Phương pháp 2: Thử trực tiếp với supabase_client
+            try:
+                print("Thử lưu tin nhắn AI trực tiếp với supabase_client")
+                data = {
+                    "session_id": session_id,
+                    "role": "assistant",
+                    "content": message,
+                }
+                if user_id:
+                    data["user_id"] = user_id
+                if metadata:
+                    data["metadata"] = metadata
+
+                result = (
+                    self.supabase_client.table("conversation_history")
+                    .insert(data)
+                    .execute()
+                )
+                print(
+                    f"Đã lưu tin nhắn AI thành công với phương pháp trực tiếp: {result.data[0].get('id') if hasattr(result, 'data') and result.data else 'không có ID'}"
+                )
+            except Exception as e2:
+                print(
+                    f"Warning: Failed to save AI message to database directly: {str(e2)}"
+                )
+                # Fallback to local file storage
+                self._save_locally(session_id, "assistant", message, user_id, metadata)
 
     def get_messages(self, session_id: str, limit: int = 100) -> List[Dict]:
         """
-        Get conversation messages from the history
+        Lấy danh sách tin nhắn từ cơ sở dữ liệu
 
         Args:
-            session_id: Unique identifier for the conversation
-            limit: Maximum number of messages to retrieve
+            session_id: ID phiên hội thoại
+            limit: Số lượng tin nhắn tối đa cần lấy
 
         Returns:
-            List of message objects with keys 'role' and 'content'
+            Danh sách các tin nhắn
         """
         try:
-            history = self.db.get_conversation_history(session_id, limit)
-            # Format messages in the expected structure
-            formatted_messages = []
-            for msg in history:
-                formatted_message = {
+            # Lấy tin nhắn từ Supabase
+            result = (
+                self.supabase_client.table("conversation_history")
+                .select("*")
+                .eq("session_id", session_id)
+                .order("timestamp")  # Sắp xếp theo thời gian
+                .limit(limit)
+                .execute()
+            )
+
+            if not hasattr(result, "data"):
+                return []
+
+            # Chuyển đổi kết quả thành định dạng chuẩn
+            messages = []
+            for msg in result.data:
+                message = {
                     "role": msg.get("role"),
                     "content": msg.get("content"),
+                    "timestamp": msg.get("timestamp"),
                 }
-                # Add metadata if available
+                # Thêm metadata nếu có
                 if msg.get("metadata"):
-                    formatted_message["metadata"] = msg.get("metadata")
-                formatted_messages.append(formatted_message)
-            return formatted_messages
+                    message["metadata"] = msg.get("metadata")
+                messages.append(message)
+
+            return messages
+
         except Exception as e:
-            print(f"Warning: Failed to retrieve messages from database: {str(e)}")
-            # Fallback to local file storage
+            print(f"Lỗi khi lấy tin nhắn từ cơ sở dữ liệu: {str(e)}")
+            # Fallback to local storage if database fails
             return self._get_locally(session_id)
 
     def clear_memory(self, session_id: str) -> bool:
@@ -133,35 +243,62 @@ class SupabaseConversationManager:
 
     def format_for_prompt(self, session_id: str) -> str:
         """
-        Format conversation history for prompt context
+        Định dạng lịch sử hội thoại để sử dụng trong prompt
 
         Args:
-            session_id: Unique identifier for the conversation
+            session_id: ID phiên hội thoại
 
         Returns:
-            Formatted conversation history string
+            Chuỗi lịch sử hội thoại đã định dạng
         """
-        messages = self.get_messages(session_id)
-        if not messages:
+        try:
+            # Lấy tin nhắn từ cơ sở dữ liệu
+            result = (
+                self.supabase_client.table("conversation_history")
+                .select("*")
+                .eq("session_id", session_id)
+                .order("timestamp")  # Sắp xếp theo thời gian
+                .execute()
+            )
+
+            if not hasattr(result, "data") or not result.data:
+                return ""
+
+            formatted_history = "LỊCH SỬ CUỘC HỘI THOẠI:\n"
+            for message in result.data:
+                role = message.get("role", "unknown")
+                content = message.get("content", "")
+
+                if role == "user":
+                    formatted_history += f"Người dùng: {content}\n"
+                elif role == "assistant":
+                    formatted_history += f"Trợ lý: {content}\n"
+                elif role == "system":
+                    formatted_history += f"Hệ thống: {content}\n"
+
+            return formatted_history
+
+        except Exception as e:
+            print(f"Lỗi khi định dạng lịch sử hội thoại: {str(e)}")
             return ""
-
-        formatted_history = "LỊCH SỬ CUỘC HỘI THOẠI:\n"
-        for message in messages:
-            role = message.get("role")
-            content = message.get("content")
-            if role == "user":
-                formatted_history += f"Người dùng: {content}\n"
-            elif role == "assistant":
-                formatted_history += f"Trợ lý: {content}\n"
-
-        return formatted_history
 
     # Fallback local methods for offline or error situations
 
     def _get_local_path(self, session_id: str) -> str:
         """Generate local file path for conversation session"""
+        import os
+
+        # Kiểm tra xem có lưu cục bộ hay không
+        use_local_storage = os.getenv("USE_LOCAL_STORAGE", "False").lower() in [
+            "true",
+            "1",
+            "yes",
+        ]
+
         history_dir = os.path.join("src", "conversation_history")
-        os.makedirs(history_dir, exist_ok=True)
+        if use_local_storage:
+            os.makedirs(history_dir, exist_ok=True)
+
         return os.path.join(history_dir, f"{session_id}.json")
 
     def _save_locally(
@@ -173,6 +310,19 @@ class SupabaseConversationManager:
         metadata: Optional[Dict] = None,
     ) -> None:
         """Save message to local file as fallback"""
+        # Kiểm tra xem có cần lưu cục bộ hay không
+        import os
+
+        use_local_storage = os.getenv("USE_LOCAL_STORAGE", "False").lower() in [
+            "true",
+            "1",
+            "yes",
+        ]
+
+        if not use_local_storage:
+            print("Bỏ qua lưu cục bộ vì USE_LOCAL_STORAGE không bật")
+            return
+
         file_path = self._get_local_path(session_id)
 
         # Read existing history if it exists

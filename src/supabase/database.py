@@ -28,25 +28,85 @@ class SupabaseDatabase:
 
     def create_conversation_history_table(self):
         """Create the conversation history table if it doesn't exist"""
-        # We'll use a SQL query to create the table
-        # This is safer than creating through the API, as we need specific data types
-        sql = """
-        CREATE TABLE IF NOT EXISTS conversation_history (
-            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-            session_id TEXT NOT NULL,
-            user_id TEXT,
-            timestamp TIMESTAMPTZ DEFAULT NOW(),
-            role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
-            content TEXT NOT NULL,
-            metadata JSONB
-        );
-        
-        -- Create indexes for faster queries
-        CREATE INDEX IF NOT EXISTS idx_conversation_history_session_id ON conversation_history(session_id);
-        CREATE INDEX IF NOT EXISTS idx_conversation_history_user_id ON conversation_history(user_id);
-        CREATE INDEX IF NOT EXISTS idx_conversation_history_timestamp ON conversation_history(timestamp);
-        """
-        return self.query(sql)
+        print("Đang cố gắng tạo bảng conversation_history...")
+        try:
+            # Phương pháp 1: Sử dụng SQL trực tiếp qua REST API
+            direct_sql = """
+            CREATE TABLE IF NOT EXISTS conversation_history (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                session_id TEXT NOT NULL,
+                user_id TEXT,
+                timestamp TIMESTAMPTZ DEFAULT NOW(),
+                role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+                content TEXT NOT NULL,
+                metadata JSONB
+            );
+            
+            CREATE INDEX IF NOT EXISTS idx_conversation_history_session_id ON conversation_history(session_id);
+            CREATE INDEX IF NOT EXISTS idx_conversation_history_user_id ON conversation_history(user_id);
+            CREATE INDEX IF NOT EXISTS idx_conversation_history_timestamp ON conversation_history(timestamp);
+            """
+
+            print("Thực thi SQL trực tiếp để tạo bảng...")
+            # Phương pháp 1: Dùng SQL trực tiếp
+            result = self.client.postgrest.rpc(
+                "exec_sql", {"query": direct_sql}
+            ).execute()
+            print(f"Kết quả tạo bảng: {result}")
+            return result
+
+        except Exception as e:
+            print(f"Lỗi khi tạo bảng qua SQL trực tiếp: {str(e)}")
+            import traceback
+
+            print(f"Chi tiết: {traceback.format_exc()}")
+
+            # Phương pháp 2: Thử insert để xem bảng đã tồn tại chưa
+            try:
+                print("Thử phương pháp insert để tạo bảng...")
+                test_data = {
+                    "session_id": "test_session_init",
+                    "role": "system",
+                    "content": "Khởi tạo bảng dữ liệu",
+                    "timestamp": "NOW()",
+                }
+                result = (
+                    self.client.table("conversation_history")
+                    .insert(test_data)
+                    .execute()
+                )
+                print(
+                    f"Đã tạo bản ghi test thành công: {result.data if hasattr(result, 'data') else 'No data'}"
+                )
+                return result
+            except Exception as e2:
+                print(f"Lỗi khi insert dữ liệu mẫu: {str(e2)}")
+
+                # Phương pháp 3: Dùng RPC
+                try:
+                    print("Thử phương pháp RPC exec_sql...")
+                    # Phương pháp gốc: RPC
+                    sql = """
+                    CREATE TABLE IF NOT EXISTS conversation_history (
+                        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                        session_id TEXT NOT NULL,
+                        user_id TEXT,
+                        timestamp TIMESTAMPTZ DEFAULT NOW(),
+                        role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+                        content TEXT NOT NULL,
+                        metadata JSONB
+                    );
+                    
+                    CREATE INDEX IF NOT EXISTS idx_conversation_history_session_id ON conversation_history(session_id);
+                    CREATE INDEX IF NOT EXISTS idx_conversation_history_user_id ON conversation_history(user_id);
+                    CREATE INDEX IF NOT EXISTS idx_conversation_history_timestamp ON conversation_history(timestamp);
+                    """
+                    return self.query(sql)
+                except Exception as e3:
+                    print(f"Tất cả các phương pháp tạo bảng thất bại: {str(e3)}")
+                    raise Exception(
+                        "Không thể tạo bảng conversation_history bằng bất kỳ phương pháp nào"
+                    )
 
     def save_conversation_message(
         self,
@@ -69,7 +129,27 @@ class SupabaseDatabase:
         Returns:
             The created record
         """
+        print(
+            f"Lưu tin nhắn: session_id={session_id}, role={role}, content={content[:30]}..."
+        )
+
         table = self.from_table("conversation_history")
+
+        # Đảm bảo dữ liệu đúng định dạng
+        if role not in ["user", "assistant", "system"]:
+            print(f"Warning: Role '{role}' không hợp lệ, đang sử dụng 'user' thay thế")
+            role = "user"
+
+        # Kiểm tra session_id không được để trống
+        if not session_id:
+            print("Warning: session_id rỗng, đang tạo ID ngẫu nhiên")
+            import uuid
+
+            session_id = f"session_{uuid.uuid4().hex[:8]}"
+
+        # Kiểm tra content không được để trống
+        if not content:
+            content = "<empty message>"
 
         data = {"session_id": session_id, "role": role, "content": content}
 
@@ -77,9 +157,29 @@ class SupabaseDatabase:
             data["user_id"] = user_id
 
         if metadata:
-            data["metadata"] = metadata
+            # Đảm bảo metadata là JSON hợp lệ
+            import json
 
-        return table.insert(data).execute()
+            try:
+                # Kiểm tra bằng cách encode/decode
+                json.dumps(metadata)
+                data["metadata"] = metadata
+            except Exception as e:
+                print(f"Warning: Metadata không phải JSON hợp lệ ({str(e)}), sẽ bỏ qua")
+
+        print(f"Dữ liệu gửi đi: {data}")
+        try:
+            result = table.insert(data).execute()
+            print(
+                f"Kết quả lưu tin nhắn: ID = {result.data[0].get('id') if hasattr(result, 'data') and result.data else 'không có ID'}"
+            )
+            return result
+        except Exception as e:
+            print(f"Lỗi khi lưu tin nhắn vào database: {str(e)}")
+            import traceback
+
+            print(f"Chi tiết lỗi: {traceback.format_exc()}")
+            raise e
 
     def get_conversation_history(self, session_id: str, limit: int = 100) -> List[Dict]:
         """
@@ -96,7 +196,7 @@ class SupabaseDatabase:
         response = (
             table.select("*")
             .eq("session_id", session_id)
-            .order("timestamp", ascending=True)
+            .order("timestamp")
             .limit(limit)
             .execute()
         )

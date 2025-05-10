@@ -1,0 +1,14 @@
+{
+  "session_id": "session_qmgqqo50b9l",
+  "last_updated": "2025-05-09T21:25:11.512569",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Cơ sở dữ liệu là gì?"
+    },
+    {
+      "role": "assistant",
+      "content": "## Cơ sở dữ liệu (CSDL/DB)\n\n**Cơ sở dữ liệu (CSDL/DB) là một kho dữ liệu được tổ chức theo một nguyên tắc nào đó, là một tập hợp các tập tin có liên quan với nhau, được thiết kế nhằm làm giảm thiểu sự dư thừa dữ liệu, đảm bảo tính tin cậy khi truy xuất dữ liệu.** [Nguồn: src/data\\Hệ_QT_CSDl.pdf, Trang 3, Phần MỘT SỐ KHÁI NIỆM]\n\n### Các khái niệm liên quan đến CSDL\n\n*   **Tập tin:** CSDL là một tập hợp các tập tin có liên quan với nhau. Các tập tin này chứa các thông tin biểu diễn các đối tượng trong một ứng dụng thế giới thực. [Nguồn: src/data\\Hệ_QT_CSDl.pdf, Trang 3, Phần MỘT SỐ KHÁI NIỆM]\n*   **Dữ liệu:** CSDL lưu giữ thông tin của một ứng dụng, ví dụ như thông tin của một trường đại học (khoa, giảng viên, sinh viên, khóa học,…). [Nguồn: src/data\\Hệ_QT_CSDl.pdf, Trang 3, Phần MỘT SỐ KHÁI NIỆM]\n*   **Ứng dụng:** Thông thường, một CSDL sẽ bao trùm tất cả các thông tin của một ứng dụng, không nên đặt hai CSDL vào một ứng dụng. [Nguồn: src/data\\Hệ_QT_CSDl.pdf, Trang 3, Phần MỘT SỐ KHÁI NIỆM]\n*   **Bảng (Table):** Trong CSDL quan hệ, bảng là đối tượng được sử dụng để tổ chức và lưu trữ dữ liệu. Một CSDL bao gồm nhiều bảng và mỗi bảng được xác định duy nhất bởi tên bảng. [Nguồn: src/data\\Hệ_QT_CSDl.pdf, Trang 6, Phần Các bảng trong một cơ sở dữ liệu]\n*   **Dòng (Row):** Mỗi một dòng trong bảng biểu diễn cho một thực thể. [Nguồn: src/data\\Hệ_QT_CSDl.pdf, Trang 6, Phần Các bảng trong một cơ sở dữ liệu]\n*   **Cột (Column):** Mỗi một cột biểu diễn cho một tính chất của thực thể. [Nguồn: src/data\\Hệ_QT_CSDl.pdf, Trang 6, Phần Các bảng trong một cơ sở dữ liệu]\n*   **Hệ quản trị cơ sở dữ liệu (HQTCSDL/DBMS):** Là một hệ thống gồm một CSDL và các thao tác trên CSDL. Đó là hệ thống chương trình, công cụ cho phép quản lý và tương tác với CSDL. [Nguồn: src/data\\Hệ_QT_CSDl.pdf, Trang 3-4, Phần MỘT SỐ KHÁI NIỆM]\n*   **Hệ cơ sở dữ liệu (HCSDL/DBS):** Là một phần mềm cho phép xây dựng một HQTCSDL. [Nguồn: src/data\\Hệ_QT_CSDl.pdf, Trang 4, Phần MỘT SỐ KHÁI NIỆM]\n\n### Ví dụ về CSDL\n\nCSDL có thể quản trị cơ sở dữ liệu của một trường đại học (khoa, giảng viên, sinh viên, khóa học), cơ sở dữ liệu phục vụ tổng thu nhập quốc gia, hoặc một cơ sở dữ liệu liên hợp quốc về dữ liệu địa lý thế giới. [Nguồn: src/data\\Hệ_QT_CSDl.pdf, Trang 4, Phần MỘT SỐ KHÁI NIỆM]\n\n### Ví dụ về tạo bảng trong SQL\n\n```sql\nCREATE TABLE NHANVIEN ( \n    MANV NVARCHAR(10) NOT NULL, \n    HOTEN NVARCHAR(30) NOT NULL, \n    GIOITINH BIT, \n    NGAYSINH SMALLDATETIME, \n    NOISINH NCHAR(50), \n    HSLUONG DECIMAL(4,2), \n    MADV INT \n)\n```\n[Nguồn: src/data\\Hệ_QT_CSDl.pdf, Trang 19, Phần Câu lệnh dưới đây định nghĩa bảng với kiểu dữ liệu được qui định cho các cột trong bảng]\n"
+    }
+  ]
+}

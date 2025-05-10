@@ -1,0 +1,14 @@
+{
+  "session_id": "session_woa2hfrwfj",
+  "last_updated": "2025-05-10T17:20:17.579302",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Cơ sở dữ liệu là gì?"
+    },
+    {
+      "role": "assistant",
+      "content": "## Cơ sở dữ liệu\n\n**Cơ sở dữ liệu (CSDL) là một hệ thống để lưu trữ và quản lý dữ liệu một cách có cấu trúc, cho phép truy xuất, cập nhật và quản lý dữ liệu hiệu quả.**\n\n### Các khái niệm liên quan\n\n*   **Hadoop:** Một framework để lưu trữ và xử lý dữ liệu lớn, thường được sử dụng với các CSDL như Hive và HBase. **[Nguồn: Li_thuyet_Hadoop.pdf, Trang 1, Phần II]**\n*   **HDFS (Hadoop Distributed File System):** Hệ thống lưu trữ phân tán được thiết kế để chạy trên các phần cứng thông dụng, có khả năng chịu lỗi cao và cung cấp khả năng truy cập thông lượng cao vào dữ liệu ứng dụng. **[Nguồn: Li_thuyet_Hadoop.pdf, Trang 6, Phần IV]**\n*   **Hive:** Một công cụ cơ sở hạ tầng kho dữ liệu để xử lý dữ liệu có cấu trúc trong Hadoop, cho phép truy vấn dữ liệu bằng ngôn ngữ kiểu SQL (HiveQL hoặc HQL). **[Nguồn: Li_thuyet_Hadoop.pdf, Trang 4, Phần list]**\n*   **HBase:** Một cơ sở dữ liệu dạng column-family, lưu trữ dữ liệu trên HDFS và được xem như là hệ quản trị CSDL của Hadoop. **[Nguồn: Li_thuyet_Hadoop.pdf, Trang 4, Phần list]**\n*   **MapReduce:** Một mô hình lập trình song song hóa để xử lý dữ liệu lớn trên một cụm gồm nhiều máy tính. **[Nguồn: Li_thuyet_Hadoop.pdf, Trang 1, Phần II]**\n*   **YARN (Yet Another Resource Negotiator):** Một công nghệ hỗ trợ quản lý tài nguyên và lập lịch công việc trong Hadoop. **[Nguồn: Li_thuyet_Hadoop.pdf, Trang 5, Phần list]**\n"
+    }
+  ]
+}
