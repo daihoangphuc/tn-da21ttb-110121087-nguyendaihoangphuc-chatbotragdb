@@ -67,12 +67,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const sourceViewPanel = document.getElementById('sourceViewPanel');
         sourceViewPanel.classList.toggle('collapsed');
         
-        // Lưu trạng thái vào localStorage
-        localStorage.setItem('sourceViewPanelCollapsed', sourceViewPanel.classList.contains('collapsed'));
+        // Lưu trạng thái vào sessionStorage
+        sessionStorage.setItem('sourceViewPanelCollapsed', sourceViewPanel.classList.contains('collapsed'));
     });
     
-    // Khôi phục trạng thái thu gọn/mở rộng từ localStorage
-    if (localStorage.getItem('sourceViewPanelCollapsed') === 'true') {
+    // Khôi phục trạng thái thu gọn/mở rộng từ sessionStorage
+    if (sessionStorage.getItem('sourceViewPanelCollapsed') === 'true') {
         document.getElementById('sourceViewPanel').classList.add('collapsed');
     }
 

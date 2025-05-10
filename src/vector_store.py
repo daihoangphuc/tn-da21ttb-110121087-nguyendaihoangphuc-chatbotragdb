@@ -163,42 +163,38 @@ class VectorStore:
             for hit in results
         ]
 
-    def search_with_filter(self, query_vector, sources=None, limit=5):
-        """Tìm kiếm trong Qdrant với filter theo nguồn tài liệu"""
-        # Nếu không có danh sách nguồn, sử dụng search thông thường
-        if not sources:
+    def search_with_filter(self, query_vector, sources=None, user_id=None, limit=5):
+        """Tìm kiếm trong Qdrant với filter theo nguồn tài liệu và user_id"""
+        # Nếu không có danh sách nguồn và user_id, sử dụng search thông thường
+        if not sources and not user_id:
             return self.search(query_vector, limit)
 
         # Xử lý danh sách nguồn để hỗ trợ so sánh với cả tên file đơn thuần và đường dẫn
         normalized_sources = []
-        for source in sources:
-            normalized_sources.append(source)  # Giữ nguyên source gốc
-            # Thêm tên file đơn thuần (nếu source chứa đường dẫn)
-            if os.path.sep in source:
-                filename = os.path.basename(source)
-                if filename and filename not in normalized_sources:
-                    normalized_sources.append(filename)
+        if sources:
+            for source in sources:
+                normalized_sources.append(source)  # Giữ nguyên source gốc
+                # Thêm tên file đơn thuần (nếu source chứa đường dẫn)
+                if os.path.sep in source:
+                    filename = os.path.basename(source)
+                    if filename and filename not in normalized_sources:
+                        normalized_sources.append(filename)
 
         print(
-            f"Tìm kiếm với sources={sources}, normalized_sources={normalized_sources}"
-        )
-
-        # Lược bỏ cách sử dụng filter của Qdrant vì không tương thích với phiên bản hoặc cấu hình hiện tại
-        # Thay vào đó, chúng ta sẽ thực hiện tìm kiếm không filter và lọc thủ công
-        print(
-            f"Tìm kiếm với sources={normalized_sources} bằng phương pháp lọc thủ công"
+            f"Tìm kiếm với sources={sources}, normalized_sources={normalized_sources}, user_id={user_id}"
         )
 
         # Lấy nhiều kết quả hơn để đảm bảo đủ sau khi lọc
         results = self.search(query_vector, limit=limit * 3)
 
-        # Lọc kết quả theo nguồn
+        # Lọc kết quả theo nguồn và user_id
         filtered_results = []
         for result in results:
             # Kiểm tra source trong cả metadata và trực tiếp trong kết quả
             meta_source = result.get("metadata", {}).get("source", "unknown")
-            # Một số kết quả có thể có source trực tiếp
             direct_source = result.get("source", "unknown")
+            meta_user_id = result.get("metadata", {}).get("user_id", "unknown")
+            direct_user_id = result.get("user_id", "unknown")
 
             # Extract filename từ source nếu có đường dẫn
             meta_filename = (
@@ -210,13 +206,23 @@ class VectorStore:
                 else "unknown"
             )
 
-            # Nếu bất kỳ source nào khớp với danh sách nguồn
-            if (
-                meta_source in normalized_sources
-                or direct_source in normalized_sources
-                or meta_filename in normalized_sources
-                or direct_filename in normalized_sources
-            ):
+            # Kiểm tra điều kiện user_id
+            user_id_match = True
+            if user_id:
+                user_id_match = meta_user_id == user_id or direct_user_id == user_id
+
+            # Kiểm tra điều kiện source
+            source_match = True
+            if normalized_sources:
+                source_match = (
+                    meta_source in normalized_sources
+                    or direct_source in normalized_sources
+                    or meta_filename in normalized_sources
+                    or direct_filename in normalized_sources
+                )
+
+            # Nếu thỏa mãn cả hai điều kiện
+            if source_match and user_id_match:
                 filtered_results.append(result)
 
                 # Nếu đã đủ số kết quả cần thiết, dừng lại

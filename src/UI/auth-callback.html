@@ -65,6 +65,9 @@
     <script src="assets/js/api-service.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/flowbite/2.2.1/flowbite.min.js"></script>
     <script>
+        // APIService đã được khai báo tự động trong file api-service.js nên không cần khai báo lại
+        // const apiService = new APIService('/api');
+        
         // Biến toàn cục
         let redirectTimeout, countdownInterval, countdownValue = 3;
         const $ = id => document.getElementById(id);
@@ -133,19 +136,46 @@
                 const data = await response.json();
                 console.log('Đăng nhập thành công:', data);
                 
+                if (!data.access_token) {
+                    console.error('API không trả về access_token');
+                    showMessage('error', 'Không nhận được token xác thực từ máy chủ');
+                    return;
+                }
+                
                 // Lưu token và thông tin người dùng
-                localStorage.setItem('auth_token', data.access_token);
-                localStorage.setItem('user_info', JSON.stringify(data.user));
+                try {
+                    console.log('Lưu thông tin đăng nhập vào sessionStorage');
+                    sessionStorage.setItem('auth_token', data.access_token);
+                    sessionStorage.setItem('user_info', JSON.stringify(data.user));
+                    
+                    // Kiểm tra token lưu thành công
+                    const savedToken = sessionStorage.getItem('auth_token');
+                    if (!savedToken) {
+                        console.error('Không thể lưu token vào sessionStorage');
+                        throw new Error('Không thể lưu token xác thực');
+                    }
+                    console.log('Lưu token thành công');
+                    
+                } catch (storageError) {
+                    console.error('Lỗi lưu token:', storageError);
+                    showMessage('error', `Lỗi lưu token: ${storageError.message}`);
+                    return;
+                }
                 
                 // Thông báo cho parent window nếu đây là popup
                 if (window.opener) {
+                    console.log('Gửi kết quả đăng nhập đến trang chính');
                     window.opener.postMessage({
                         type: 'auth_result',
                         success: true,
                         data
                     }, '*');
+                    
+                    console.log('Đóng popup sau 1 giây');
                     setTimeout(() => window.close(), 1000);
                 } else {
+                    // Không phải popup, hiển thị thông báo và tự chuyển hướng
+                    console.log('Hiển thị thông báo thành công và chuẩn bị chuyển hướng');
                     showMessage('success');
                 }
                 

@@ -10,23 +10,71 @@
 </head>
 <body>
     <!-- Kiểm tra đăng nhập -->
+    <script src="assets/js/api-service.js"></script>
     <script>
-        // Kiểm tra xem người dùng đã đăng nhập hay chưa
-        if(typeof apiService === 'undefined') {
-            document.write('<script src="assets/js/api-service.js"><\/script>');
-            document.addEventListener('DOMContentLoaded', function() {
-                checkLoginStatus();
-            });
-        } else {
-            checkLoginStatus();
-        }
+        // APIService đã được khai báo tự động trong file api-service.js nên không cần khai báo lại
+        // const apiService = new APIService('/api');
         
-        function checkLoginStatus() {
-            if (!apiService.isLoggedIn()) {
-                // Chuyển hướng đến trang đăng nhập nếu chưa đăng nhập
+        // Hàm kiểm tra đăng nhập
+        async function checkLoginStatus() {
+            try {
+                console.log("Kiểm tra trạng thái đăng nhập");
+                
+                // Lấy token từ sessionStorage
+                const token = sessionStorage.getItem('auth_token');
+                
+                // Nếu không có token, chuyển hướng đến trang đăng nhập
+                if (!token) {
+                    console.log("Không tìm thấy token đăng nhập, chuyển hướng đến trang đăng nhập");
+                    window.location.href = 'login.html';
+                    return;
+                }
+                
+                console.log("Có token đăng nhập, kiểm tra tính hợp lệ với server");
+                // Kiểm tra tính hợp lệ của token bằng cách gọi API kiểm tra phiên
+                try {
+                    const result = await apiService.checkSession();
+                    console.log("Kết quả kiểm tra phiên:", result);
+                    
+                    if (!result) {
+                        console.log("Phiên đăng nhập không hợp lệ, chuyển hướng đến trang đăng nhập");
+                        // Xóa token không hợp lệ
+                        sessionStorage.removeItem('auth_token');
+                        sessionStorage.removeItem('user_info');
+                        window.location.href = 'login.html';
+                    } else {
+                        console.log("Phiên đăng nhập hợp lệ");
+                        // Có thể cập nhật thông tin người dùng ở đây nếu cần
+                    }
+                } catch (apiError) {
+                    console.error("Lỗi kiểm tra phiên đăng nhập:", apiError);
+                    // Trong trường hợp lỗi kết nối, cho phép người dùng tiếp tục sử dụng
+                    // nhưng sẽ gặp lỗi nếu thực hiện các thao tác yêu cầu quyền
+                }
+            } catch (error) {
+                console.error("Lỗi kiểm tra đăng nhập:", error);
+                // Xóa token nếu có lỗi
+                sessionStorage.removeItem('auth_token');
+                sessionStorage.removeItem('user_info');
                 window.location.href = 'login.html';
             }
         }
+        
+        // Kiểm tra khi trang đã tải xong
+        document.addEventListener('DOMContentLoaded', function() {
+            checkLoginStatus();
+            
+            // Cập nhật thông tin người dùng trên giao diện
+            try {
+                const userInfoString = sessionStorage.getItem('user_info');
+                if (userInfoString) {
+                    const userInfo = JSON.parse(userInfoString);
+                    updateUserInfo(userInfo);
+                }
+            } catch (e) {
+                console.error('Lỗi khi cập nhật thông tin người dùng:', e);
+            }
+        });
     </script>
 
     <div class="app-container">
@@ -267,34 +315,25 @@
             }
         });
     </script>
-    <script src="assets/js/api-service.js"></script>
+    <!-- Đã load api-service.js ở đầu trang -->
     <script src="assets/js/ui-controllers.js"></script>
     <script src="assets/js/chat.js"></script>
     <script src="assets/js/main.js"></script>
     <!-- Xử lý thông tin người dùng và đăng xuất -->
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            // Lấy thông tin người dùng từ localStorage
-            const userInfo = apiService.getUserInfo();
-            
-            if (userInfo) {
-                // Xử lý hiển thị thông tin người dùng
-                updateUserInfo(userInfo);
-            } else {
-                // Người dùng có thể đã đăng nhập nhưng chưa có thông tin trong localStorage
-                // Thử lấy thông tin từ server
-                apiService.getCurrentUser()
-                    .then(userInfo => {
-                        updateUserInfo(userInfo);
-                    })
-                    .catch(error => {
-                        console.error('Lỗi khi lấy thông tin người dùng:', error);
-                        // Nếu không lấy được thông tin, đăng xuất và quay lại trang đăng nhập
-                        apiService.logout()
-                            .finally(() => {
-                                window.location.href = 'login.html';
-                            });
-                    });
+            // Kiểm tra và hiển thị thông tin người dùng nếu đã đăng nhập
+            const userInfoString = sessionStorage.getItem('user_info');
+            if (userInfoString) {
+                try {
+                    const userInfo = JSON.parse(userInfoString);
+                    document.getElementById('username').textContent = userInfo.username || userInfo.email || 'User';
+                    document.getElementById('userEmail').textContent = userInfo.email || '';
+                    document.querySelector('.header-profile').style.display = 'flex';
+                    document.querySelector('.sign-in-button').style.display = 'none';
+                } catch (e) {
+                    console.error('Lỗi khi phân tích thông tin người dùng:', e);
+                }
             }
             
             // Xử lý đăng xuất

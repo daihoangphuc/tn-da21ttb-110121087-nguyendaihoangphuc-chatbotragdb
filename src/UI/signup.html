@@ -112,6 +112,9 @@
     <script src="assets/js/api-service.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/flowbite/2.2.1/flowbite.min.js"></script>
     <script>
+        // APIService đã được khai báo tự động trong file api-service.js nên không cần khai báo lại
+        // const apiService = new APIService('/api');
+        
         document.addEventListener('DOMContentLoaded', function() {
             // Kiểm tra nếu đã đăng nhập thì chuyển hướng đến trang chính
             if (apiService.isLoggedIn()) {

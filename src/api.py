@@ -79,6 +79,14 @@ FEEDBACK_DIR = os.getenv("FEEDBACK_DIR", "src/feedback")
 os.makedirs(FEEDBACK_DIR, exist_ok=True)
 
 
+# Hàm để lấy đường dẫn thư mục của user
+def get_user_upload_dir(user_id: str) -> str:
+    """Tạo và trả về đường dẫn thư mục upload cho user cụ thể"""
+    user_dir = os.path.join(UPLOAD_DIR, user_id)
+    os.makedirs(user_dir, exist_ok=True)
+    return user_dir
+
+
 # Models cho API
 class QuestionRequest(BaseModel):
     question: str
@@ -715,7 +723,9 @@ async def ask_question_stream(
 
 @app.post(f"{PREFIX}/upload")
 async def upload_document(
-    file: UploadFile = File(...), category: Optional[str] = Form(None)
+    file: UploadFile = File(...),
+    category: Optional[str] = Form(None),
+    current_user=Depends(get_current_user),
 ):
     """
     Tải lên một tài liệu để thêm vào hệ thống và tự động xử lý/index
@@ -731,8 +741,11 @@ async def upload_document(
                 detail=f"Định dạng file không được hỗ trợ. Chấp nhận: {', '.join(allowed_extensions)}",
             )
 
-        # Lưu file
-        file_location = os.path.join(UPLOAD_DIR, file.filename)
+        # Lấy thư mục upload của user
+        user_upload_dir = get_user_upload_dir(current_user.id)
+
+        # Lưu file vào thư mục của user
+        file_location = os.path.join(user_upload_dir, file.filename)
         with open(file_location, "wb") as f:
             shutil.copyfileobj(file.file, f)
 
@@ -780,12 +793,12 @@ async def upload_document(
             # Đảm bảo collection đã tồn tại với kích thước vector đúng
             rag_system.vector_store.ensure_collection_exists(len(embeddings[0]))
 
-            # Index embeddings với user_id mặc định
+            # Index embeddings với user_id của người dùng hiện tại
             print(
-                f"[UPLOAD] Đang index {len(processed_chunks)} chunks với user_id='default_user'"
+                f"[UPLOAD] Đang index {len(processed_chunks)} chunks với user_id='{current_user.id}'"
             )
             rag_system.vector_store.index_documents(
-                processed_chunks, embeddings, user_id="default_user"
+                processed_chunks, embeddings, user_id=current_user.id
             )
 
             return {
@@ -1206,14 +1219,17 @@ async def reset_collection():
 
 # Thêm API endpoint lấy danh sách file đã upload
 @app.get(f"{PREFIX}/files", response_model=FileListResponse)
-async def get_uploaded_files():
+async def get_uploaded_files(current_user=Depends(get_current_user)):
     """
     Lấy danh sách các file đã được upload vào hệ thống
     """
     try:
         files = []
-        for filename in os.listdir(UPLOAD_DIR):
-            file_path = os.path.join(UPLOAD_DIR, filename)
+        # Lấy thư mục upload của user
+        user_upload_dir = get_user_upload_dir(current_user.id)
+
+        for filename in os.listdir(user_upload_dir):
+            file_path = os.path.join(user_upload_dir, filename)
 
             # Bỏ qua các thư mục
             if os.path.isdir(file_path):
@@ -1250,12 +1266,14 @@ async def get_uploaded_files():
 
 # Thêm API endpoint xóa file và index liên quan
 @app.delete(f"{PREFIX}/files/{{filename}}", response_model=FileDeleteResponse)
-async def delete_file(filename: str):
+async def delete_file(filename: str, current_user=Depends(get_current_user)):
     """
     Xóa file đã upload và các index liên quan trong vector store
     """
     try:
-        file_path = os.path.join(UPLOAD_DIR, filename)
+        # Lấy thư mục upload của user
+        user_upload_dir = get_user_upload_dir(current_user.id)
+        file_path = os.path.join(user_upload_dir, filename)
         print(f"[DELETE] Bắt đầu xóa file: {filename}, đường dẫn: {file_path}")
 
         # Kiểm tra file có tồn tại không
@@ -1275,11 +1293,11 @@ async def delete_file(filename: str):
             filename,  # Tên file đơn thuần
             file_path,  # Đường dẫn đầy đủ
             file_path.replace("\\", "/"),  # Đường dẫn với dấu /
-            os.path.join(UPLOAD_DIR, filename).replace(
+            os.path.join(user_upload_dir, filename).replace(
                 "\\", "/"
             ),  # Đường dẫn đầy đủ với dấu /
-            f"src/data/{filename}",  # Thêm tiền tố src/data/
-            f"src/data\\{filename}",  # Thêm tiền tố src/data\ với backslash
+            f"src/data/{current_user.id}/{filename}",  # Thêm tiền tố src/data/user_id/
+            f"src/data\\{current_user.id}\\{filename}",  # Thêm tiền tố src/data\user_id\ với backslash
         ]
 
         print(f"[DELETE] Tìm kiếm với các biến thể: {file_path_variants}")
@@ -1324,7 +1342,10 @@ async def delete_file(filename: str):
                 for variant in file_path_variants:
                     filter_request = {
                         "filter": {
-                            "must": [{"key": "source", "match": {"value": variant}}]
+                            "must": [
+                                {"key": "source", "match": {"value": variant}},
+                                {"key": "user_id", "match": {"value": current_user.id}},
+                            ]
                         }
                     }
                     print(f"[DELETE] Xóa filter với variant: {variant}")
@@ -1339,7 +1360,11 @@ async def delete_file(filename: str):
                     filter_request = {
                         "filter": {
                             "must": [
-                                {"key": "metadata.source", "match": {"value": variant}}
+                                {"key": "metadata.source", "match": {"value": variant}},
+                                {
+                                    "key": "metadata.user_id",
+                                    "match": {"value": current_user.id},
+                                },
                             ]
                         }
                     }

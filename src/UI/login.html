@@ -96,6 +96,9 @@
     <script src="assets/js/api-service.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/flowbite/2.2.1/flowbite.min.js"></script>
     <script>
+        // APISservice đã được khai báo tự động trong file api-service.js nên không cần khai báo lại
+        // const apiService = new APIService('/api');
+        
         document.addEventListener('DOMContentLoaded', function() {
             // Kiểm tra nếu đã đăng nhập thì chuyển hướng đến trang chính
             if (apiService.isLoggedIn()) {
@@ -157,21 +160,37 @@
                 try {
                     // Hiển thị trạng thái xử lý
                     googleLoginButton.disabled = true;
+                    console.log('Bắt đầu quy trình đăng nhập Google');
                     
-                    // Lấy URL đăng nhập và mở popup
-                    const authUrl = await apiService.getGoogleAuthUrl();
-                    const googleWindow = window.open(
-                        authUrl, 
-                        'googleLogin', 
-                        'width=500,height=600,resizable=yes,scrollbars=yes,status=yes'
-                    );
+                    // Khai báo biến cho toàn bộ khối lệnh
+                    let googleWindow = null;
                     
-                    if (!googleWindow) {
-                        throw new Error("Popup bị chặn. Vui lòng cho phép popup cho trang web này.");
+                    try {
+                        // Lấy URL đăng nhập và mở popup
+                        console.log('Đang lấy URL xác thực Google...');
+                        const authUrl = await apiService.getGoogleAuthUrl();
+                        console.log('Đã nhận URL xác thực:', authUrl);
+                        
+                        googleWindow = window.open(
+                            authUrl, 
+                            'googleLogin', 
+                            'width=500,height=600,resizable=yes,scrollbars=yes,status=yes'
+                        );
+                        
+                        if (!googleWindow) {
+                            throw new Error("Popup bị chặn. Vui lòng cho phép popup cho trang web này.");
+                        }
+                    } catch (apiError) {
+                        console.error('Lỗi khi gọi API lấy URL xác thực Google:', apiError);
+                        loginAlert.textContent = apiError.message || 'Lỗi kết nối đến dịch vụ xác thực Google.';
+                        loginAlert.classList.remove('hidden');
+                        googleLoginButton.disabled = false;
+                        return;
                     }
                     
                     // Xử lý kết quả từ popup
                     const messageHandler = function(event) {
+                        console.log('Nhận message từ popup:', event.data);
                         if (!event.data || event.data.type !== 'auth_result') return;
                         
                         // Đóng popup nếu còn mở
@@ -179,11 +198,22 @@
                         
                         if (event.data.success) {
                             // Đăng nhập thành công
+                            console.log('Đăng nhập Google thành công, chuẩn bị chuyển hướng...');
                             loginAlert.textContent = 'Đăng nhập thành công! Đang chuyển hướng...';
                             loginAlert.classList.remove('hidden');
                             loginAlert.classList.remove('text-red-800', 'bg-red-50', 'dark:text-red-400');
                             loginAlert.classList.add('text-green-800', 'bg-green-50', 'dark:text-green-400');
-                            setTimeout(() => window.location.href = 'index.html', 1000);
+                            // Lưu thông tin người dùng từ phản hồi (để đảm bảo)
+                            if (event.data.data && event.data.data.access_token) {
+                                sessionStorage.setItem('auth_token', event.data.data.access_token);
+                                if (event.data.data.user) {
+                                    sessionStorage.setItem('user_info', JSON.stringify(event.data.data.user));
+                                }
+                            }
+                            setTimeout(() => {
+                                console.log('Chuyển hướng đến trang chính...');
+                                window.location.href = 'index.html';
+                            }, 1000);
                         } else {
                             // Hiển thị lỗi
                             const errorMessage = event.data.data?.error || 'Không thể đăng nhập với Google.';

@@ -3,13 +3,13 @@
  */
 class ThemeController {
     constructor() {
-        this.darkMode = localStorage.getItem('darkMode') === 'true';
+        this.darkMode = sessionStorage.getItem('darkMode') === 'true';
         this.applyTheme();
     }
 
     toggleTheme() {
         this.darkMode = !this.darkMode;
-        localStorage.setItem('darkMode', this.darkMode);
+        sessionStorage.setItem('darkMode', this.darkMode);
         this.applyTheme();
     }
 
@@ -1446,6 +1446,9 @@ class UploadController {
 
     async uploadFiles() {
         if (this.files.length === 0) return;
+        
+        console.log('Bắt đầu tải lên', this.files.length, 'file');
+        console.log('Token xác thực:', apiService.getAuthToken() ? 'Có token' : 'Không có token');
         
         // Reset counters
         this.successCount = 0;

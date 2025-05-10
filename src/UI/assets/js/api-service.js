@@ -9,7 +9,7 @@ class APIService {
         console.log('APIService khởi tạo với baseUrl:', baseUrl);
         
         // Session ID cho hội thoại hiện tại
-        this.session_id = localStorage.getItem('rag_session_id') || this._generateSessionId();
+        this.session_id = sessionStorage.getItem('rag_session_id') || this._generateSessionId();
         
         console.log('Khởi tạo ApiService với session_id:', this.session_id);
     }
@@ -17,7 +17,7 @@ class APIService {
     _generateSessionId() {
         // Tạo UUID đơn giản
         const sessionId = 'session_' + Math.random().toString(36).substring(2, 15);
-        localStorage.setItem('rag_session_id', sessionId);
+        sessionStorage.setItem('rag_session_id', sessionId);
         return sessionId;
     }
     
@@ -29,7 +29,7 @@ class APIService {
     // Đặt session ID mới
     setSessionId(sessionId) {
         this.session_id = sessionId;
-        localStorage.setItem('rag_session_id', sessionId);
+        sessionStorage.setItem('rag_session_id', sessionId);
     }
     
     // Tạo session ID mới và xóa session cũ
@@ -116,7 +116,10 @@ class APIService {
         };
         
         if (authToken) {
-            headers['Authorization'] = `Bearer ${authToken}`;
+            // Đảm bảo token không chứa chuỗi 'Bearer' ở đầu
+            const token = authToken.startsWith('Bearer ') ? authToken.substring(7) : authToken;
+            headers['Authorization'] = `Bearer ${token}`;
+            console.log('Thêm Authorization header cho request:', endpoint);
         }
         
         try {
@@ -132,8 +135,8 @@ class APIService {
                 // Xử lý trường hợp token hết hạn
                 if (response.status === 401) {
                     console.warn('Phiên đăng nhập đã hết hạn, đang đăng xuất...');
-                    localStorage.removeItem('auth_token');
-                    localStorage.removeItem('user_info');
+                    sessionStorage.removeItem('auth_token');
+                    sessionStorage.removeItem('user_info');
                     
                     // Chuyển hướng đến trang đăng nhập nếu cần
                     if (window.location.pathname !== '/login.html') {
@@ -384,6 +387,8 @@ class APIService {
 
     // Phương thức hỗ trợ upload file với hiển thị tiến trình
     _uploadFileWithProgress(formData, onProgress) {
+        console.log('Bắt đầu upload file...');
+        
         // Tạo một promise để xử lý upload
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
@@ -400,29 +405,53 @@ class APIService {
             
             // Xử lý khi upload hoàn tất
             xhr.addEventListener('load', () => {
+                console.log('Upload response status:', xhr.status);
+                console.log('Response headers:', xhr.getAllResponseHeaders());
+                
                 if (xhr.status >= 200 && xhr.status < 300) {
                     try {
                         const response = JSON.parse(xhr.responseText);
+                        console.log('Upload thành công, response:', response);
                         resolve(response);
                     } catch (e) {
+                        console.error('Lỗi parse response:', e);
+                        console.log('Response text:', xhr.responseText);
                         reject(new Error('Failed to parse response'));
                     }
                 } else {
-                    reject(new Error(`Upload failed with status ${xhr.status}`));
+                    // Log thêm thông tin lỗi chi tiết
+                    console.error(`Upload failed with status ${xhr.status}:`, xhr.responseText);
+                    reject(new Error(`Upload failed with status ${xhr.status}: ${xhr.responseText}`));
                 }
             });
             
             // Xử lý lỗi
-            xhr.addEventListener('error', () => {
+            xhr.addEventListener('error', (e) => {
+                console.error('Network error during upload:', e);
                 reject(new Error('Network error during upload'));
             });
             
             xhr.addEventListener('abort', () => {
+                console.log('Upload aborted');
                 reject(new Error('Upload aborted'));
             });
             
             // Mở kết nối và gửi request
             xhr.open('POST', `${this.baseUrl}/api/upload`);
+            
+            // Thêm token xác thực vào header
+            const authToken = this.getAuthToken();
+            if (authToken) {
+                // Log token để debug (ẩn phần sau)
+                console.log('Using auth token:', authToken.substring(0, 15) + '...');
+                xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+            } else {
+                console.warn('Không tìm thấy token xác thực trong sessionStorage');
+                // Thử lấy thông tin người dùng hiện tại và đăng nhập lại
+                console.log('Đang thử lấy thông tin người dùng hiện tại...');
+            }
+            
+            console.log('Đang gửi request upload...');
             xhr.send(formData);
         });
     }
@@ -440,15 +469,27 @@ class APIService {
     // Đăng nhập
     async login(email, password) {
         try {
+            console.log(`Đang đăng nhập với email: ${email}`);
+            
             const result = await this.fetchApi('/api/auth/login', {
                 method: 'POST',
                 body: JSON.stringify({ email, password }),
             });
             
-            // Lưu token và thông tin người dùng vào localStorage
-            localStorage.setItem('auth_token', result.access_token);
-            localStorage.setItem('user_info', JSON.stringify(result.user));
+            // Lưu token và thông tin người dùng vào sessionStorage
+            // Đảm bảo chỉ lưu token gốc, không thêm tiền tố Bearer
+            const token = result.access_token;
             
+            if (!token) {
+                console.error('Không nhận được token từ API login');
+                throw new Error('Không nhận được token xác thực');
+            }
+            
+            console.log('Đã nhận token, lưu vào sessionStorage');
+            sessionStorage.setItem('auth_token', token);
+            sessionStorage.setItem('user_info', JSON.stringify(result.user));
+            
+            console.log('Đăng nhập thành công, thông tin user:', result.user.email);
             return result;
         } catch (error) {
             console.error('Lỗi đăng nhập:', error);
@@ -467,16 +508,16 @@ class APIService {
                 }
             });
             
-            // Xóa token và thông tin người dùng khỏi localStorage
-            localStorage.removeItem('auth_token');
-            localStorage.removeItem('user_info');
+            // Xóa token và thông tin người dùng khỏi sessionStorage
+            sessionStorage.removeItem('auth_token');
+            sessionStorage.removeItem('user_info');
             
             return { success: true };
         } catch (error) {
             console.error('Lỗi đăng xuất:', error);
-            // Xóa token và thông tin người dùng khỏi localStorage ngay cả khi có lỗi
-            localStorage.removeItem('auth_token');
-            localStorage.removeItem('user_info');
+            // Xóa token và thông tin người dùng khỏi sessionStorage ngay cả khi có lỗi
+            sessionStorage.removeItem('auth_token');
+            sessionStorage.removeItem('user_info');
             throw error;
         }
     }
@@ -511,9 +552,21 @@ class APIService {
         }
     }
 
-    // Lấy token từ localStorage
+    // Lấy token từ sessionStorage
     getAuthToken() {
-        return localStorage.getItem('auth_token');
+        const token = sessionStorage.getItem('auth_token');
+        
+        if (!token) {
+            console.warn('Không tìm thấy auth_token trong sessionStorage');
+            return null;
+        }
+        
+        if (token.startsWith('Bearer ')) {
+            console.warn('Token đã chứa tiền tố Bearer, sẽ bị loại bỏ');
+            return token.substring(7);
+        }
+        
+        return token;
     }
 
     // Kiểm tra xem người dùng đã đăng nhập chưa
@@ -521,17 +574,36 @@ class APIService {
         return !!this.getAuthToken();
     }
 
-    // Lấy thông tin người dùng từ localStorage
+    // Lấy thông tin người dùng từ sessionStorage
     getUserInfo() {
-        const userInfo = localStorage.getItem('user_info');
+        const userInfo = sessionStorage.getItem('user_info');
         return userInfo ? JSON.parse(userInfo) : null;
     }
 
     // Phương thức đăng nhập bằng Google
     async getGoogleAuthUrl() {
         const redirectUrl = `${window.location.origin}/auth-callback.html`;
+        console.log(`Lấy URL đăng nhập Google với redirect_url: ${redirectUrl}`);
+        
         try {
-            const result = await this.fetchApi(`/api/auth/google/url?redirect_url=${encodeURIComponent(redirectUrl)}`);
+            console.log(`Gọi API: GET ${this.baseUrl}/api/auth/google/url với redirect_url=${encodeURIComponent(redirectUrl)}`);
+            
+            const response = await fetch(`${this.baseUrl}/api/auth/google/url?redirect_url=${encodeURIComponent(redirectUrl)}`);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`Lỗi API Auth URL (${response.status}):`, errorText);
+                throw new Error(`Lỗi khi lấy URL xác thực (${response.status}): ${errorText}`);
+            }
+            
+            const result = await response.json();
+            console.log('Nhận được URL Google Auth:', result);
+            
+            if (!result.url) {
+                console.error('API trả về nhưng không có URL:', result);
+                throw new Error('Không nhận được URL xác thực Google');
+            }
+            
             return result.url;
         } catch (error) {
             console.error('Lỗi lấy URL đăng nhập Google:', error);
@@ -548,8 +620,11 @@ class APIService {
             });
             
             // Lưu token và thông tin người dùng
-            localStorage.setItem('auth_token', result.access_token);
-            localStorage.setItem('user_info', JSON.stringify(result.user));
+            const token = result.access_token;
+            sessionStorage.setItem('auth_token', token);
+            sessionStorage.setItem('user_info', JSON.stringify(result.user));
+            
+            console.log('OAuth callback thành công, lưu token vào sessionStorage');
             return result;
         } catch (error) {
             console.error(`Lỗi xử lý OAuth callback từ ${provider}:`, error);
@@ -566,8 +641,11 @@ class APIService {
             });
             
             // Lưu token và thông tin người dùng
-            localStorage.setItem('auth_token', result.access_token);
-            localStorage.setItem('user_info', JSON.stringify(result.user));
+            const token = result.access_token;
+            sessionStorage.setItem('auth_token', token);
+            sessionStorage.setItem('user_info', JSON.stringify(result.user));
+            
+            console.log('Đăng nhập Google thành công, lưu token vào sessionStorage');
             return result;
         } catch (error) {
             console.error('Lỗi đăng nhập với Google:', error);
