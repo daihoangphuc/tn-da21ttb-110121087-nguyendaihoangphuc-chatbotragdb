@@ -150,11 +150,13 @@
                     
                     // Kiểm tra token lưu thành công
                     const savedToken = sessionStorage.getItem('auth_token');
+                    const savedUserInfo = sessionStorage.getItem('user_info');
                     if (!savedToken) {
                         console.error('Không thể lưu token vào sessionStorage');
                         throw new Error('Không thể lưu token xác thực');
                     }
-                    console.log('Lưu token thành công');
+                    console.log('Lưu token thành công:', savedToken.substring(0, 15) + '...');
+                    console.log('Đã lưu thông tin người dùng:', savedUserInfo);
                     
                 } catch (storageError) {
                     console.error('Lỗi lưu token:', storageError);

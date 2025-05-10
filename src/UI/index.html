@@ -321,19 +321,57 @@
     <script src="assets/js/main.js"></script>
     <!-- Xử lý thông tin người dùng và đăng xuất -->
     <script>
+        // Cập nhật thông tin người dùng trên giao diện
+        function updateUserInfo(userInfo) {
+            console.log('Cập nhật thông tin người dùng UI với:', userInfo);
+            
+            const userDisplayName = document.getElementById('userDisplayName');
+            const userInitials = document.getElementById('userInitials');
+            const userDropdownInitials = document.getElementById('userDropdownInitials');
+            const userFullName = document.getElementById('userFullName');
+            const userEmail = document.getElementById('userEmail');
+            
+            if (userEmail) {
+                userEmail.textContent = userInfo.email || '';
+            }
+            
+            // Lấy tên hiển thị từ email (phần trước @)
+            const displayName = userInfo.email ? userInfo.email.split('@')[0] : 'User';
+            
+            if (userDisplayName) {
+                userDisplayName.textContent = userInfo.name || displayName;
+                console.log('Cập nhật userDisplayName:', userDisplayName.textContent);
+            }
+            
+            if (userFullName) {
+                userFullName.textContent = userInfo.name || displayName;
+            }
+            
+            // Tạo chữ cái đầu cho avatar
+            const initials = (userInfo.name || displayName).substring(0, 2).toUpperCase();
+            
+            if (userInitials) {
+                userInitials.textContent = initials;
+            }
+            
+            if (userDropdownInitials) {
+                userDropdownInitials.textContent = initials;
+            }
+        }
+        
         document.addEventListener('DOMContentLoaded', function() {
             // Kiểm tra và hiển thị thông tin người dùng nếu đã đăng nhập
             const userInfoString = sessionStorage.getItem('user_info');
             if (userInfoString) {
                 try {
                     const userInfo = JSON.parse(userInfoString);
-                    document.getElementById('username').textContent = userInfo.username || userInfo.email || 'User';
-                    document.getElementById('userEmail').textContent = userInfo.email || '';
-                    document.querySelector('.header-profile').style.display = 'flex';
-                    document.querySelector('.sign-in-button').style.display = 'none';
+                    console.log('Thông tin người dùng từ sessionStorage:', userInfo);
+                    updateUserInfo(userInfo);
                 } catch (e) {
                     console.error('Lỗi khi phân tích thông tin người dùng:', e);
                 }
+            } else {
+                console.log('Không tìm thấy thông tin người dùng trong sessionStorage');
             }
             
             // Xử lý đăng xuất
@@ -354,41 +392,6 @@
                             window.location.href = 'login.html';
                         });
                 });
-            }
-            
-            // Cập nhật thông tin người dùng trên giao diện
-            function updateUserInfo(userInfo) {
-                const userDisplayName = document.getElementById('userDisplayName');
-                const userInitials = document.getElementById('userInitials');
-                const userDropdownInitials = document.getElementById('userDropdownInitials');
-                const userFullName = document.getElementById('userFullName');
-                const userEmail = document.getElementById('userEmail');
-                
-                if (userEmail) {
-                    userEmail.textContent = userInfo.email;
-                }
-                
-                // Lấy tên hiển thị từ email (phần trước @)
-                const displayName = userInfo.email.split('@')[0];
-                
-                if (userDisplayName) {
-                    userDisplayName.textContent = displayName;
-                }
-                
-                if (userFullName) {
-                    userFullName.textContent = displayName;
-                }
-                
-                // Tạo chữ cái đầu cho avatar
-                const initials = displayName.substring(0, 2).toUpperCase();
-                
-                if (userInitials) {
-                    userInitials.textContent = initials;
-                }
-                
-                if (userDropdownInitials) {
-                    userDropdownInitials.textContent = initials;
-                }
             }
         });
     </script>
