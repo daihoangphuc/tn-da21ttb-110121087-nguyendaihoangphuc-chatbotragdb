@@ -109,12 +109,58 @@ h3 {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.search-container {
+    max-width: 170px;
+    margin: 0 1rem;
+    transition: max-width 0.3s ease;
+}
+
+/* Responsive điều chỉnh chiều rộng khi màn hình lớn hơn */
+@media (min-width: 640px) {
+    .search-container {
+        max-width: 250px;
+    }
+}
+
+@media (min-width: 768px) {
+    .search-container {
+        max-width: 300px;
+    }
+}
+
+@media (min-width: 1024px) {
+    .search-container {
+        flex: 1;
+        max-width: 33%;
+    }
+}
+
+.search-box {
+    width: 100%;
+}
+
+.search-box input {
+    background-color: var(--secondary);
+}
+
+.dark-theme .search-box input {
+    background-color: var(--secondary);
+    color: var(--foreground);
+    border-color: var(--border);
+}
+
+.dark-theme .search-box i {
+    color: var(--muted-foreground);
 }
 
 .header-actions {
     display: flex;
     align-items: center;
     gap: 0.75rem;
+    flex-shrink: 0;
 }
 
 /* Theme Toggle */
@@ -181,14 +227,21 @@ h3 {
     right: 0;
     top: 100%;
     width: 16rem;
-    background-color: var(--card);
-    border: 1px solid var(--border);
+    background-color: #ffffff;
+    border: 1px solid #e2e8f0;
     border-radius: var(--radius);
     box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
     padding: 0.5rem;
     margin-top: 0.5rem;
     z-index: 50;
     display: none;
+    color: #0f172a;
+}
+
+.user-dropdown-content.dark-dropdown {
+    background-color: #0f172a;
+    border-color: #1e293b;
+    color: #f8fafc;
 }
 
 .user-dropdown:hover .user-dropdown-content {
@@ -200,28 +253,53 @@ h3 {
     align-items: center;
     padding: 0.5rem;
     gap: 0.5rem;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.user-dropdown-content.dark-dropdown .user-info {
+    border-bottom-color: #1e293b;
 }
 
 .user-details {
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
+    width: 100%;
+    overflow: hidden;
 }
 
 .user-full-name {
     font-size: 0.875rem;
     font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.user-dropdown-content.dark-dropdown .user-full-name {
+    color: #f8fafc;
 }
 
 .user-email {
     font-size: 0.75rem;
     color: var(--muted-foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.user-dropdown-content.dark-dropdown .user-email {
+    color: #94a3b8;
 }
 
 .dropdown-divider {
     height: 1px;
-    background-color: var(--border);
+    background-color: #e2e8f0;
     margin: 0.5rem 0;
+}
+
+.user-dropdown-content.dark-dropdown .dropdown-divider {
+    background-color: #1e293b;
 }
 
 .dropdown-menu {
@@ -233,18 +311,26 @@ h3 {
     align-items: center;
     padding: 0.5rem;
     font-size: 0.875rem;
-    color: var(--foreground);
+    color: #0f172a;
     text-decoration: none;
     border-radius: var(--radius);
+}
+
+.user-dropdown-content.dark-dropdown .dropdown-menu li a {
+    color: #f8fafc;
+}
+
+.dropdown-menu li a:hover {
+    background-color: #f1f5f9;
+}
+
+.user-dropdown-content.dark-dropdown .dropdown-menu li a:hover {
+    background-color: #1e293b;
 }
 
 .dropdown-menu li a i {
     margin-right: 0.5rem;
     width: 1rem;
-}
-
-.dropdown-menu li a:hover {
-    background-color: var(--accent);
 }
 
 .text-danger {
@@ -405,6 +491,7 @@ h3 {
 .source-item {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     padding: 0.5rem;
     border-radius: var(--radius);
     margin-bottom: 0.25rem;
@@ -421,6 +508,7 @@ h3 {
     margin-right: 0.5rem;
 }
 
+/* Source icon styling */
 .source-icon {
     display: flex;
     align-items: center;
@@ -430,7 +518,7 @@ h3 {
     border-radius: 0.25rem;
     background-color: #3b82f6;
     color: white;
-    margin-right: 0.5rem;
+    margin: 0 0.5rem;
     flex-shrink: 0;
 }
 
@@ -1143,10 +1231,31 @@ h3 {
 .markdown ul, .markdown ol {
     margin: 1rem 0;
     padding-left: 2rem;
+    display: block;
+    list-style-position: outside;
+}
+
+.markdown ul {
+    list-style-type: disc;
+}
+
+.markdown ol {
+    list-style-type: decimal;
+}
+
+.markdown ul ul {
+    list-style-type: circle;
+    margin: 0.5rem 0 0.5rem 1rem;
+}
+
+.markdown ol ol {
+    list-style-type: lower-alpha;
+    margin: 0.5rem 0 0.5rem 1rem;
 }
 
 .markdown li {
     margin-bottom: 0.5rem;
+    display: list-item;
 }
 
 .markdown strong {
@@ -1421,6 +1530,44 @@ h3 {
     border-radius: 0;
     padding: 0;
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+}
+
+/* Đảm bảo hiển thị danh sách trong message-content */
+.message-content .markdown ul, 
+.message-content .markdown ol {
+    display: block;
+    list-style-position: outside;
+    margin: 0.75rem 0;
+    padding-left: 2rem;
+}
+
+.message-content .markdown ul {
+    list-style-type: disc;
+}
+
+.message-content .markdown ol {
+    list-style-type: decimal;
+}
+
+.message-content .markdown ul ul,
+.message-content .markdown ol ul {
+    list-style-type: circle;
+    margin: 0.5rem 0 0.5rem 1rem;
+}
+
+.message-content .markdown ul ol,
+.message-content .markdown ol ol {
+    list-style-type: lower-alpha;
+    margin: 0.5rem 0 0.5rem 1rem;
+}
+
+.message-content .markdown li {
+    margin: 0.25rem 0;
+    display: list-item;
+}
+
+.message-content .markdown li p {
+    margin-bottom: 0.5rem;
 }
 
 /* Thêm một số hiệu ứng động khi tin nhắn xuất hiện */
@@ -1903,4 +2050,215 @@ h3 {
 /* Xóa CSS không cần thiết cho chat-controls */
 .chat-controls {
     display: none;
+}
+
+/* Tabs in Source Panel */
+.panel-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+}
+
+.tab-button {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--muted-foreground);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+}
+
+.tab-button.active {
+    color: #1a73e8;
+    border-bottom-color: #1a73e8;
+}
+
+.tab-button:hover:not(.active) {
+    color: #1a73e8;
+}
+
+.tab-content {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+}
+
+.tab-content.active {
+    display: flex;
+}
+
+/* History list styling */
+.history-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+}
+
+.history-item {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+    margin: 0.25rem 0;
+    border-radius: var(--radius);
+}
+
+.history-item:hover {
+    background-color: var(--accent);
+}
+
+.history-item.active {
+    background-color: rgba(26, 115, 232, 0.05);
+    border-left: 3px solid #1a73e8;
+}
+
+.history-item-content {
+    flex: 1;
+    overflow: hidden;
+}
+
+.history-item-title {
+    font-weight: 500;
+    font-size: 0.875rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 0.25rem;
+    color: var(--foreground);
+}
+
+.history-item-date {
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+}
+
+.history-item-delete {
+    color: #e53935;
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    visibility: hidden;
+    opacity: 0;
+    transition: all 0.2s ease;
+}
+
+.history-item:hover .history-item-delete {
+    visibility: visible;
+    opacity: 1;
+}
+
+.history-item-delete:hover {
+    background-color: rgba(229, 57, 53, 0.1);
+}
+
+.empty-history-message {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--muted-foreground);
+    text-align: center;
+    padding: 2rem;
+}
+
+.empty-history-message i {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    opacity: 0.5;
+}
+
+/* History header with actions */
+.history-header {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Dark mode for user dropdown */
+.dark-theme .user-dropdown-content {
+    background-color: #1f2937; /* dark gray */
+    border-color: #374151;
+}
+
+.dark-theme .user-dropdown-content .user-info {
+    border-color: #374151;
+}
+
+.dark-theme .user-dropdown-content .user-full-name {
+    color: white;
+}
+
+.dark-theme .user-dropdown-content .user-email {
+    color: #9ca3af;
+}
+
+.dark-theme .user-dropdown-content .dropdown-menu a {
+    color: #e5e7eb;
+}
+
+.dark-theme .user-dropdown-content .dropdown-menu a:hover {
+    background-color: #374151;
+}
+
+.dark-theme .user-dropdown-content .dropdown-divider {
+    border-color: #374151;
+}
+
+/* Hover styles cho dark mode */
+.dark-theme .theme-toggle:hover {
+    background-color: var(--secondary) !important;
+}
+
+.dark-theme .user-dropdown-trigger:hover {
+    background-color: var(--secondary) !important;
+}
+
+/* Loại bỏ viền focus mặc định của các input và checkbox */
+input[type="text"],
+input[type="checkbox"],
+input[type="email"],
+input[type="password"],
+textarea,
+select {
+    outline: none !important;
+}
+
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+textarea:focus,
+select:focus {
+    box-shadow: none !important;
+    outline: none !important;
+    /* Giữ lại border khi focus */
+    border-color: var(--input) !important;
+}
+
+/* Custom style cho input checkbox khi focus */
+input[type="checkbox"]:focus {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+/* Style riêng cho input trong khung chat */
+#messageInput:focus {
+    border-color: var(--border) !important;
+    box-shadow: none !important;
+    outline: none !important;
 }

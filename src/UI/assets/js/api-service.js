@@ -652,6 +652,68 @@ class APIService {
             throw error;
         }
     }
+
+    // Lấy danh sách lịch sử chat
+    async getChatHistory() {
+        try {
+            return await this.fetchApi('/api/chat/history', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${this.getAuthToken()}`
+                }
+            });
+        } catch (error) {
+            console.error('Lỗi khi lấy lịch sử chat:', error);
+            // Trả về mảng rỗng nếu có lỗi
+            return [];
+        }
+    }
+    
+    // Lấy thông tin chi tiết của một phiên chat
+    async getChatSession(chatId) {
+        try {
+            return await this.fetchApi(`/api/chat/sessions/${chatId}`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${this.getAuthToken()}`
+                }
+            });
+        } catch (error) {
+            console.error(`Lỗi khi lấy thông tin phiên chat ${chatId}:`, error);
+            throw error;
+        }
+    }
+    
+    // Xóa một phiên chat
+    async deleteChatSession(chatId) {
+        try {
+            return await this.fetchApi(`/api/chat/sessions/${chatId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${this.getAuthToken()}`
+                }
+            });
+        } catch (error) {
+            console.error(`Lỗi khi xóa phiên chat ${chatId}:`, error);
+            throw error;
+        }
+    }
+    
+    // Đổi tên một phiên chat
+    async renameChatSession(chatId, newTitle) {
+        try {
+            return await this.fetchApi(`/api/chat/sessions/${chatId}/rename`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${this.getAuthToken()}`
+                },
+                body: JSON.stringify({ title: newTitle })
+            });
+        } catch (error) {
+            console.error(`Lỗi khi đổi tên phiên chat ${chatId}:`, error);
+            throw error;
+        }
+    }
 }
 
 // Khởi tạo đối tượng APIService dùng chung toàn ứng dụng

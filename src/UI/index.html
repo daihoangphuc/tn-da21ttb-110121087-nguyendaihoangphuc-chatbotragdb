@@ -6,6 +6,8 @@
     <title>RAG - Cơ sở dữ liệu</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.1/styles/github-dark.min.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/flowbite/2.2.1/flowbite.min.css" rel="stylesheet" />
     <link rel="stylesheet" href="assets/css/styles.css">
 </head>
 <body>
@@ -82,39 +84,45 @@
         <header class="header">
             <div class="header-container">
                 <div class="header-title">
-                    <h1>RAG - Cơ sở dữ liệu</h1>
+                    <h1 class="text-lg font-semibold">RAG - Cơ sở dữ liệu</h1>
+                </div>
+                <div class="search-container w-1/3">
+                    <div class="search-box relative">
+                        <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500"></i>
+                        <input type="text" id="searchInput" placeholder="Tìm kiếm lịch sử chat..." class="w-full pl-10 pr-4 py-2 rounded-full border border-gray-300 focus:border-gray-400 focus:outline-none transition-all">
+                    </div>
                 </div>
                 <div class="header-actions">
-                    <button class="theme-toggle" id="themeToggle">
+                    <button class="theme-toggle p-2 rounded-full hover:bg-gray-200 transition-colors" id="themeToggle">
                         <i class="fas fa-moon"></i>
                     </button>
-                    <div class="user-dropdown">
-                        <button class="user-dropdown-trigger">
-                            <div class="avatar" id="userAvatar">
-                                <span id="userInitials">ND</span>
+                    <div class="user-dropdown relative">
+                        <button class="user-dropdown-trigger flex items-center space-x-2 p-1 rounded-lg hover:bg-gray-100 transition-colors">
+                            <div class="avatar flex-shrink-0 bg-blue-600" id="userAvatar">
+                                <span id="userInitials" class="text-white">ND</span>
                             </div>
-                            <span class="user-name" id="userDisplayName">Người dùng</span>
-                            <i class="fas fa-chevron-down"></i>
+                            <span class="user-name hidden sm:inline-block font-medium" id="userDisplayName">Người dùng</span>
+                            <i class="fas fa-chevron-down text-xs opacity-70"></i>
                         </button>
-                        <div class="user-dropdown-content">
-                            <div class="user-info">
-                                <div class="avatar">
-                                    <span id="userDropdownInitials">ND</span>
+                        <div class="user-dropdown-content absolute right-0 top-full mt-2 w-72 bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden z-40 hidden">
+                            <div class="user-info flex items-center p-4 border-b border-gray-200">
+                                <div class="avatar flex-shrink-0 mr-3 bg-blue-600">
+                                    <span id="userDropdownInitials" class="text-white">ND</span>
                                 </div>
                                 <div class="user-details">
-                                    <p class="user-full-name" id="userFullName">Người dùng</p>
-                                    <p class="user-email" id="userEmail">user@example.com</p>
+                                    <p class="user-full-name font-medium text-gray-900" id="userFullName">Người dùng</p>
+                                    <p class="user-email text-sm text-gray-500" id="userEmail">user@example.com</p>
                                 </div>
                             </div>
                             <div class="dropdown-divider"></div>
-                            <ul class="dropdown-menu">
-                                <li><a href="#" id="profileLink"><i class="fas fa-user"></i> Hồ sơ</a></li>
-                                <li><a href="#" id="settingsLink"><i class="fas fa-cog"></i> Cài đặt</a></li>
-                                <li><a href="#" id="helpLink"><i class="fas fa-question-circle"></i> Trợ giúp</a></li>
+                            <ul class="dropdown-menu py-1">
+                                <li><a href="#" id="profileLink" class="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"><i class="fas fa-user mr-2 w-5 text-center"></i> Hồ sơ</a></li>
+                                <li><a href="#" id="settingsLink" class="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"><i class="fas fa-cog mr-2 w-5 text-center"></i> Cài đặt</a></li>
+                                <li><a href="#" id="helpLink" class="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"><i class="fas fa-question-circle mr-2 w-5 text-center"></i> Trợ giúp</a></li>
                             </ul>
                             <div class="dropdown-divider"></div>
-                            <ul class="dropdown-menu">
-                                <li><a href="#" class="text-danger" id="logoutLink"><i class="fas fa-sign-out-alt"></i> Đăng xuất</a></li>
+                            <ul class="dropdown-menu py-1">
+                                <li><a href="#" class="flex items-center px-4 py-2 text-sm text-red-600 hover:bg-gray-100" id="logoutLink"><i class="fas fa-sign-out-alt mr-2 w-5 text-center"></i> Đăng xuất</a></li>
                             </ul>
                         </div>
                     </div>
@@ -130,26 +138,68 @@
 
         <!-- Main Content -->
         <main class="main-interface">
-            <!-- Source Panel -->
+            <!-- Source Panel with Tabs -->
             <div class="source-panel" id="sourcePanel">
-                <div class="panel-header">
-                    <h2>Nguồn</h2>
-                    <div class="action-buttons">
-                        <button class="btn btn-outline btn-full" id="addSourceBtn">
-                            <i class="fas fa-plus"></i> Thêm
-                        </button>
+                <div class="panel-tabs flex border-b">
+                    <button class="tab-button active flex-1 py-3 text-blue-600 border-b-2 border-blue-600 font-medium transition-all duration-200" id="sourcesTabBtn">
+                        <i class="fas fa-file-alt mr-2"></i>Tài liệu
+                    </button>
+                    <button class="tab-button flex-1 py-3 text-gray-500 hover:text-blue-600 transition-all duration-200" id="historyTabBtn">
+                        <i class="fas fa-history mr-2"></i>Lịch sử
+                    </button>
+                </div>
+                
+                <!-- Sources Tab Content -->
+                <div class="tab-content active" id="sourcesTabContent">
+                    <div class="panel-header">
+                        <h2>Nguồn</h2>
+                        <div class="action-buttons">
+                            <button class="btn btn-outline btn-full" id="addSourceBtn">
+                                <i class="fas fa-plus"></i> Thêm
+                            </button>
+                        </div>
+                        <div class="select-all-container flex items-center">
+                            <div class="flex items-center">
+                                <input type="checkbox" id="selectAll" class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-0 focus:outline-none cursor-pointer">
+                                <label for="selectAll" class="ml-2 text-sm font-medium text-gray-700 cursor-pointer">Chọn mọi nguồn</label>
+                            </div>
+                        </div>
+                        <div class="source-alert" id="noSourceAlert" style="display: none;">
+                            <i class="fas fa-exclamation-circle"></i>
+                            <span>Vui lòng chọn ít nhất một nguồn tài liệu để đặt câu hỏi</span>
+                        </div>
                     </div>
-                    <div class="select-all-container">
-                        <input type="checkbox" id="selectAll">
-                        <label for="selectAll">Chọn mọi nguồn</label>
-                    </div>
-                    <div class="source-alert" id="noSourceAlert" style="display: none;">
-                        <i class="fas fa-exclamation-circle"></i>
-                        <span>Vui lòng chọn ít nhất một nguồn tài liệu để đặt câu hỏi</span>
+                    <div class="source-list" id="sourceList">
+                        <!-- Source items will be added dynamically -->
                     </div>
                 </div>
-                <div class="source-list" id="sourceList">
-                    <!-- Source items will be added dynamically -->
+                
+                <!-- History Tab Content -->
+                <div class="tab-content" id="historyTabContent">
+                    <div class="panel-header border-b pb-2">
+                        <h2 class="flex items-center">
+                            <i class="fas fa-history text-blue-600 mr-2"></i>
+                            Lịch sử chat
+                        </h2>
+                        <div class="action-buttons flex space-x-2">
+                            <button class="btn btn-outline btn-sm flex items-center" id="createNewChatBtn">
+                                <i class="fas fa-plus mr-1.5"></i> Tạo mới
+                            </button>
+                            <button class="btn btn-outline btn-sm flex items-center text-red-600 border-red-200 hover:bg-red-50" id="clearAllHistoryBtn">
+                                <i class="fas fa-trash mr-1.5"></i> Xóa tất cả
+                            </button>
+                        </div>
+                    </div>
+                    <div class="history-list px-2 py-2" id="historyList">
+                        <!-- Chat history items will be added dynamically -->
+                        <div class="empty-history-message flex flex-col items-center justify-center h-full py-12">
+                            <div class="bg-gray-100 rounded-full p-4 mb-4">
+                                <i class="fas fa-history text-3xl text-gray-400"></i>
+                            </div>
+                            <p class="text-gray-500 text-center">Chưa có cuộc trò chuyện nào</p>
+                            <p class="text-gray-400 text-sm text-center mt-2">Bắt đầu cuộc trò chuyện mới bằng cách nhấp vào "Tạo mới"</p>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -190,7 +240,7 @@
                 <div class="message-input-container">
                     <form id="messageForm">
                         <div class="input-wrapper">
-                            <input type="text" id="messageInput" placeholder="Nhập câu hỏi của bạn..." autocomplete="off">
+                            <input type="text" id="messageInput" placeholder="Nhập câu hỏi của bạn..." autocomplete="off" class="focus:outline-none focus:ring-0">
                             <button type="submit" id="sendButton" disabled>
                                 <i class="fas fa-paper-plane"></i>
                             </button>
@@ -294,6 +344,7 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.0.2/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.1/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/flowbite/2.2.1/flowbite.min.js"></script>
     <script>
         // Cấu hình marked.js để hoạt động tốt với highlight.js
         document.addEventListener('DOMContentLoaded', function() {

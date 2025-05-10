@@ -7,6 +7,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const mobileNavController = new MobileNavController();
     const uploadController = new UploadController();
     const modalController = new ModalController();
+    const chatHistoryController = new ChatHistoryController();
+    
+    // Lưu conversationController vào window để có thể truy cập từ các controller khác
+    window.conversationController = conversationController;
+
+    // Khởi tạo các component Flowbite
+    initFlowbiteComponents();
 
     // Kiểm tra trạng thái API khi khởi động
     checkApiConnection();
@@ -15,6 +22,41 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('themeToggle').addEventListener('click', function() {
         themeController.toggleTheme();
     });
+
+    // Xử lý user dropdown (vì Flowbite dropdown có thể không hoạt động với cấu trúc hiện tại)
+    const userDropdownTrigger = document.querySelector('.user-dropdown-trigger');
+    const userDropdownContent = document.querySelector('.user-dropdown-content');
+    
+    if (userDropdownTrigger && userDropdownContent) {
+        // Mở/đóng dropdown khi click
+        userDropdownTrigger.addEventListener('click', function(e) {
+            e.preventDefault();
+            userDropdownContent.classList.toggle('hidden');
+        });
+        
+        // Đóng dropdown khi click bên ngoài
+        document.addEventListener('click', function(e) {
+            if (!userDropdownTrigger.contains(e.target) && !userDropdownContent.contains(e.target)) {
+                userDropdownContent.classList.add('hidden');
+            }
+        });
+        
+        // Lắng nghe sự kiện thay đổi theme
+        document.addEventListener('themeChange', function(e) {
+            if (e.detail.darkMode) {
+                userDropdownContent.classList.add('dark-dropdown');
+            } else {
+                userDropdownContent.classList.remove('dark-dropdown');
+            }
+        });
+        
+        // Cập nhật trạng thái dropdown ngay khi trang tải
+        if (document.body.classList.contains('dark-theme')) {
+            userDropdownContent.classList.add('dark-dropdown');
+        } else {
+            userDropdownContent.classList.remove('dark-dropdown');
+        }
+    }
 
     // Lắng nghe sự kiện submit form tin nhắn
     document.getElementById('messageForm').addEventListener('submit', function(e) {
@@ -33,6 +75,20 @@ document.addEventListener('DOMContentLoaded', function() {
         const sendButton = document.getElementById('sendButton');
         sendButton.disabled = e.target.value.trim() === '';
     });
+
+    // Xử lý tìm kiếm lịch sử chat
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        searchInput.addEventListener('input', function(e) {
+            const query = e.target.value.trim();
+            chatHistoryController.searchChatHistory(query);
+            
+            // Tự động chuyển đến tab lịch sử nếu đang tìm kiếm
+            if (query !== '') {
+                chatHistoryController.switchTab('history');
+            }
+        });
+    }
 
     // Xử lý chọn tất cả nguồn
     document.getElementById('selectAll').addEventListener('change', function(e) {
@@ -75,6 +131,13 @@ document.addEventListener('DOMContentLoaded', function() {
     if (sessionStorage.getItem('sourceViewPanelCollapsed') === 'true') {
         document.getElementById('sourceViewPanel').classList.add('collapsed');
     }
+
+    // Xử lý clear chat button
+    document.getElementById('clear-chat-btn').addEventListener('click', function() {
+        if (confirm('Bạn có chắc chắn muốn xóa tất cả tin nhắn trong cuộc trò chuyện hiện tại?')) {
+            conversationController.clearChat();
+        }
+    });
 
     // Xử lý upload modal
     const uploadArea = document.getElementById('uploadArea');
@@ -177,6 +240,28 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('apiAlertMessage').textContent = error.message || 'Không thể kết nối đến API. Vui lòng kiểm tra lại kết nối.';
             document.getElementById('apiAlert').style.display = 'flex';
             return false;
+        }
+    }
+
+    // Khởi tạo các component của Flowbite
+    function initFlowbiteComponents() {
+        // Nếu đối tượng flowbite có sẵn, khởi tạo các component
+        if (typeof flowbite !== 'undefined') {
+            // Khởi tạo tooltips
+            const tooltipElements = document.querySelectorAll('[data-tooltip-target]');
+            if (tooltipElements.length) {
+                tooltipElements.forEach(el => {
+                    new flowbite.Tooltip(el);
+                });
+            }
+            
+            // Khởi tạo dropdowns
+            const dropdownElements = document.querySelectorAll('[data-dropdown-toggle]');
+            if (dropdownElements.length) {
+                dropdownElements.forEach(el => {
+                    new flowbite.Dropdown(el);
+                });
+            }
         }
     }
 

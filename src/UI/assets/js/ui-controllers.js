@@ -21,6 +21,9 @@ class ThemeController {
             document.body.classList.remove('dark-theme');
             document.getElementById('themeToggle').innerHTML = '<i class="fas fa-moon"></i>';
         }
+        
+        // Phát ra sự kiện khi theme thay đổi để các component khác có thể lắng nghe
+        document.dispatchEvent(new CustomEvent('themeChange', { detail: { darkMode: this.darkMode } }));
     }
 }
 
@@ -54,45 +57,47 @@ class SourceController {
 
     renderSources(files) {
         const sourceList = document.getElementById('sourceList');
+        sourceList.innerHTML = ''; // Clear previous list
         
-        if (files.length === 0) {
-            sourceList.innerHTML = '<div class="no-sources">Chưa có tài liệu nào. Hãy tải lên tài liệu đầu tiên.</div>';
+        if (!files || files.length === 0) {
+            sourceList.innerHTML = `
+                <div class="text-center py-8 text-gray-500">
+                    <i class="fas fa-folder-open text-4xl mb-3"></i>
+                    <p>Chưa có tài liệu nào. Hãy tải lên tài liệu để bắt đầu.</p>
+                </div>
+            `;
             return;
         }
         
-        sourceList.innerHTML = '';
-        
         files.forEach(file => {
-            const sourceItem = document.createElement('div');
-            sourceItem.className = 'source-item';
-            
-            // Mã hóa đường dẫn tệp để sử dụng an toàn làm ID
+            // Tạo ID an toàn cho checkbox
             const safeId = this.makeSafeId(file.path);
             
-            const isChecked = this.selectedSources.includes(file.path);
-            const fileExtension = file.filename.split('.').pop().toLowerCase();
-            let iconClass = '';
-            
-            if (fileExtension === 'pdf') {
-                iconClass = 'pdf';
-            } else if (['doc', 'docx'].includes(fileExtension)) {
-                iconClass = 'doc';
-            } else if (['txt', 'sql'].includes(fileExtension)) {
-                iconClass = 'txt';
+            // Lớp css cho icon dựa vào loại file
+            let iconClass = "source-icon";
+            if (file.filename.endsWith('.pdf')) {
+                iconClass += " pdf";
+            } else if (file.filename.endsWith('.doc') || file.filename.endsWith('.docx')) {
+                iconClass += " doc";
+            } else {
+                iconClass += " txt";
             }
             
-            // Format date
-            const uploadDate = new Date(file.upload_date);
-            const timeAgo = this.getTimeAgo(uploadDate);
-            
+            // Tạo thẻ HTML cho mỗi mục
+            const sourceItem = document.createElement('div');
+            sourceItem.className = 'source-item';
             sourceItem.innerHTML = `
-                <input type="checkbox" id="${safeId}" class="source-checkbox" data-path="${file.path}" ${isChecked ? 'checked' : ''}>
-                <div class="source-icon ${iconClass}">
-                    <i class="fas fa-file-alt"></i>
-                </div>
-                <div class="source-info">
-                    <label for="${safeId}" class="source-name" title="${file.filename}">${file.filename}</label>
-                    <div class="source-date">${timeAgo}</div>
+                <div class="flex items-center">
+                    <input type="checkbox" id="${safeId}" 
+                        class="source-checkbox w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-0 focus:outline-none cursor-pointer" 
+                        data-path="${file.path}" ${this.selectedSources.includes(file.path) ? 'checked' : ''}>
+                    <div class="${iconClass}">
+                        <i class="fas fa-file-alt"></i>
+                    </div>
+                    <div class="source-info">
+                        <span class="source-name" title="${file.filename}">${file.filename}</span>
+                        <div class="source-date">${this.getTimeAgo(file.upload_date)}</div>
+                    </div>
                 </div>
                 <button class="source-delete" data-filename="${file.filename}">
                     <i class="fas fa-trash"></i>
@@ -1098,6 +1103,69 @@ class ConversationController {
         
         typeNextChar();
     }
+
+    // Tải một phiên chat từ lịch sử
+    loadChatSession(chatSession) {
+        if (!chatSession) {
+            console.error('Không thể tải phiên chat: dữ liệu không hợp lệ');
+            return;
+        }
+        
+        // Xóa tin nhắn hiện tại
+        this.clearChat(false); // false để không hiển thị confirm
+        
+        // Cập nhật tiêu đề và các thông tin khác
+        this.conversation = {
+            title: chatSession.title || "RAG Assistant",
+            messages: chatSession.messages || [],
+            sources: chatSession.sources || []
+        };
+        
+        // Cập nhật tiêu đề hiển thị
+        const conversationMeta = document.getElementById('conversationMeta');
+        if (conversationMeta) {
+            conversationMeta.textContent = chatSession.title || "Hỏi đáp với tài liệu";
+        }
+        
+        // Hiển thị tin nhắn
+        this.renderMessages();
+        
+        // Tự động chọn các nguồn tài liệu đã sử dụng trong phiên chat
+        if (chatSession.sources && chatSession.sources.length > 0) {
+            const sourceController = new SourceController();
+            sourceController.selectAll(false); // Bỏ chọn hết
+            
+            chatSession.sources.forEach(source => {
+                sourceController.toggleSource(source, true);
+            });
+        }
+    }
+    
+    // Xóa chat hiện tại
+    clearChat(showConfirm = true) {
+        if (showConfirm && !confirm('Bạn có chắc chắn muốn xóa tất cả tin nhắn trong cuộc trò chuyện hiện tại?')) {
+            return;
+        }
+        
+        this.conversation = {
+            title: "RAG Assistant",
+            messages: [],
+            sources: []
+        };
+        
+        const messagesContainer = document.getElementById('messagesContainer');
+        messagesContainer.innerHTML = `
+            <div class="welcome-message">
+                <p>Chào mừng bạn đến với hệ thống RAG hỗ trợ môn cơ sở dữ liệu! Hãy đặt câu hỏi về tài liệu của bạn.</p>
+                <p>Ví dụ: "Phân biệt giữa INNER JOIN và LEFT JOIN trong SQL?" hay "Cho tôi ví dụ về một câu truy vấn nested."</p>
+            </div>
+        `;
+        
+        const conversationMeta = document.getElementById('conversationMeta');
+        if (conversationMeta) {
+            conversationMeta.textContent = "Hỏi đáp với tài liệu";
+        }
+    }
 }
 
 /**
@@ -1676,5 +1744,383 @@ class UploadController {
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+}
+
+/**
+ * Controller quản lý lịch sử chat
+ */
+class ChatHistoryController {
+    constructor() {
+        this.historyItems = [];
+        this.loadChatHistory();
+        
+        // Lắng nghe sự kiện đổi tab
+        this.setupTabListeners();
+        
+        // Lắng nghe sự kiện tạo mới và xóa tất cả
+        this.setupActionButtons();
+        
+        // Đảm bảo tab sources được chọn mặc định khi tải trang
+        this.switchTab('sources');
+    }
+    
+    setupTabListeners() {
+        const sourcesTabBtn = document.getElementById('sourcesTabBtn');
+        const historyTabBtn = document.getElementById('historyTabBtn');
+        const sourcesTabContent = document.getElementById('sourcesTabContent');
+        const historyTabContent = document.getElementById('historyTabContent');
+        
+        if (sourcesTabBtn && historyTabBtn) {
+            sourcesTabBtn.addEventListener('click', () => {
+                this.switchTab('sources');
+            });
+            
+            historyTabBtn.addEventListener('click', () => {
+                this.switchTab('history');
+            });
+        }
+    }
+    
+    setupActionButtons() {
+        const createNewBtn = document.getElementById('createNewChatBtn');
+        const clearAllBtn = document.getElementById('clearAllHistoryBtn');
+        
+        if (createNewBtn) {
+            createNewBtn.addEventListener('click', () => {
+                // Tạo một cuộc trò chuyện mới và chuyển sang tab conversation
+                window.conversationController.clearChat(false);
+                const mobileNavController = new MobileNavController();
+                mobileNavController.switchPanel('conversation');
+            });
+        }
+        
+        if (clearAllBtn) {
+            clearAllBtn.addEventListener('click', () => {
+                if (confirm('Bạn có chắc chắn muốn xóa tất cả lịch sử chat? Thao tác này không thể hoàn tác.')) {
+                    this.clearAllHistory();
+                }
+            });
+        }
+    }
+    
+    switchTab(tabName) {
+        const sourcesTabBtn = document.getElementById('sourcesTabBtn');
+        const historyTabBtn = document.getElementById('historyTabBtn');
+        const sourcesTabContent = document.getElementById('sourcesTabContent');
+        const historyTabContent = document.getElementById('historyTabContent');
+        
+        if (tabName === 'sources') {
+            sourcesTabBtn.classList.add('active');
+            sourcesTabBtn.classList.add('text-blue-600');
+            sourcesTabBtn.classList.add('border-b-2');
+            sourcesTabBtn.classList.add('border-blue-600');
+            
+            historyTabBtn.classList.remove('active');
+            historyTabBtn.classList.remove('text-blue-600');
+            historyTabBtn.classList.remove('border-b-2');
+            historyTabBtn.classList.remove('border-blue-600');
+            historyTabBtn.classList.add('text-gray-500');
+            
+            sourcesTabContent.classList.add('active');
+            historyTabContent.classList.remove('active');
+        } else {
+            sourcesTabBtn.classList.remove('active');
+            sourcesTabBtn.classList.remove('text-blue-600');
+            sourcesTabBtn.classList.remove('border-b-2');
+            sourcesTabBtn.classList.remove('border-blue-600');
+            sourcesTabBtn.classList.add('text-gray-500');
+            
+            historyTabBtn.classList.add('active');
+            historyTabBtn.classList.add('text-blue-600');
+            historyTabBtn.classList.add('border-b-2');
+            historyTabBtn.classList.add('border-blue-600');
+            
+            sourcesTabContent.classList.remove('active');
+            historyTabContent.classList.add('active');
+        }
+    }
+    
+    async loadChatHistory() {
+        try {
+            // Hiện thông báo đang tải
+            document.getElementById('historyList').innerHTML = `
+                <div class="loading-message" style="text-align: center; padding: 2rem;">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <p>Đang tải lịch sử chat...</p>
+                </div>`;
+                
+            // Gọi API để lấy lịch sử chat
+            const history = await apiService.getChatHistory();
+            this.historyItems = history || [];
+            
+            // Render lịch sử chat
+            this.renderChatHistory();
+        } catch (error) {
+            console.error('Lỗi khi tải lịch sử chat:', error);
+            document.getElementById('historyList').innerHTML = `
+                <div class="error-message" style="text-align: center; padding: 2rem;">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <p>Không thể tải lịch sử chat. Vui lòng thử lại sau.</p>
+                </div>`;
+        }
+    }
+    
+    renderChatHistory() {
+        const historyList = document.getElementById('historyList');
+        
+        if (!this.historyItems || this.historyItems.length === 0) {
+            historyList.innerHTML = `
+                <div class="empty-history-message">
+                    <i class="fas fa-history"></i>
+                    <p>Chưa có cuộc trò chuyện nào</p>
+                </div>`;
+            return;
+        }
+        
+        // Sắp xếp theo thời gian giảm dần (mới nhất lên đầu)
+        const sortedItems = [...this.historyItems].sort((a, b) => 
+            new Date(b.timestamp) - new Date(a.timestamp)
+        );
+        
+        let historyHTML = '';
+        
+        sortedItems.forEach(item => {
+            const date = new Date(item.timestamp);
+            const formattedDate = this.formatDate(date);
+            
+            // Trích xuất tin nhắn đầu tiên nếu có
+            let previewText = '';
+            if (item.messages && item.messages.length > 0) {
+                const firstUserMessage = item.messages.find(msg => msg.role === 'user');
+                if (firstUserMessage) {
+                    previewText = firstUserMessage.content;
+                    if (previewText.length > 60) {
+                        previewText = previewText.substring(0, 60) + '...';
+                    }
+                }
+            }
+            
+            historyHTML += `
+                <div class="history-item" data-id="${item.id}">
+                    <div class="history-item-content">
+                        <div class="history-item-title">${item.title || 'Cuộc trò chuyện mới'}</div>
+                        ${previewText ? `<div class="text-xs text-gray-500 mb-1 mt-0.5">${previewText}</div>` : ''}
+                        <div class="history-item-date">${formattedDate}</div>
+                    </div>
+                    <button class="history-item-delete" data-id="${item.id}" title="Xóa cuộc trò chuyện này">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>`;
+        });
+        
+        historyList.innerHTML = historyHTML;
+        
+        // Thêm event listener cho các mục lịch sử
+        document.querySelectorAll('.history-item').forEach(item => {
+            const chatId = item.getAttribute('data-id');
+            
+            // Click vào mục để tải phiên chat
+            item.addEventListener('click', (e) => {
+                // Đảm bảo không bắt sự kiện click từ nút xóa
+                if (!e.target.closest('.history-item-delete')) {
+                    this.loadChatSession(chatId);
+                }
+            });
+            
+            // Nút xóa riêng cho từng mục
+            const deleteBtn = item.querySelector('.history-item-delete');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation(); // Ngăn sự kiện click lan đến parent
+                    this.deleteHistoryItem(chatId);
+                });
+            }
+        });
+    }
+    
+    async loadChatSession(chatId) {
+        try {
+            // Thêm class active cho mục được chọn
+            document.querySelectorAll('.history-item').forEach(item => {
+                if (item.getAttribute('data-id') === chatId) {
+                    item.classList.add('active');
+                } else {
+                    item.classList.remove('active');
+                }
+            });
+            
+            // Gọi API để lấy dữ liệu của phiên chat
+            const chatSession = await apiService.getChatSession(chatId);
+            
+            // Chuyển đến panel conversation và hiển thị dữ liệu
+            const mobileNavController = new MobileNavController();
+            mobileNavController.switchPanel('conversation');
+            
+            // Cập nhật giao diện với dữ liệu chat
+            // Giả sử conversationController đã được tạo ở main.js
+            window.conversationController.loadChatSession(chatSession);
+        } catch (error) {
+            console.error('Lỗi khi tải phiên chat:', error);
+            showNotification('Không thể tải phiên chat. Vui lòng thử lại.', 'error');
+        }
+    }
+    
+    async deleteHistoryItem(chatId) {
+        if (!confirm('Bạn có chắc chắn muốn xóa cuộc trò chuyện này?')) {
+            return;
+        }
+        
+        try {
+            // Thay đổi trạng thái nút xóa để hiển thị đang tải
+            const deleteBtn = document.querySelector(`.history-item-delete[data-id="${chatId}"]`);
+            if (deleteBtn) {
+                const originalHTML = deleteBtn.innerHTML;
+                deleteBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                deleteBtn.disabled = true;
+            }
+            
+            // Gọi API để xóa chat session
+            await apiService.deleteChatSession(chatId);
+            
+            // Xóa khỏi danh sách hiện tại
+            this.historyItems = this.historyItems.filter(item => item.id !== chatId);
+            
+            // Cập nhật lại giao diện
+            this.renderChatHistory();
+            
+            // Hiển thị thông báo thành công
+            showNotification('Đã xóa cuộc trò chuyện thành công', 'success');
+        } catch (error) {
+            console.error('Lỗi khi xóa phiên chat:', error);
+            
+            // Khôi phục nút xóa nếu có lỗi
+            const deleteBtn = document.querySelector(`.history-item-delete[data-id="${chatId}"]`);
+            if (deleteBtn) {
+                deleteBtn.innerHTML = '<i class="fas fa-trash"></i>';
+                deleteBtn.disabled = false;
+            }
+            
+            showNotification('Không thể xóa cuộc trò chuyện. Vui lòng thử lại sau.', 'error');
+        }
+    }
+    
+    async clearAllHistory() {
+        try {
+            // Hiển thị loading
+            const historyList = document.getElementById('historyList');
+            historyList.innerHTML = `
+                <div class="loading-message" style="text-align: center; padding: 2rem;">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <p>Đang xóa tất cả lịch sử...</p>
+                </div>`;
+            
+            // Gọi API để xóa tất cả lịch sử (cần xây dựng API này)
+            for (const item of this.historyItems) {
+                await apiService.deleteChatSession(item.id);
+            }
+            
+            // Xóa khỏi bộ nhớ
+            this.historyItems = [];
+            
+            // Cập nhật giao diện
+            this.renderChatHistory();
+            
+            // Hiển thị thông báo thành công
+            showNotification('Đã xóa toàn bộ lịch sử chat', 'success');
+        } catch (error) {
+            console.error('Lỗi khi xóa tất cả lịch sử:', error);
+            this.loadChatHistory(); // Tải lại danh sách nếu có lỗi
+            showNotification('Không thể xóa toàn bộ lịch sử. Vui lòng thử lại sau.', 'error');
+        }
+    }
+    
+    searchChatHistory(query) {
+        if (!query || query.trim() === '') {
+            this.renderChatHistory();
+            return;
+        }
+        
+        const searchTerm = query.toLowerCase().trim();
+        const filteredItems = this.historyItems.filter(item => 
+            (item.title && item.title.toLowerCase().includes(searchTerm)) || 
+            (item.content && item.content.toLowerCase().includes(searchTerm))
+        );
+        
+        const historyList = document.getElementById('historyList');
+        
+        if (filteredItems.length === 0) {
+            historyList.innerHTML = `
+                <div class="empty-history-message">
+                    <i class="fas fa-search"></i>
+                    <p>Không tìm thấy kết quả cho "${query}"</p>
+                </div>`;
+            return;
+        }
+        
+        // Sắp xếp theo thời gian giảm dần (mới nhất lên đầu)
+        const sortedItems = [...filteredItems].sort((a, b) => 
+            new Date(b.timestamp) - new Date(a.timestamp)
+        );
+        
+        let historyHTML = '';
+        
+        sortedItems.forEach(item => {
+            const date = new Date(item.timestamp);
+            const formattedDate = this.formatDate(date);
+            
+            historyHTML += `
+                <div class="history-item" data-id="${item.id}">
+                    <div class="history-item-content">
+                        <div class="history-item-title">${item.title || 'Cuộc trò chuyện mới'}</div>
+                        ${previewText ? `<div class="text-xs text-gray-500 mb-1 mt-0.5">${previewText}</div>` : ''}
+                        <div class="history-item-date">${formattedDate}</div>
+                    </div>
+                    <button class="history-item-delete" data-id="${item.id}" title="Xóa cuộc trò chuyện này">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>`;
+        });
+        
+        historyList.innerHTML = historyHTML;
+        
+        // Thêm event listener cho các mục lịch sử
+        document.querySelectorAll('.history-item').forEach(item => {
+            const chatId = item.getAttribute('data-id');
+            
+            // Click vào mục để tải phiên chat
+            item.addEventListener('click', (e) => {
+                // Đảm bảo không bắt sự kiện click từ nút xóa
+                if (!e.target.closest('.history-item-delete')) {
+                    this.loadChatSession(chatId);
+                }
+            });
+            
+            // Nút xóa riêng cho từng mục
+            const deleteBtn = item.querySelector('.history-item-delete');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation(); // Ngăn sự kiện click lan đến parent
+                    this.deleteHistoryItem(chatId);
+                });
+            }
+        });
+    }
+    
+    formatDate(date) {
+        const now = new Date();
+        const yesterday = new Date(now);
+        yesterday.setDate(now.getDate() - 1);
+        
+        const isToday = date.toDateString() === now.toDateString();
+        const isYesterday = date.toDateString() === yesterday.toDateString();
+        
+        if (isToday) {
+            return `${date.getDate()}/${(date.getMonth() + 1)}/${date.getFullYear()}, ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+        } else if (isYesterday) {
+            return `${date.getDate()}/${(date.getMonth() + 1)}/${date.getFullYear()}, ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+        } else {
+            return `${date.getDate()}/${(date.getMonth() + 1)}/${date.getFullYear()}, ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+        }
     }
 } 
