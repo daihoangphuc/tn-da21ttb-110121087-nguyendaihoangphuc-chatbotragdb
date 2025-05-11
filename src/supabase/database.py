@@ -27,24 +27,42 @@ class SupabaseDatabase:
     # Conversation History Management
 
     def create_conversation_history_table(self):
-        """Create the conversation history table if it doesn't exist"""
-        print("Đang cố gắng tạo bảng conversation_history...")
+        """Create the conversation and messages tables if they don't exist"""
+        print("Đang cố gắng tạo bảng conversations và messages...")
         try:
             # Phương pháp 1: Sử dụng SQL trực tiếp qua REST API
             direct_sql = """
-            CREATE TABLE IF NOT EXISTS conversation_history (
-                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-                session_id TEXT NOT NULL,
-                user_id TEXT,
-                timestamp TIMESTAMPTZ DEFAULT NOW(),
-                role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
-                content TEXT NOT NULL,
-                metadata JSONB
+            -- 1. Bảng conversations lưu thông tin phiên
+            CREATE TABLE IF NOT EXISTS conversations (
+              id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+              session_id TEXT NOT NULL UNIQUE,
+              user_id TEXT,
+              last_updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+              metadata JSONB
             );
-            
-            CREATE INDEX IF NOT EXISTS idx_conversation_history_session_id ON conversation_history(session_id);
-            CREATE INDEX IF NOT EXISTS idx_conversation_history_user_id ON conversation_history(user_id);
-            CREATE INDEX IF NOT EXISTS idx_conversation_history_timestamp ON conversation_history(timestamp);
+
+            CREATE INDEX IF NOT EXISTS idx_conversations_user_id
+              ON conversations(user_id);
+
+            CREATE INDEX IF NOT EXISTS idx_conversations_last_updated
+              ON conversations(last_updated);
+
+            -- 2. Bảng messages lưu nội dung từng message
+            CREATE TABLE IF NOT EXISTS messages (
+              id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+              conversation_id UUID NOT NULL
+                REFERENCES conversations(id) ON DELETE CASCADE,
+              role TEXT NOT NULL CHECK (role IN ('user','assistant')),
+              content TEXT NOT NULL,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+              metadata JSONB
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_messages_conversation_id
+              ON messages(conversation_id);
+
+            CREATE INDEX IF NOT EXISTS idx_messages_created_at
+              ON messages(created_at);
             """
 
             print("Thực thi SQL trực tiếp để tạo bảng...")
@@ -64,21 +82,36 @@ class SupabaseDatabase:
             # Phương pháp 2: Thử insert để xem bảng đã tồn tại chưa
             try:
                 print("Thử phương pháp insert để tạo bảng...")
-                test_data = {
-                    "session_id": "test_session_init",
-                    "role": "system",
-                    "content": "Khởi tạo bảng dữ liệu",
-                    "timestamp": "NOW()",
+                # Tạo một conversation trước
+                import uuid
+
+                session_id = f"test_session_init_{uuid.uuid4().hex[:8]}"
+                conversation_data = {
+                    "session_id": session_id,
+                    "last_updated": "NOW()",
                 }
-                result = (
-                    self.client.table("conversation_history")
-                    .insert(test_data)
+                conversation_result = (
+                    self.client.table("conversations")
+                    .insert(conversation_data)
                     .execute()
                 )
-                print(
-                    f"Đã tạo bản ghi test thành công: {result.data if hasattr(result, 'data') else 'No data'}"
-                )
-                return result
+
+                # Sau đó tạo một message
+                if hasattr(conversation_result, "data") and conversation_result.data:
+                    conversation_id = conversation_result.data[0].get("id")
+                    message_data = {
+                        "conversation_id": conversation_id,
+                        "role": "system",
+                        "content": "Khởi tạo bảng dữ liệu",
+                    }
+                    message_result = (
+                        self.client.table("messages").insert(message_data).execute()
+                    )
+                    print(
+                        f"Đã tạo bản ghi test thành công: {message_result.data if hasattr(message_result, 'data') else 'No data'}"
+                    )
+
+                return conversation_result
             except Exception as e2:
                 print(f"Lỗi khi insert dữ liệu mẫu: {str(e2)}")
 
@@ -87,25 +120,43 @@ class SupabaseDatabase:
                     print("Thử phương pháp RPC exec_sql...")
                     # Phương pháp gốc: RPC
                     sql = """
-                    CREATE TABLE IF NOT EXISTS conversation_history (
-                        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-                        session_id TEXT NOT NULL,
-                        user_id TEXT,
-                        timestamp TIMESTAMPTZ DEFAULT NOW(),
-                        role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
-                        content TEXT NOT NULL,
-                        metadata JSONB
+                    -- 1. Bảng conversations lưu thông tin phiên
+                    CREATE TABLE IF NOT EXISTS conversations (
+                      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                      session_id TEXT NOT NULL UNIQUE,
+                      user_id TEXT,
+                      last_updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                      metadata JSONB
                     );
-                    
-                    CREATE INDEX IF NOT EXISTS idx_conversation_history_session_id ON conversation_history(session_id);
-                    CREATE INDEX IF NOT EXISTS idx_conversation_history_user_id ON conversation_history(user_id);
-                    CREATE INDEX IF NOT EXISTS idx_conversation_history_timestamp ON conversation_history(timestamp);
+
+                    CREATE INDEX IF NOT EXISTS idx_conversations_user_id
+                      ON conversations(user_id);
+
+                    CREATE INDEX IF NOT EXISTS idx_conversations_last_updated
+                      ON conversations(last_updated);
+
+                    -- 2. Bảng messages lưu nội dung từng message
+                    CREATE TABLE IF NOT EXISTS messages (
+                      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                      conversation_id UUID NOT NULL
+                        REFERENCES conversations(id) ON DELETE CASCADE,
+                      role TEXT NOT NULL CHECK (role IN ('user','assistant')),
+                      content TEXT NOT NULL,
+                      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                      metadata JSONB
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_messages_conversation_id
+                      ON messages(conversation_id);
+
+                    CREATE INDEX IF NOT EXISTS idx_messages_created_at
+                      ON messages(created_at);
                     """
                     return self.query(sql)
                 except Exception as e3:
                     print(f"Tất cả các phương pháp tạo bảng thất bại: {str(e3)}")
                     raise Exception(
-                        "Không thể tạo bảng conversation_history bằng bất kỳ phương pháp nào"
+                        "Không thể tạo bảng conversations và messages bằng bất kỳ phương pháp nào"
                     )
 
     def save_conversation_message(
@@ -117,23 +168,21 @@ class SupabaseDatabase:
         metadata: Optional[Dict] = None,
     ) -> Dict:
         """
-        Save a conversation message to the database
+        Lưu tin nhắn vào cơ sở dữ liệu với cấu trúc bảng mới
 
         Args:
-            session_id: Unique ID for the conversation session
-            role: Role of the message sender ('user' or 'assistant')
-            content: Content of the message
-            user_id: Optional user ID for authenticated users
-            metadata: Optional metadata for the message
+            session_id: ID phiên hội thoại
+            role: Vai trò ('user' hoặc 'assistant')
+            content: Nội dung tin nhắn
+            user_id: ID người dùng (nếu có)
+            metadata: Metadata bổ sung (nếu có)
 
         Returns:
-            The created record
+            Bản ghi đã tạo
         """
         print(
             f"Lưu tin nhắn: session_id={session_id}, role={role}, content={content[:30]}..."
         )
-
-        table = self.from_table("conversation_history")
 
         # Đảm bảo dữ liệu đúng định dạng
         if role not in ["user", "assistant", "system"]:
@@ -151,29 +200,64 @@ class SupabaseDatabase:
         if not content:
             content = "<empty message>"
 
-        data = {"session_id": session_id, "role": role, "content": content}
-
-        if user_id:
-            data["user_id"] = user_id
-
-        if metadata:
-            # Đảm bảo metadata là JSON hợp lệ
-            import json
-
-            try:
-                # Kiểm tra bằng cách encode/decode
-                json.dumps(metadata)
-                data["metadata"] = metadata
-            except Exception as e:
-                print(f"Warning: Metadata không phải JSON hợp lệ ({str(e)}), sẽ bỏ qua")
-
-        print(f"Dữ liệu gửi đi: {data}")
         try:
-            result = table.insert(data).execute()
+            # Bước 1: Kiểm tra và tạo conversation nếu chưa tồn tại
+            conv_table = self.from_table("conversations")
+            conv_result = conv_table.select("id").eq("session_id", session_id).execute()
+
+            if hasattr(conv_result, "data") and len(conv_result.data) > 0:
+                # Conversation đã tồn tại
+                conversation_id = conv_result.data[0]["id"]
+                print(f"Conversation đã tồn tại với id: {conversation_id}")
+
+                # Cập nhật last_updated
+                conv_table.update({"last_updated": "NOW()"}).eq(
+                    "id", conversation_id
+                ).execute()
+            else:
+                # Tạo conversation mới
+                conv_data = {"session_id": session_id, "last_updated": "NOW()"}
+
+                if user_id:
+                    conv_data["user_id"] = user_id
+
+                conv_insert = conv_table.insert(conv_data).execute()
+
+                if not hasattr(conv_insert, "data") or not conv_insert.data:
+                    raise Exception("Không thể tạo conversation mới")
+
+                conversation_id = conv_insert.data[0]["id"]
+                print(f"Đã tạo conversation mới với id: {conversation_id}")
+
+            # Bước 2: Thêm tin nhắn vào bảng messages
+            message_data = {
+                "conversation_id": conversation_id,
+                "role": role,
+                "content": content,
+            }
+
+            if metadata:
+                # Đảm bảo metadata là JSON hợp lệ
+                import json
+
+                try:
+                    # Kiểm tra bằng cách encode/decode
+                    json.dumps(metadata)
+                    message_data["metadata"] = metadata
+                except Exception as e:
+                    print(
+                        f"Warning: Metadata không phải JSON hợp lệ ({str(e)}), sẽ bỏ qua"
+                    )
+
+            # Lưu tin nhắn
+            msg_table = self.from_table("messages")
+            result = msg_table.insert(message_data).execute()
+
             print(
                 f"Kết quả lưu tin nhắn: ID = {result.data[0].get('id') if hasattr(result, 'data') and result.data else 'không có ID'}"
             )
             return result
+
         except Exception as e:
             print(f"Lỗi khi lưu tin nhắn vào database: {str(e)}")
             import traceback
@@ -183,38 +267,113 @@ class SupabaseDatabase:
 
     def get_conversation_history(self, session_id: str, limit: int = 100) -> List[Dict]:
         """
-        Get conversation history for a specific session
+        Lấy lịch sử hội thoại cho một phiên cụ thể với cấu trúc bảng mới
 
         Args:
-            session_id: Unique ID for the conversation session
-            limit: Maximum number of messages to retrieve
+            session_id: ID phiên hội thoại
+            limit: Số lượng tin nhắn tối đa cần lấy
 
         Returns:
-            List of conversation messages, ordered by timestamp
+            Danh sách tin nhắn của cuộc hội thoại, sắp xếp theo thời gian
         """
-        table = self.from_table("conversation_history")
-        response = (
-            table.select("*")
-            .eq("session_id", session_id)
-            .order("timestamp")
-            .limit(limit)
-            .execute()
-        )
+        try:
+            # Bước 1: Lấy conversation_id từ session_id
+            conv_result = (
+                self.from_table("conversations")
+                .select("id")
+                .eq("session_id", session_id)
+                .execute()
+            )
 
-        return response.data
+            if not hasattr(conv_result, "data") or not conv_result.data:
+                print(f"Không tìm thấy conversation với session_id: {session_id}")
+                return []
+
+            conversation_id = conv_result.data[0]["id"]
+
+            # Bước 2: Lấy tin nhắn từ bảng messages
+            msg_result = (
+                self.from_table("messages")
+                .select("*")
+                .eq("conversation_id", conversation_id)
+                .order("created_at")
+                .limit(limit)
+                .execute()
+            )
+
+            if not hasattr(msg_result, "data"):
+                return []
+
+            # Chuyển đổi định dạng để tương thích với code cũ
+            messages = []
+            for msg in msg_result.data:
+                message = {
+                    "role": msg["role"],
+                    "content": msg["content"],
+                    "timestamp": msg["created_at"],  # Đổi tên trường để tương thích
+                }
+
+                if "metadata" in msg and msg["metadata"]:
+                    message["metadata"] = msg["metadata"]
+
+                messages.append(message)
+
+            return messages
+
+        except Exception as e:
+            print(f"Lỗi khi lấy lịch sử hội thoại: {str(e)}")
+            import traceback
+
+            print(f"Chi tiết lỗi: {traceback.format_exc()}")
+            return []
 
     def clear_conversation_history(self, session_id: str) -> Dict:
         """
-        Clear all conversation history for a specific session
+        Xóa tất cả tin nhắn trong một phiên hội thoại nhưng giữ lại phiên
 
         Args:
-            session_id: Unique ID for the conversation session
+            session_id: ID phiên hội thoại
 
         Returns:
-            Result of the operation
+            Kết quả của thao tác
         """
-        table = self.from_table("conversation_history")
-        return table.delete().eq("session_id", session_id).execute()
+        try:
+            # Bước 1: Lấy conversation_id từ session_id
+            conv_result = (
+                self.from_table("conversations")
+                .select("id")
+                .eq("session_id", session_id)
+                .execute()
+            )
+
+            if not hasattr(conv_result, "data") or not conv_result.data:
+                print(f"Không tìm thấy conversation với session_id: {session_id}")
+                return {"error": "Không tìm thấy phiên hội thoại"}
+
+            conversation_id = conv_result.data[0]["id"]
+
+            # Bước 2: Xóa tất cả tin nhắn của conversation này
+            # (giữ lại conversation để có thể thêm tin nhắn mới)
+            result = (
+                self.from_table("messages")
+                .delete()
+                .eq("conversation_id", conversation_id)
+                .execute()
+            )
+
+            # Bước 3: Cập nhật last_updated cho conversation
+            self.from_table("conversations").update({"last_updated": "NOW()"}).eq(
+                "id", conversation_id
+            ).execute()
+
+            return result
+
+        except Exception as e:
+            print(f"Lỗi khi xóa lịch sử hội thoại: {str(e)}")
+            import traceback
+
+            print(f"Chi tiết lỗi: {traceback.format_exc()}")
+            return {"error": str(e)}
 
     # User Feedback Management
 

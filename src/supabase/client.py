@@ -26,9 +26,19 @@ class SupabaseClient:
         if self.initialized:
             return
 
-        self.url = url or os.getenv("SUPABASE_URL")
-        # Ưu tiên sử dụng service_key nếu có, còn không thì sử dụng key thông thường
-        self.key = key or os.getenv("SUPABASE_SERVICE_KEY", os.getenv("SUPABASE_KEY"))
+        # Sử dụng thông tin cụ thể nếu không tìm thấy trong biến môi trường
+        self.url = (
+            url
+            or os.getenv("SUPABASE_URL")
+            or "https://yhlgzixdgvjllrblsxsr.supabase.co"
+        )
+
+        # Ưu tiên sử dụng service_key được cung cấp, nếu không có thì dùng service_key cứng
+        self.key = (
+            key
+            or os.getenv("SUPABASE_SERVICE_KEY")
+            or "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlobGd6aXhkZ3ZqbGxyYmxzeHNyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0Njc5NjU5MywiZXhwIjoyMDYyMzcyNTkzfQ.Iec0FDbqXp4_RFoLrp6M2rQJNBlr04HyxL8oChpPF04"
+        )
 
         if not self.url or not self.key:
             raise ValueError(

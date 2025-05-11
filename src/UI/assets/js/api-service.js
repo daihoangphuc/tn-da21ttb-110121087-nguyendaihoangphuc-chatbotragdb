@@ -715,6 +715,82 @@ class APIService {
             throw error;
         }
     }
+    
+    // Lấy danh sách hội thoại
+    async getConversations() {
+        try {
+            return await this.fetchApi('/api/conversations', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${this.getAuthToken()}`
+                }
+            });
+        } catch (error) {
+            console.error('Lỗi khi lấy danh sách hội thoại:', error);
+            return { status: 'error', data: [] };
+        }
+    }
+    
+    // Phương thức để xóa một cuộc hội thoại
+    async deleteConversation(sessionId) {
+        console.log('Gọi API xóa hội thoại với session_id:', sessionId);
+        
+        // Kiểm tra session_id hợp lệ trước khi gửi request
+        if (!sessionId || sessionId === 'undefined' || sessionId === 'null') {
+            console.error('Không thể xóa hội thoại: session_id không hợp lệ:', sessionId);
+            throw new Error('ID hội thoại không hợp lệ');
+        }
+        
+        try {
+            const result = await this.fetchApi(`/api/conversations/${sessionId}`, {
+                method: 'DELETE'
+            });
+            
+            console.log('Kết quả xóa hội thoại:', result);
+            
+            // Kiểm tra kết quả từ API
+            if (result.success === true) {
+                console.log('Xóa hội thoại thành công');
+                return { status: 'success', message: result.message };
+            } else {
+                console.error('Lỗi khi xóa hội thoại:', result.error || 'Không xác định');
+                return { status: 'error', message: result.error || 'Không thể xóa hội thoại' };
+            }
+        } catch (error) {
+            console.error('Lỗi khi gọi API xóa hội thoại:', error);
+            return { status: 'error', message: error.message || 'Không thể xóa hội thoại' };
+        }
+    }
+    
+    // Tạo hội thoại mới
+    async createConversation() {
+        try {
+            return await this.fetchApi('/api/conversations', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.getAuthToken()}`
+                }
+            });
+        } catch (error) {
+            console.error('Lỗi khi tạo hội thoại mới:', error);
+            return { status: 'error', message: error.message };
+        }
+    }
+    
+    // Lấy tin nhắn của một hội thoại
+    async getMessages(sessionId) {
+        try {
+            return await this.fetchApi(`/api/messages?session_id=${sessionId}`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${this.getAuthToken()}`
+                }
+            });
+        } catch (error) {
+            console.error(`Lỗi khi lấy tin nhắn của hội thoại ${sessionId}:`, error);
+            return { status: 'error', data: [] };
+        }
+    }
 }
 
 // Khởi tạo đối tượng APIService dùng chung toàn ứng dụng

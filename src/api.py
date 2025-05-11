@@ -36,18 +36,12 @@ from datetime import datetime
 from os import path
 from dotenv import load_dotenv
 import supabase
-import requests
-import base64
 
 from src.rag import AdvancedDatabaseRAG
-from src.supabase.conversation_manager import SupabaseConversationManager
-from src.supabase.client import SupabaseClient
+from src.conversation_memory import ConversationManager
 
 # Load biến môi trường từ .env
 load_dotenv()
-
-# Khởi tạo Supabase client
-supabase_client = SupabaseClient().get_client()
 
 # Thêm prefix API
 PREFIX = os.getenv("API_PREFIX", "/api")
@@ -74,7 +68,7 @@ app.add_middleware(
 rag_system = AdvancedDatabaseRAG()
 
 # Khởi tạo quản lý hội thoại
-conversation_manager = SupabaseConversationManager(client=supabase_client)
+conversation_manager = ConversationManager()
 
 # Đường dẫn lưu dữ liệu tạm thời
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "src/data")
@@ -365,7 +359,6 @@ async def ask_question(
         ge=1,
         le=50,
     ),
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(auth_bearer),
 ):
     """
     Đặt câu hỏi và nhận câu trả lời từ hệ thống RAG
@@ -381,17 +374,6 @@ async def ask_question(
         # Tạo hoặc lấy session_id
         session_id = request.session_id or f"session_{uuid4().hex[:8]}"
         print(f"Session ID: {session_id}")
-
-        # Lấy user_id nếu người dùng đã đăng nhập
-        user_id = None
-        if credentials:
-            try:
-                user_response = supabase_client.auth.get_user()
-                if user_response and user_response.user:
-                    user_id = user_response.user.id
-                    print(f"Đã xác định user_id: {user_id}")
-            except Exception as e:
-                print(f"Không thể lấy thông tin người dùng: {str(e)}")
 
         # Kiểm tra xem người dùng đã chọn nguồn hay chưa
         if not request.sources or len(request.sources) == 0:
@@ -481,8 +463,8 @@ async def ask_question(
         # Bắt đầu đo thời gian xử lý
         start_time = time.time()
 
-        # Thêm tin nhắn người dùng vào bộ nhớ hội thoại, kèm theo user_id
-        conversation_manager.add_user_message(session_id, request.question, user_id)
+        # Thêm tin nhắn người dùng vào bộ nhớ hội thoại
+        conversation_manager.add_user_message(session_id, request.question)
 
         # Lấy lịch sử hội thoại để sử dụng trong prompt
         conversation_history = conversation_manager.format_for_prompt(session_id)
@@ -497,10 +479,8 @@ async def ask_question(
             conversation_history=conversation_history,
         )
 
-        # Thêm câu trả lời của AI vào bộ nhớ hội thoại, kèm theo user_id
-        conversation_manager.add_ai_message(
-            session_id, result["answer"], user_id=user_id
-        )
+        # Thêm câu trả lời của AI vào bộ nhớ hội thoại
+        conversation_manager.add_ai_message(session_id, result["answer"])
 
         # Kết thúc đo thời gian
         elapsed_time = time.time() - start_time
@@ -535,7 +515,6 @@ async def ask_question(
             "answer": result["answer"],
             "debug_info": debug_info,
             "session_id": session_id,  # Lưu session_id vào lịch sử
-            "user_id": user_id,  # Lưu user_id vào lịch sử
         }
 
         return result
@@ -552,42 +531,97 @@ async def ask_question_stream(
         ge=1,
         le=50,
     ),
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(auth_bearer),
 ):
     """
     Đặt câu hỏi và nhận câu trả lời từ hệ thống RAG dưới dạng stream
+
+    - **question**: Câu hỏi cần trả lời
+    - **search_type**: Loại tìm kiếm ("semantic", "keyword", "hybrid")
+    - **alpha**: Hệ số kết hợp giữa semantic và keyword search (0.7 = 70% semantic + 30% keyword)
+    - **sources**: Danh sách các file nguồn cần tìm kiếm, có thể là tên file đơn thuần hoặc đường dẫn đầy đủ
+    - **session_id**: ID phiên hội thoại để duy trì ngữ cảnh cuộc hội thoại
+    - **max_sources**: Số lượng nguồn tham khảo tối đa trả về (query parameter)
     """
     try:
         # Tạo hoặc lấy session_id
         session_id = request.session_id or f"session_{uuid4().hex[:8]}"
         print(f"Session ID (stream): {session_id}")
 
-        # Lấy user_id nếu người dùng đã đăng nhập
-        user_id = None
-        if credentials:
-            try:
-                user_response = supabase_client.auth.get_user()
-                if user_response and user_response.user:
-                    user_id = user_response.user.id
-                    print(f"Đã xác định user_id (stream): {user_id}")
-            except Exception as e:
-                print(f"Không thể lấy thông tin người dùng (stream): {str(e)}")
-
         # Kiểm tra xem người dùng đã chọn nguồn hay chưa
         if not request.sources or len(request.sources) == 0:
+            # Lấy danh sách các nguồn có sẵn
+            all_docs = rag_system.vector_store.get_all_documents(limit=1000)
+            available_sources = set()
+            available_filenames = set()  # Tập hợp tên file không có đường dẫn
+
+            for doc in all_docs:
+                source = doc.get("metadata", {}).get(
+                    "source", doc.get("source", "unknown")
+                )
+                if source != "unknown":
+                    available_sources.add(source)
+                    # Thêm tên file đơn thuần
+                    if os.path.sep in source:
+                        available_filenames.add(os.path.basename(source))
+                    else:
+                        available_filenames.add(source)
+
             return JSONResponse(
                 status_code=400,
                 content={
                     "status": "error",
                     "message": "Vui lòng chọn ít nhất một nguồn tài liệu để tìm kiếm.",
+                    "available_sources": sorted(list(available_sources)),
+                    "available_filenames": sorted(list(available_filenames)),
+                    "note": "Bạn có thể dùng tên file đơn thuần hoặc đường dẫn đầy đủ",
                 },
             )
+
+        # Kiểm tra xem sources có tồn tại không nếu đã chỉ định
+        if request.sources and len(request.sources) > 0:
+            # Lấy danh sách các nguồn có sẵn
+            all_docs = rag_system.vector_store.get_all_documents(limit=1000)
+            available_sources = set()
+            available_filenames = set()  # Tập hợp tên file không có đường dẫn
+
+            for doc in all_docs:
+                # Lấy nguồn từ cả metadata và direct
+                source = doc.get("metadata", {}).get(
+                    "source", doc.get("source", "unknown")
+                )
+                if source != "unknown":
+                    available_sources.add(source)
+                    # Thêm tên file đơn thuần
+                    if os.path.sep in source:
+                        available_filenames.add(os.path.basename(source))
+                    else:
+                        available_filenames.add(source)
+
+            # Kiểm tra xem các nguồn được yêu cầu có tồn tại không (tính cả tên file đơn thuần)
+            missing_sources = []
+            for s in request.sources:
+                # Kiểm tra cả đường dẫn đầy đủ và tên file đơn thuần
+                filename = os.path.basename(s) if os.path.sep in s else s
+                if s not in available_sources and filename not in available_filenames:
+                    missing_sources.append(s)
+
+            if missing_sources:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "status": "error",
+                        "message": f"Không tìm thấy các nguồn: {', '.join(missing_sources)}",
+                        "available_sources": sorted(list(available_sources)),
+                        "available_filenames": sorted(list(available_filenames)),
+                        "note": "Bạn có thể dùng tên file đơn thuần hoặc đường dẫn đầy đủ",
+                    },
+                )
 
         # Tạo ID cho câu hỏi
         question_id = f"q_{uuid4().hex[:8]}"
 
-        # Thêm tin nhắn người dùng vào bộ nhớ hội thoại, kèm theo user_id
-        conversation_manager.add_user_message(session_id, request.question, user_id)
+        # Thêm tin nhắn người dùng vào bộ nhớ hội thoại
+        conversation_manager.add_user_message(session_id, request.question)
 
         # Lấy lịch sử hội thoại để sử dụng trong prompt
         conversation_history = conversation_manager.format_for_prompt(session_id)
@@ -632,14 +666,11 @@ async def ask_question_stream(
                         chunk["data"]["question_id"] = question_id
                         chunk["data"]["session_id"] = session_id
 
-                        # Nếu là sự kiện kết thúc và đã có đầy đủ nội dung
+                        # Lưu vào lịch sử nếu đã có đủ dữ liệu
                         if hasattr(generate_response_stream, "full_answer"):
                             # Thêm câu trả lời của AI vào bộ nhớ hội thoại
                             conversation_manager.add_ai_message(
-                                session_id,
-                                generate_response_stream.full_answer,
-                                metadata=None,
-                                user_id=user_id,
+                                session_id, generate_response_stream.full_answer
                             )
 
                             questions_history[question_id] = {
@@ -651,7 +682,6 @@ async def ask_question_stream(
                                 "answer": generate_response_stream.full_answer,
                                 "processing_time": chunk["data"]["processing_time"],
                                 "session_id": session_id,
-                                "user_id": user_id,  # Lưu user_id vào history
                             }
 
                         # Trả về sự kiện kết thúc
@@ -1672,51 +1702,46 @@ async def get_all_conversations():
     Trả về danh sách các phiên hội thoại với thông tin cơ bản
     """
     try:
-        # Lấy danh sách các cuộc hội thoại từ Supabase
-        from supabase.query_builder import PostgrestFilterBuilder
-
-        # Lấy danh sách các session_id duy nhất
-        session_ids = {}
-        result = (
-            conversation_manager.supabase_client.table("conversation_history")
-            .select("session_id, count(*), max(timestamp) as last_updated")
-            .group_by("session_id")
-            .order("last_updated", desc=True)  # Phiên mới nhất lên đầu
-            .execute()
-        )
-
+        history_dir = os.path.join("src", "conversation_history")
         conversations = []
 
-        if hasattr(result, "data"):
-            # Lấy thông tin cơ bản về mỗi cuộc hội thoại
-            for item in result.data:
-                session_id = item.get("session_id")
+        # Duyệt qua tất cả các file JSON trong thư mục hội thoại
+        for filename in os.listdir(history_dir):
+            if filename.endswith(".json"):
+                file_path = os.path.join(history_dir, filename)
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
 
-                # Lấy tin nhắn đầu tiên của người dùng cho mỗi phiên
-                first_msg_result = (
-                    conversation_manager.supabase_client.table("conversation_history")
-                    .select("content")
-                    .eq("session_id", session_id)
-                    .eq("role", "user")
-                    .order("timestamp")  # Tin nhắn đầu tiên
-                    .limit(1)
-                    .execute()
-                )
+                    # Trích xuất thông tin cơ bản
+                    session_id = data.get("session_id", filename.replace(".json", ""))
+                    last_updated = data.get("last_updated", "Unknown")
+                    message_count = len(data.get("messages", []))
 
-                first_message = ""
-                if hasattr(first_msg_result, "data") and len(first_msg_result.data) > 0:
-                    first_message = first_msg_result.data[0].get("content", "")
-                    if len(first_message) > 100:
-                        first_message = first_message[:100] + "..."
+                    # Lấy nội dung tin nhắn đầu tiên (nếu có)
+                    first_message = ""
+                    if message_count > 0:
+                        messages = data.get("messages", [])
+                        for msg in messages:
+                            if msg.get("role") == "user":
+                                first_message = msg.get("content", "")
+                                if len(first_message) > 100:
+                                    first_message = first_message[:100] + "..."
+                                break
 
-                conversations.append(
-                    {
-                        "session_id": session_id,
-                        "last_updated": item.get("last_updated"),
-                        "message_count": item.get("count"),
-                        "first_message": first_message,
-                    }
-                )
+                    conversations.append(
+                        {
+                            "session_id": session_id,
+                            "last_updated": last_updated,
+                            "message_count": message_count,
+                            "first_message": first_message,
+                        }
+                    )
+                except Exception as e:
+                    print(f"Lỗi khi đọc file {filename}: {str(e)}")
+
+        # Sắp xếp theo thời gian cập nhật mới nhất
+        conversations.sort(key=lambda x: x.get("last_updated", ""), reverse=True)
 
         return {
             "status": "success",
@@ -1739,40 +1764,20 @@ async def get_conversation_detail(
     - **session_id**: ID phiên hội thoại cần lấy chi tiết
     """
     try:
-        # Lấy tin nhắn từ Supabase cho session_id cụ thể
-        result = (
-            conversation_manager.supabase_client.table("conversation_history")
-            .select("*")
-            .eq("session_id", session_id)
-            .order("timestamp")  # Sửa lại không sử dụng tham số desc
-            .execute()
-        )
+        # Đường dẫn đến file lịch sử hội thoại
+        history_dir = os.path.join("src", "conversation_history")
+        file_path = os.path.join(history_dir, f"{session_id}.json")
 
-        if not hasattr(result, "data") or not result.data:
+        if not os.path.exists(file_path):
             return {
                 "status": "error",
                 "message": f"Không tìm thấy hội thoại với ID {session_id}",
                 "session_id": session_id,
             }
 
-        # Định dạng dữ liệu trả về
-        conversation_data = {
-            "session_id": session_id,
-            "last_updated": (
-                max([msg.get("timestamp") for msg in result.data])
-                if result.data
-                else None
-            ),
-            "messages": [
-                {
-                    "role": msg.get("role"),
-                    "content": msg.get("content"),
-                    "timestamp": msg.get("timestamp"),
-                    "metadata": msg.get("metadata"),
-                }
-                for msg in result.data
-            ],
-        }
+        # Đọc nội dung file JSON
+        with open(file_path, "r", encoding="utf-8") as f:
+            conversation_data = json.load(f)
 
         return {
             "status": "success",
@@ -2183,238 +2188,6 @@ async def auth_callback(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Lỗi xác thực OAuth: {str(e)}",
-        )
-
-
-@app.get(f"{PREFIX}/chat/history")
-async def get_chat_history():
-    """
-    Lấy danh sách tất cả các hội thoại đã lưu trữ cho ứng dụng chat
-
-    Đây là endpoint cho giao diện chat, trả về những thông tin cơ bản về các phiên chat
-    """
-    try:
-        # Lấy danh sách các cuộc hội thoại từ Supabase
-        result = (
-            conversation_manager.supabase_client.table("conversation_history")
-            .select("session_id, count(*), max(timestamp) as last_updated")
-            .group_by("session_id")
-            .order("last_updated", desc=True)  # Phiên mới nhất lên đầu
-            .execute()
-        )
-
-        conversations = []
-
-        if hasattr(result, "data"):
-            # Lấy thông tin cơ bản về mỗi cuộc hội thoại
-            for item in result.data:
-                session_id = item.get("session_id")
-
-                # Lấy tin nhắn đầu tiên của người dùng cho mỗi phiên
-                first_msg_result = (
-                    conversation_manager.supabase_client.table("conversation_history")
-                    .select("content")
-                    .eq("session_id", session_id)
-                    .eq("role", "user")
-                    .order("timestamp")  # Tin nhắn đầu tiên
-                    .limit(1)
-                    .execute()
-                )
-
-                first_message = ""
-                if hasattr(first_msg_result, "data") and len(first_msg_result.data) > 0:
-                    first_message = first_msg_result.data[0].get("content", "")
-                    if len(first_message) > 100:
-                        first_message = first_message[:100] + "..."
-
-                conversations.append(
-                    {
-                        "id": session_id,  # Sử dụng id thay vì session_id cho giao diện
-                        "title": (
-                            first_message
-                            if first_message
-                            else f"Cuộc hội thoại {session_id}"
-                        ),
-                        "last_updated": item.get("last_updated"),
-                        "message_count": item.get("count"),
-                        "created_at": item.get(
-                            "last_updated"
-                        ),  # Không có thông tin created_at, dùng last_updated
-                    }
-                )
-
-        return {
-            "status": "success",
-            "data": conversations,
-        }
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "status": "error",
-                "message": f"Lỗi khi lấy danh sách hội thoại: {str(e)}",
-            },
-        )
-
-
-@app.post(f"{PREFIX}/supabase/init")
-async def initialize_supabase_tables():
-    """
-    Khởi tạo bảng dữ liệu Supabase
-
-    Endpoint này tạo các bảng cần thiết trong Supabase: conversation_history, feedback...
-    """
-    try:
-        # Kiểm tra xem bảng conversation_history đã tồn tại chưa
-        print("Đang kiểm tra kết nối Supabase...")
-
-        # Kết nối trực tiếp
-        from src.supabase.client import SupabaseClient
-
-        client = SupabaseClient().get_client()
-
-        # Phương pháp 1: Tạo bảng conversation_history bằng câu lệnh SQL với pg_dump
-        print("Tạo bảng thông qua endpoint SQL...")
-
-        # Chúng ta không dùng exec_sql, thay vào đó tạo bảng trực tiếp khi thử insert dữ liệu
-        # Thử insert để kiểm tra bảng đã tồn tại chưa
-        try:
-            # Nếu insert thành công, bảng đã tồn tại
-            print("Kiểm tra xem bảng đã tồn tại chưa bằng cách thử insert...")
-            test_result = (
-                client.table("conversation_history")
-                .insert(
-                    {
-                        "session_id": "init_test",
-                        "role": "system",
-                        "content": "Kiểm tra bảng đã tồn tại",
-                    }
-                )
-                .execute()
-            )
-            print("Bảng conversation_history đã tồn tại!")
-        except Exception as e1:
-            print(f"Lỗi khi thử insert: {str(e1)}")
-            print("Bảng chưa tồn tại, đang tạo bảng...")
-
-            # Tạo bảng mới với SQL thủ công
-            # Phương pháp 2: Tạo bảng trực tiếp bằng REST API
-            import requests
-            import base64
-            import json
-
-            # Lấy thông tin từ .env
-            from dotenv import load_dotenv
-            import os
-
-            load_dotenv()
-
-            # Khởi tạo cấu hình cho REST API
-            supabase_url = os.getenv("SUPABASE_URL")
-            supabase_key = os.getenv("SUPABASE_SERVICE_KEY", os.getenv("SUPABASE_KEY"))
-
-            if not supabase_url or not supabase_key:
-                raise ValueError(
-                    "SUPABASE_URL và SUPABASE_SERVICE_KEY phải được cấu hình trong .env"
-                )
-
-            # Tạo bảng thông qua REST API trực tiếp
-            sql_statement = """
-            CREATE TABLE IF NOT EXISTS conversation_history (
-                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-                session_id TEXT NOT NULL,
-                user_id TEXT,
-                timestamp TIMESTAMPTZ DEFAULT NOW(),
-                role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
-                content TEXT NOT NULL,
-                metadata JSONB
-            );
-            
-            CREATE INDEX IF NOT EXISTS idx_conversation_history_session_id ON conversation_history(session_id);
-            CREATE INDEX IF NOT EXISTS idx_conversation_history_user_id ON conversation_history(user_id);
-            CREATE INDEX IF NOT EXISTS idx_conversation_history_timestamp ON conversation_history(timestamp);
-            """
-
-            # Gửi yêu cầu HTTP trực tiếp
-            print("Gửi yêu cầu HTTP trực tiếp để tạo bảng...")
-            headers = {
-                "apikey": supabase_key,
-                "Authorization": f"Bearer {supabase_key}",
-                "Content-Type": "application/json",
-                "Prefer": "resolution=merge-duplicates",
-            }
-
-            sql_endpoint = f"{supabase_url}/rest/v1/rpc/run_sql"
-            response = requests.post(
-                sql_endpoint,
-                headers=headers,
-                json={"sql": sql_statement},
-            )
-
-            print(f"Kết quả tạo bảng qua HTTP: {response.status_code}")
-            print(f"Response: {response.text}")
-
-            if response.status_code >= 400:
-                print(f"Lỗi khi tạo bảng: {response.text}")
-                raise Exception(f"Không thể tạo bảng: {response.text}")
-
-            # Thử tạo bản ghi test sau khi tạo bảng
-            print("Tạo bản ghi test...")
-            try:
-                test_result = (
-                    client.table("conversation_history")
-                    .insert(
-                        {
-                            "session_id": "init_test",
-                            "role": "system",
-                            "content": "Khởi tạo bảng thành công",
-                        }
-                    )
-                    .execute()
-                )
-                print(f"Đã tạo bản ghi test thành công")
-            except Exception as e2:
-                print(f"Vẫn không thể insert sau khi tạo bảng: {str(e2)}")
-
-        # Kiểm tra xem bản ghi test đã tạo thành công chưa
-        print("Kiểm tra bản ghi test...")
-        try:
-            check_result = (
-                client.table("conversation_history")
-                .select("*")
-                .eq("session_id", "init_test")
-                .limit(1)
-                .execute()
-            )
-
-            if hasattr(check_result, "data") and check_result.data:
-                record_count = len(check_result.data)
-                return {
-                    "status": "success",
-                    "message": f"Đã tạo/kiểm tra bảng thành công. Tìm thấy {record_count} bản ghi test.",
-                    "test_record": check_result.data[0] if check_result.data else None,
-                }
-            else:
-                return {
-                    "status": "warning",
-                    "message": "Bảng đã tồn tại nhưng không tìm thấy bản ghi test.",
-                }
-        except Exception as e3:
-            return {
-                "status": "error",
-                "message": f"Bảng có thể đã được tạo nhưng không thể truy vấn: {str(e3)}",
-            }
-    except Exception as e:
-        import traceback
-
-        error_detail = traceback.format_exc()
-        return JSONResponse(
-            status_code=500,
-            content={
-                "status": "error",
-                "message": f"Lỗi khi khởi tạo bảng: {str(e)}",
-                "detail": error_detail,
-            },
         )
 
 
