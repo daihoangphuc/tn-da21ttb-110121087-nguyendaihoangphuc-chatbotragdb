@@ -37,12 +37,11 @@ class SupabaseClient:
         self.key = (
             key
             or os.getenv("SUPABASE_SERVICE_KEY")
-            or "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlobGd6aXhkZ3ZqbGxyYmxzeHNyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0Njc5NjU5MywiZXhwIjoyMDYyMzcyNTkzfQ.Iec0FDbqXp4_RFoLrp6M2rQJNBlr04HyxL8oChpPF04"
         )
 
         if not self.url or not self.key:
             raise ValueError(
-                "SUPABASE_URL and SUPABASE_KEY/SUPABASE_SERVICE_KEY must be provided in .env file or as parameters"
+                "SUPABASE_URL và SUPABASE_KEY/SUPABASE_SERVICE_KEY phải được cung cấp trong .env"
             )
 
         print(f"Kết nối Supabase URL: {self.url}")
