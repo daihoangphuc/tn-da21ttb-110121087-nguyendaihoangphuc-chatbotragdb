@@ -820,46 +820,46 @@ async def upload_document(
         raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý tài liệu: {str(e)}")
 
 
-@app.post(f"{PREFIX}/index")
-async def index_documents(background_tasks: BackgroundTasks):
-    """
-    Index các tài liệu đã tải lên và chuẩn bị hệ thống để tìm kiếm/trả lời
-    """
-    if indexing_status["is_running"]:
-        return {
-            "status": "running",
-            "message": "Đang trong quá trình indexing, vui lòng đợi",
-        }
+# @app.post(f"{PREFIX}/index")
+# async def index_documents(background_tasks: BackgroundTasks):
+#     """
+#     Index các tài liệu đã tải lên và chuẩn bị hệ thống để tìm kiếm/trả lời
+#     """
+#     if indexing_status["is_running"]:
+#         return {
+#             "status": "running",
+#             "message": "Đang trong quá trình indexing, vui lòng đợi",
+#         }
 
-    background_tasks.add_task(indexing_documents)
+#     background_tasks.add_task(indexing_documents)
 
-    return {"status": "started", "message": "Đã bắt đầu quá trình indexing"}
-
-
-@app.get(f"{PREFIX}/index/status", response_model=IndexingStatusResponse)
-async def get_indexing_status():
-    """
-    Kiểm tra trạng thái của quá trình indexing
-    """
-    return {
-        "status": indexing_status["status"],
-        "message": indexing_status["message"],
-        "processed_files": indexing_status["processed_files"],
-    }
+#     return {"status": "started", "message": "Đã bắt đầu quá trình indexing"}
 
 
-@app.get(f"{PREFIX}/collection/info")
-async def get_collection_info():
-    """
-    Lấy thông tin về collection trong vector store
-    """
-    try:
-        info = rag_system.get_collection_info()
-        return info
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Lỗi khi lấy thông tin collection: {str(e)}"
-        )
+# @app.get(f"{PREFIX}/index/status", response_model=IndexingStatusResponse)
+# async def get_indexing_status():
+#     """
+#     Kiểm tra trạng thái của quá trình indexing
+#     """
+#     return {
+#         "status": indexing_status["status"],
+#         "message": indexing_status["message"],
+#         "processed_files": indexing_status["processed_files"],
+#     }
+
+
+# @app.get(f"{PREFIX}/collection/info")
+# async def get_collection_info():
+#     """
+#     Lấy thông tin về collection trong vector store
+#     """
+#     try:
+#         info = rag_system.get_collection_info()
+#         return info
+#     except Exception as e:
+#         raise HTTPException(
+#             status_code=500, detail=f"Lỗi khi lấy thông tin collection: {str(e)}"
+#         )
 
 
 @app.post(f"{PREFIX}/feedback")
@@ -903,79 +903,79 @@ async def submit_feedback(feedback: FeedbackRequest):
         raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý phản hồi: {str(e)}")
 
 
-@app.post(f"{PREFIX}/analyze/sql", response_model=SQLAnalysisResponse)
-async def analyze_sql_query(request: SQLAnalysisRequest):
-    """
-    Phân tích và đề xuất cải tiến cho truy vấn SQL
-    """
-    try:
-        # Tìm kiếm tài liệu liên quan đến SQL và mô hình dữ liệu
-        search_query = "SQL query optimization performance index"
-        context_docs = rag_system.hybrid_search(search_query)
+# @app.post(f"{PREFIX}/analyze/sql", response_model=SQLAnalysisResponse)
+# async def analyze_sql_query(request: SQLAnalysisRequest):
+#     """
+#     Phân tích và đề xuất cải tiến cho truy vấn SQL
+#     """
+#     try:
+#         # Tìm kiếm tài liệu liên quan đến SQL và mô hình dữ liệu
+#         search_query = "SQL query optimization performance index"
+#         context_docs = rag_system.hybrid_search(search_query)
 
-        # Tạo prompt cho phân tích SQL
-        sql_prompt = rag_system.prompt_manager.templates["sql_analysis"].format(
-            context="\n\n".join([doc["text"] for doc in context_docs[:3]]),
-            query=request.sql_query,
-        )
+#         # Tạo prompt cho phân tích SQL
+#         sql_prompt = rag_system.prompt_manager.templates["sql_analysis"].format(
+#             context="\n\n".join([doc["text"] for doc in context_docs[:3]]),
+#             query=request.sql_query,
+#         )
 
-        # Phân tích SQL
-        analysis_result = rag_system.llm.invoke(sql_prompt)
+#         # Phân tích SQL
+#         analysis_result = rag_system.llm.invoke(sql_prompt)
 
-        # Xử lý kết quả
-        analysis_text = analysis_result.content
+#         # Xử lý kết quả
+#         analysis_text = analysis_result.content
 
-        # Tìm các đề xuất trong kết quả
-        suggestions = []
-        for line in analysis_text.split("\n"):
-            if line.strip().startswith("- "):
-                suggestions.append(line.strip()[2:])
+#         # Tìm các đề xuất trong kết quả
+#         suggestions = []
+#         for line in analysis_text.split("\n"):
+#             if line.strip().startswith("- "):
+#                 suggestions.append(line.strip()[2:])
 
-        # Tìm truy vấn đã tối ưu (nếu có)
-        optimized_query = rag_system.prompt_manager.extract_sql_query(analysis_text)
+#         # Tìm truy vấn đã tối ưu (nếu có)
+#         optimized_query = rag_system.prompt_manager.extract_sql_query(analysis_text)
 
-        return {
-            "query": request.sql_query,
-            "analysis": analysis_text,
-            "suggestions": suggestions[:5],  # Giới hạn số lượng đề xuất
-            "optimized_query": optimized_query if optimized_query else None,
-        }
+#         return {
+#             "query": request.sql_query,
+#             "analysis": analysis_text,
+#             "suggestions": suggestions[:5],  # Giới hạn số lượng đề xuất
+#             "optimized_query": optimized_query if optimized_query else None,
+#         }
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi khi phân tích SQL: {str(e)}")
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Lỗi khi phân tích SQL: {str(e)}")
 
 
-@app.get(f"{PREFIX}/categories", response_model=CategoryStatsResponse)
-async def get_categories_stats():
-    """
-    Lấy thống kê về các danh mục tài liệu
-    """
-    try:
-        # Lấy tất cả tài liệu
-        all_docs = rag_system.vector_store.get_all_documents()
+# @app.get(f"{PREFIX}/categories", response_model=CategoryStatsResponse)
+# async def get_categories_stats():
+#     """
+#     Lấy thống kê về các danh mục tài liệu
+#     """
+#     try:
+#         # Lấy tất cả tài liệu
+#         all_docs = rag_system.vector_store.get_all_documents()
 
-        if not all_docs:
-            return {"total_documents": 0, "documents_by_category": {}, "categories": []}
+#         if not all_docs:
+#             return {"total_documents": 0, "documents_by_category": {}, "categories": []}
 
-        # Thống kê theo danh mục
-        categories = {}
-        for doc in all_docs:
-            category = doc["metadata"].get("category", "general")
-            if category in categories:
-                categories[category] += 1
-            else:
-                categories[category] = 1
+#         # Thống kê theo danh mục
+#         categories = {}
+#         for doc in all_docs:
+#             category = doc["metadata"].get("category", "general")
+#             if category in categories:
+#                 categories[category] += 1
+#             else:
+#                 categories[category] = 1
 
-        return {
-            "total_documents": len(all_docs),
-            "documents_by_category": categories,
-            "categories": list(categories.keys()),
-        }
+#         return {
+#             "total_documents": len(all_docs),
+#             "documents_by_category": categories,
+#             "categories": list(categories.keys()),
+#         }
 
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Lỗi khi lấy thống kê danh mục: {str(e)}"
-        )
+#     except Exception as e:
+#         raise HTTPException(
+#             status_code=500, detail=f"Lỗi khi lấy thống kê danh mục: {str(e)}"
+#         )
 
 
 # Thêm endpoint ngữ nghĩa
@@ -1114,71 +1114,71 @@ async def hybrid_search(
         )
 
 
-@app.get(f"{PREFIX}/feedback/stats", response_model=dict)
-async def get_feedback_stats():
-    """
-    Trả về thống kê từ các phản hồi người dùng
-    """
-    FEEDBACK_DIR = os.path.join(os.path.dirname(__file__), "feedback")
+# @app.get(f"{PREFIX}/feedback/stats", response_model=dict)
+# async def get_feedback_stats():
+#     """
+#     Trả về thống kê từ các phản hồi người dùng
+#     """
+#     FEEDBACK_DIR = os.path.join(os.path.dirname(__file__), "feedback")
 
-    if not os.path.exists(FEEDBACK_DIR):
-        return {
-            "status": "error",
-            "message": "Chưa có dữ liệu phản hồi",
-            "total_feedback": 0,
-            "average_rating": 0,
-            "helpful_percentage": 0,
-            "ratings_distribution": {},
-        }
+#     if not os.path.exists(FEEDBACK_DIR):
+#         return {
+#             "status": "error",
+#             "message": "Chưa có dữ liệu phản hồi",
+#             "total_feedback": 0,
+#             "average_rating": 0,
+#             "helpful_percentage": 0,
+#             "ratings_distribution": {},
+#         }
 
-    feedback_files = [f for f in os.listdir(FEEDBACK_DIR) if f.endswith(".json")]
+#     feedback_files = [f for f in os.listdir(FEEDBACK_DIR) if f.endswith(".json")]
 
-    if not feedback_files:
-        return {
-            "status": "success",
-            "message": "Chưa có phản hồi nào",
-            "total_feedback": 0,
-            "average_rating": 0,
-            "helpful_percentage": 0,
-            "ratings_distribution": {},
-        }
+#     if not feedback_files:
+#         return {
+#             "status": "success",
+#             "message": "Chưa có phản hồi nào",
+#             "total_feedback": 0,
+#             "average_rating": 0,
+#             "helpful_percentage": 0,
+#             "ratings_distribution": {},
+#         }
 
-    total_feedback = len(feedback_files)
-    total_rating = 0
-    helpful_count = 0
-    ratings_distribution = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+#     total_feedback = len(feedback_files)
+#     total_rating = 0
+#     helpful_count = 0
+#     ratings_distribution = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
 
-    for file in feedback_files:
-        file_path = os.path.join(FEEDBACK_DIR, file)
-        with open(file_path, "r", encoding="utf-8") as f:
-            try:
-                feedback = json.load(f)
-                rating = feedback.get("rating", 0)
-                total_rating += rating
+#     for file in feedback_files:
+#         file_path = os.path.join(FEEDBACK_DIR, file)
+#         with open(file_path, "r", encoding="utf-8") as f:
+#             try:
+#                 feedback = json.load(f)
+#                 rating = feedback.get("rating", 0)
+#                 total_rating += rating
 
-                if rating in ratings_distribution:
-                    ratings_distribution[rating] += 1
+#                 if rating in ratings_distribution:
+#                     ratings_distribution[rating] += 1
 
-                if feedback.get("is_helpful", False):
-                    helpful_count += 1
-            except json.JSONDecodeError:
-                continue
+#                 if feedback.get("is_helpful", False):
+#                     helpful_count += 1
+#             except json.JSONDecodeError:
+#                 continue
 
-    average_rating = (
-        round(total_rating / total_feedback, 2) if total_feedback > 0 else 0
-    )
-    helpful_percentage = (
-        round((helpful_count / total_feedback) * 100, 1) if total_feedback > 0 else 0
-    )
+#     average_rating = (
+#         round(total_rating / total_feedback, 2) if total_feedback > 0 else 0
+#     )
+#     helpful_percentage = (
+#         round((helpful_count / total_feedback) * 100, 1) if total_feedback > 0 else 0
+#     )
 
-    return {
-        "status": "success",
-        "message": "Thống kê phản hồi",
-        "total_feedback": total_feedback,
-        "average_rating": average_rating,
-        "helpful_percentage": helpful_percentage,
-        "ratings_distribution": ratings_distribution,
-    }
+#     return {
+#         "status": "success",
+#         "message": "Thống kê phản hồi",
+#         "total_feedback": total_feedback,
+#         "average_rating": average_rating,
+#         "helpful_percentage": helpful_percentage,
+#         "ratings_distribution": ratings_distribution,
+#     }
 
 
 @app.delete(f"{PREFIX}/collection/reset")
@@ -1399,191 +1399,191 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"Lỗi khi xóa file: {str(e)}")
 
 
-@app.get(f"{PREFIX}/files/sources")
-async def get_available_sources():
-    """
-    Lấy danh sách các file nguồn có thể sử dụng để tìm kiếm
-    """
-    try:
-        # Lấy tất cả tài liệu từ vector store
-        all_docs = rag_system.vector_store.get_all_documents()
+# @app.get(f"{PREFIX}/files/sources")
+# async def get_available_sources():
+#     """
+#     Lấy danh sách các file nguồn có thể sử dụng để tìm kiếm
+#     """
+#     try:
+#         # Lấy tất cả tài liệu từ vector store
+#         all_docs = rag_system.vector_store.get_all_documents()
 
-        # Trích xuất danh sách nguồn duy nhất
-        sources = set()
-        filenames = set()  # Thêm tập hợp để lưu tên file không có đường dẫn
-        sources_location = []  # Để debug xem source nằm ở đâu
+#         # Trích xuất danh sách nguồn duy nhất
+#         sources = set()
+#         filenames = set()  # Thêm tập hợp để lưu tên file không có đường dẫn
+#         sources_location = []  # Để debug xem source nằm ở đâu
 
-        for doc in all_docs:
-            # Kiểm tra cả trong metadata.source và source trực tiếp
-            meta_source = doc.get("metadata", {}).get("source", None)
-            direct_source = doc.get("source", "unknown")
+#         for doc in all_docs:
+#             # Kiểm tra cả trong metadata.source và source trực tiếp
+#             meta_source = doc.get("metadata", {}).get("source", None)
+#             direct_source = doc.get("source", "unknown")
 
-            if meta_source:
-                sources.add(meta_source)
-                # Thêm tên file đơn thuần
-                if os.path.sep in meta_source:
-                    filenames.add(os.path.basename(meta_source))
-                else:
-                    filenames.add(meta_source)
-                sources_location.append({"location": "metadata", "source": meta_source})
+#             if meta_source:
+#                 sources.add(meta_source)
+#                 # Thêm tên file đơn thuần
+#                 if os.path.sep in meta_source:
+#                     filenames.add(os.path.basename(meta_source))
+#                 else:
+#                     filenames.add(meta_source)
+#                 sources_location.append({"location": "metadata", "source": meta_source})
 
-            if direct_source and direct_source != meta_source:
-                sources.add(direct_source)
-                # Thêm tên file đơn thuần
-                if os.path.sep in direct_source:
-                    filenames.add(os.path.basename(direct_source))
-                else:
-                    filenames.add(direct_source)
-                sources_location.append({"location": "direct", "source": direct_source})
+#             if direct_source and direct_source != meta_source:
+#                 sources.add(direct_source)
+#                 # Thêm tên file đơn thuần
+#                 if os.path.sep in direct_source:
+#                     filenames.add(os.path.basename(direct_source))
+#                 else:
+#                     filenames.add(direct_source)
+#                 sources_location.append({"location": "direct", "source": direct_source})
 
-        # Log 10 mẫu đầu tiên để debug
-        samples = all_docs[:5] if len(all_docs) > 5 else all_docs
-        sample_structures = []
-        for doc in samples:
-            # Tính toán filenames
-            meta_source = doc.get("metadata", {}).get("source", "not_found")
-            direct_source = doc.get("source", "unknown")
-            meta_filename = (
-                os.path.basename(meta_source)
-                if meta_source != "not_found" and os.path.sep in meta_source
-                else meta_source
-            )
-            direct_filename = (
-                os.path.basename(direct_source)
-                if direct_source != "not_found" and os.path.sep in direct_source
-                else direct_source
-            )
+#         # Log 10 mẫu đầu tiên để debug
+#         samples = all_docs[:5] if len(all_docs) > 5 else all_docs
+#         sample_structures = []
+#         for doc in samples:
+#             # Tính toán filenames
+#             meta_source = doc.get("metadata", {}).get("source", "not_found")
+#             direct_source = doc.get("source", "unknown")
+#             meta_filename = (
+#                 os.path.basename(meta_source)
+#                 if meta_source != "not_found" and os.path.sep in meta_source
+#                 else meta_source
+#             )
+#             direct_filename = (
+#                 os.path.basename(direct_source)
+#                 if direct_source != "not_found" and os.path.sep in direct_source
+#                 else direct_source
+#             )
 
-            sample_structures.append(
-                {
-                    "metadata_keys": list(doc.get("metadata", {}).keys()),
-                    "top_level_keys": list(doc.keys()),
-                    "has_source_in_metadata": "source" in doc.get("metadata", {}),
-                    "has_direct_source": "source" in doc,
-                    "metadata_source": meta_source,
-                    "direct_source": direct_source,
-                    "metadata_filename": meta_filename,
-                    "direct_filename": direct_filename,
-                }
-            )
+#             sample_structures.append(
+#                 {
+#                     "metadata_keys": list(doc.get("metadata", {}).keys()),
+#                     "top_level_keys": list(doc.keys()),
+#                     "has_source_in_metadata": "source" in doc.get("metadata", {}),
+#                     "has_direct_source": "source" in doc,
+#                     "metadata_source": meta_source,
+#                     "direct_source": direct_source,
+#                     "metadata_filename": meta_filename,
+#                     "direct_filename": direct_filename,
+#                 }
+#             )
 
-        # Trả về danh sách nguồn
-        return {
-            "total_sources": len(sources),
-            "sources": sorted(list(sources)),
-            "filenames": sorted(
-                list(filenames)
-            ),  # Thêm danh sách các tên file đơn thuần
-            "recommendation": "Bạn có thể sử dụng sources là tên file đơn thuần hoặc đường dẫn đầy đủ",
-            "debug_info": {
-                "sample_count": len(samples),
-                "sample_structures": sample_structures,
-                "sources_location": sources_location[:10],  # Chỉ trả về 10 mẫu đầu
-            },
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Lỗi khi lấy danh sách nguồn: {str(e)}"
-        )
+#         # Trả về danh sách nguồn
+#         return {
+#             "total_sources": len(sources),
+#             "sources": sorted(list(sources)),
+#             "filenames": sorted(
+#                 list(filenames)
+#             ),  # Thêm danh sách các tên file đơn thuần
+#             "recommendation": "Bạn có thể sử dụng sources là tên file đơn thuần hoặc đường dẫn đầy đủ",
+#             "debug_info": {
+#                 "sample_count": len(samples),
+#                 "sample_structures": sample_structures,
+#                 "sources_location": sources_location[:10],  # Chỉ trả về 10 mẫu đầu
+#             },
+#         }
+#     except Exception as e:
+#         raise HTTPException(
+#             status_code=500, detail=f"Lỗi khi lấy danh sách nguồn: {str(e)}"
+#         )
 
 
-@app.get(f"{PREFIX}/files/sources/details")
-async def get_source_details(
-    source_name: Optional[str] = Query(
-        None, description="Tên file nguồn cụ thể cần kiểm tra"
-    )
-):
-    """
-    Lấy thông tin chi tiết về một nguồn tài liệu cụ thể hoặc tất cả các nguồn
+# @app.get(f"{PREFIX}/files/sources/details")
+# async def get_source_details(
+#     source_name: Optional[str] = Query(
+#         None, description="Tên file nguồn cụ thể cần kiểm tra"
+#     )
+# ):
+#     """
+#     Lấy thông tin chi tiết về một nguồn tài liệu cụ thể hoặc tất cả các nguồn
 
-    - **source_name**: (Tùy chọn) Tên file nguồn cần kiểm tra chi tiết
-    """
-    try:
-        # Lấy tất cả tài liệu từ vector store
-        all_docs = rag_system.vector_store.get_all_documents(limit=5000)
+#     - **source_name**: (Tùy chọn) Tên file nguồn cần kiểm tra chi tiết
+#     """
+#     try:
+#         # Lấy tất cả tài liệu từ vector store
+#         all_docs = rag_system.vector_store.get_all_documents(limit=5000)
 
-        # Nếu không chỉ định nguồn cụ thể, trả về thống kê tổng hợp
-        if not source_name:
-            source_stats = {}
-            for doc in all_docs:
-                # Lấy nguồn từ cả metadata và trực tiếp
-                meta_source = doc.get("metadata", {}).get("source", "unknown")
-                direct_source = doc.get("source", "unknown")
+#         # Nếu không chỉ định nguồn cụ thể, trả về thống kê tổng hợp
+#         if not source_name:
+#             source_stats = {}
+#             for doc in all_docs:
+#                 # Lấy nguồn từ cả metadata và trực tiếp
+#                 meta_source = doc.get("metadata", {}).get("source", "unknown")
+#                 direct_source = doc.get("source", "unknown")
 
-                # Ưu tiên source từ metadata nếu có
-                source = meta_source if meta_source != "unknown" else direct_source
+#                 # Ưu tiên source từ metadata nếu có
+#                 source = meta_source if meta_source != "unknown" else direct_source
 
-                if source not in source_stats:
-                    source_stats[source] = {
-                        "count": 0,
-                        "categories": set(),
-                    }
+#                 if source not in source_stats:
+#                     source_stats[source] = {
+#                         "count": 0,
+#                         "categories": set(),
+#                     }
 
-                source_stats[source]["count"] += 1
+#                 source_stats[source]["count"] += 1
 
-                # Thêm category vào set nếu có
-                category = doc.get("metadata", {}).get("category", "unknown")
-                if category != "unknown":
-                    source_stats[source]["categories"].add(category)
+#                 # Thêm category vào set nếu có
+#                 category = doc.get("metadata", {}).get("category", "unknown")
+#                 if category != "unknown":
+#                     source_stats[source]["categories"].add(category)
 
-            # Chuyển đổi set thành list cho JSON serialization
-            for source in source_stats:
-                source_stats[source]["categories"] = list(
-                    source_stats[source]["categories"]
-                )
+#             # Chuyển đổi set thành list cho JSON serialization
+#             for source in source_stats:
+#                 source_stats[source]["categories"] = list(
+#                     source_stats[source]["categories"]
+#                 )
 
-            return {"total_sources": len(source_stats), "sources": source_stats}
+#             return {"total_sources": len(source_stats), "sources": source_stats}
 
-        # Nếu chỉ định nguồn cụ thể, trả về thông tin chi tiết về nguồn đó
-        source_chunks = []
-        for doc in all_docs:
-            meta_source = doc.get("metadata", {}).get("source", "unknown")
-            direct_source = doc.get("source", "unknown")
+#         # Nếu chỉ định nguồn cụ thể, trả về thông tin chi tiết về nguồn đó
+#         source_chunks = []
+#         for doc in all_docs:
+#             meta_source = doc.get("metadata", {}).get("source", "unknown")
+#             direct_source = doc.get("source", "unknown")
 
-            if meta_source == source_name or direct_source == source_name:
-                source_chunks.append(
-                    {
-                        "text": doc["text"][:200] + "...",  # Chỉ trả về preview
-                        "category": doc.get("metadata", {}).get("category", "unknown"),
-                        "full_length": len(doc["text"]),
-                    }
-                )
+#             if meta_source == source_name or direct_source == source_name:
+#                 source_chunks.append(
+#                     {
+#                         "text": doc["text"][:200] + "...",  # Chỉ trả về preview
+#                         "category": doc.get("metadata", {}).get("category", "unknown"),
+#                         "full_length": len(doc["text"]),
+#                     }
+#                 )
 
-        if not source_chunks:
-            return JSONResponse(
-                status_code=404,
-                content={
-                    "status": "error",
-                    "message": f"Không tìm thấy nguồn '{source_name}'",
-                    "available_sources": sorted(
-                        list(
-                            set(
-                                [
-                                    doc.get("metadata", {}).get(
-                                        "source", doc.get("source", "unknown")
-                                    )
-                                    for doc in all_docs
-                                    if doc.get("metadata", {}).get(
-                                        "source", doc.get("source", "unknown")
-                                    )
-                                    != "unknown"
-                                ]
-                            )
-                        )
-                    ),
-                },
-            )
+#         if not source_chunks:
+#             return JSONResponse(
+#                 status_code=404,
+#                 content={
+#                     "status": "error",
+#                     "message": f"Không tìm thấy nguồn '{source_name}'",
+#                     "available_sources": sorted(
+#                         list(
+#                             set(
+#                                 [
+#                                     doc.get("metadata", {}).get(
+#                                         "source", doc.get("source", "unknown")
+#                                     )
+#                                     for doc in all_docs
+#                                     if doc.get("metadata", {}).get(
+#                                         "source", doc.get("source", "unknown")
+#                                     )
+#                                     != "unknown"
+#                                 ]
+#                             )
+#                         )
+#                     ),
+#                 },
+#             )
 
-        return {
-            "source_name": source_name,
-            "total_chunks": len(source_chunks),
-            "chunks": source_chunks,
-        }
+#         return {
+#             "source_name": source_name,
+#             "total_chunks": len(source_chunks),
+#             "chunks": source_chunks,
+#         }
 
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Lỗi khi lấy thông tin chi tiết nguồn: {str(e)}"
-        )
+#     except Exception as e:
+#         raise HTTPException(
+#             status_code=500, detail=f"Lỗi khi lấy thông tin chi tiết nguồn: {str(e)}"
+#         )
 
 
 @app.post(f"{PREFIX}/collections/delete-by-filter")
