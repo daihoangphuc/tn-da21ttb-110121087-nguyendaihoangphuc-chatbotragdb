@@ -107,6 +107,7 @@ class AnswerResponse(BaseModel):
     reranker_model: Optional[str] = None  # Model reranker được sử dụng
     processing_time: Optional[float] = None  # Thời gian xử lý (giây)
     debug_info: Optional[Dict] = None  # Thông tin debug bổ sung
+    related_questions: Optional[List[str]] = None  # Danh sách các câu hỏi liên quan
 
 
 class SQLAnalysisRequest(BaseModel):
@@ -494,6 +495,14 @@ async def ask_question(
         # Thêm câu trả lời của AI vào bộ nhớ hội thoại
         conversation_manager.add_ai_message(session_id, result["answer"])
 
+        # Tạo các câu hỏi liên quan sau khi có kết quả
+        related_questions = await rag_system.generate_related_questions(
+            request.question, result["answer"]
+        )
+
+        # Thêm các câu hỏi liên quan vào kết quả
+        result["related_questions"] = related_questions
+
         # Kết thúc đo thời gian
         elapsed_time = time.time() - start_time
 
@@ -550,7 +559,7 @@ async def ask_question_stream(
     - **question**: Câu hỏi cần trả lời
     - **search_type**: Loại tìm kiếm ("semantic", "keyword", "hybrid")
     - **alpha**: Hệ số kết hợp giữa semantic và keyword search (0.7 = 70% semantic + 30% keyword)
-    - **sources**: Danh sách các file nguồn cần tìm kiếm, có thể là tên file đơn thuần hoặc đường dẫn đầy đủ
+    - **sources**: Danh sách các file nguồn cần tìm kiếm
     - **session_id**: ID phiên hội thoại để duy trì ngữ cảnh cuộc hội thoại
     - **max_sources**: Số lượng nguồn tham khảo tối đa trả về (query parameter)
     """
@@ -685,6 +694,25 @@ async def ask_question_stream(
                                 session_id, generate_response_stream.full_answer
                             )
 
+                            # Tạo các câu hỏi liên quan sau khi có kết quả đầy đủ
+                            try:
+                                related_questions = (
+                                    await rag_system.generate_related_questions(
+                                        request.question,
+                                        generate_response_stream.full_answer,
+                                    )
+                                )
+                                # Thêm vào chunk data để trả về cho client
+                                chunk["data"]["related_questions"] = related_questions
+                            except Exception as e:
+                                print(f"Lỗi khi tạo câu hỏi liên quan: {str(e)}")
+                                # Mặc định nếu có lỗi
+                                chunk["data"]["related_questions"] = [
+                                    "Bạn muốn tìm hiểu thêm điều gì về chủ đề này?",
+                                    "Bạn có thắc mắc nào khác liên quan đến nội dung này không?",
+                                    "Bạn có muốn biết thêm thông tin về ứng dụng thực tế không?",
+                                ]
+
                             questions_history[question_id] = {
                                 "question": request.question,
                                 "search_type": request.search_type,
@@ -694,6 +722,9 @@ async def ask_question_stream(
                                 "answer": generate_response_stream.full_answer,
                                 "processing_time": chunk["data"]["processing_time"],
                                 "session_id": session_id,
+                                "related_questions": chunk["data"].get(
+                                    "related_questions", []
+                                ),
                             }
 
                         # Trả về sự kiện kết thúc

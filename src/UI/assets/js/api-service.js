@@ -232,6 +232,9 @@ class APIService {
                         } else if (eventName === 'content' && eventHandlers.contentHandlers.length > 0) {
                             eventHandlers.contentHandlers.forEach(handler => handler(parsedData.content));
                         } else if (eventName === 'end' && eventHandlers.endHandlers.length > 0) {
+                            // Đảm bảo trường related_questions được truyền vào nếu có
+                            console.log('End event data:', parsedData);
+                            // Truyền toàn bộ parsedData để đảm bảo related_questions được bao gồm
                             eventHandlers.endHandlers.forEach(handler => handler(parsedData));
                             // Kết thúc stream
                             isStreamActive = false;

@@ -479,7 +479,7 @@ class ConversationController {
                 // Hoàn tất tin nhắn
                 if (streamResponse) {
                     // Đã có nội dung, cập nhật lần cuối
-                    this.updateMessageContent(streamResponse, true);
+                    this.updateMessageContent(streamResponse, true, endData.related_questions);
                 } else {
                     // Phòng trường hợp không có nội dung nào được stream
                     this.updateMessageContent("Không nhận được phản hồi từ hệ thống. Vui lòng thử lại sau.", true);
@@ -567,7 +567,7 @@ class ConversationController {
     }
 
     // Thêm phương thức mới để cập nhật nội dung tin nhắn hiện tại
-    updateMessageContent(content, isComplete = false) {
+    updateMessageContent(content, isComplete = false, relatedQuestions = null) {
         // Tìm tin nhắn assistant cuối cùng
         const assistantMessages = document.querySelectorAll('.assistant-message');
         if (assistantMessages.length === 0) return;
@@ -663,6 +663,53 @@ class ConversationController {
                         typingContent.innerHTML = this.formatMessageContent(newContent);
                         typingContent.classList.add('typing-done');
                         typingContent.style.opacity = '1';
+                        
+                        // Thêm related questions nếu có
+                        if (relatedQuestions && Array.isArray(relatedQuestions) && relatedQuestions.length > 0) {
+                            console.log('Thêm câu hỏi liên quan:', relatedQuestions);
+                            const relatedQuestionsDiv = document.createElement('div');
+                            relatedQuestionsDiv.className = 'related-questions';
+                            
+                            let relatedQuestionsHTML = `
+                                <div class="related-questions-title">
+                                    <i class="fas fa-lightbulb mr-2"></i>Câu hỏi liên quan
+                                </div>
+                                <div class="related-question-list">
+                            `;
+                            
+                            relatedQuestions.forEach(question => {
+                                relatedQuestionsHTML += `
+                                    <div class="related-question-item" role="button">
+                                        ${question}
+                                    </div>
+                                `;
+                            });
+                            
+                            relatedQuestionsHTML += '</div>';
+                            relatedQuestionsDiv.innerHTML = relatedQuestionsHTML;
+                            contentElement.appendChild(relatedQuestionsDiv);
+                            
+                            // Thêm event listener cho các câu hỏi liên quan
+                            const questionItems = relatedQuestionsDiv.querySelectorAll('.related-question-item');
+                            questionItems.forEach(item => {
+                                item.addEventListener('click', () => {
+                                    const questionText = item.textContent.trim();
+                                    if (questionText) {
+                                        // Đặt câu hỏi vào input
+                                        const messageInput = document.getElementById('messageInput');
+                                        if (messageInput) {
+                                            messageInput.value = questionText;
+                                            // Focus vào input
+                                            messageInput.focus();
+                                            // Kích hoạt nút gửi
+                                            document.getElementById('sendButton').disabled = false;
+                                            // Tự động gửi câu hỏi
+                                            document.getElementById('messageForm').dispatchEvent(new Event('submit'));
+                                        }
+                                    }
+                                });
+                            });
+                        }
                         
                         // Thêm event listeners cho nút copy code
                         const codeBlocks = typingContent.querySelectorAll('.code-block');

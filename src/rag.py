@@ -729,3 +729,34 @@ class AdvancedDatabaseRAG:
         # Gọi LLM và lấy kết quả
         response = self.llm.invoke(prompt)
         return response.content
+
+    async def generate_related_questions(self, query: str, answer: str) -> List[str]:
+        """Tạo danh sách các câu hỏi gợi ý liên quan"""
+        try:
+            # Tạo prompt cho việc gợi ý câu hỏi
+            prompt = self.prompt_manager.create_related_questions_prompt(query, answer)
+
+            # Gọi LLM để tạo câu hỏi gợi ý
+            response = self.llm.invoke(prompt)
+
+            # Xử lý kết quả để trích xuất các câu hỏi
+            response_text = response.content.strip()
+
+            # Tìm các câu hỏi theo định dạng "1. [câu hỏi]"
+            related_questions = []
+
+            # Sử dụng regex để trích xuất câu hỏi
+            pattern = r"\d+\.\s*(.*?\?)"
+            matches = re.findall(pattern, response_text)
+
+            # Lấy tối đa 3 câu hỏi
+            return matches[:3]
+
+        except Exception as e:
+            print(f"Lỗi khi tạo câu hỏi liên quan: {str(e)}")
+            # Trả về một số câu hỏi mặc định nếu có lỗi
+            return [
+                "Bạn muốn tìm hiểu thêm điều gì về chủ đề này?",
+                "Bạn có thắc mắc nào khác liên quan đến nội dung này không?",
+                "Bạn có muốn biết thêm thông tin về ứng dụng thực tế của kiến thức này không?",
+            ]

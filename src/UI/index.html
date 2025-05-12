@@ -446,5 +446,118 @@
             }
         });
     </script>
+
+    <style>
+        /* CSS cho phần câu hỏi liên quan */
+        .related-questions {
+            margin-top: 12px;
+            padding: 10px 15px;
+            background-color: rgba(59, 130, 246, 0.05);
+            border-radius: 12px;
+            border-left: 3px solid #3b82f6;
+        }
+        
+        .related-questions-title {
+            font-weight: 600;
+            color: #3b82f6;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+        
+        .related-question-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .related-question-item {
+            padding: 8px 12px;
+            background-color: white;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.9rem;
+            color: #4b5563;
+        }
+        
+        .related-question-item:hover {
+            background-color: #EFF6FF;
+            border-color: #3b82f6;
+            color: #1e40af;
+        }
+        
+        /* CSS cho code blocks */
+        .code-block {
+            margin: 1rem 0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .code-block pre {
+            margin: 0;
+            padding: 1rem;
+            overflow-x: auto;
+            white-space: pre;
+            word-wrap: normal;
+            background-color: #1a1a1a;
+        }
+        
+        .code-block code {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            display: block;
+            width: 100%;
+        }
+        
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 1rem;
+            background-color: #2d2d2d;
+            color: #e0e0e0;
+            font-size: 0.85rem;
+        }
+        
+        /* Ẩn scrollbar nhưng vẫn scroll được */
+        .messages-container {
+            scrollbar-width: none; /* Firefox */
+            -ms-overflow-style: none; /* IE and Edge */
+        }
+        
+        .messages-container::-webkit-scrollbar {
+            display: none; /* Chrome, Safari, Opera */
+        }
+        
+        /* Tương tự cho code blocks */
+        .code-block pre::-webkit-scrollbar {
+            height: 4px;
+            background-color: #1a1a1a;
+        }
+        
+        .code-block pre::-webkit-scrollbar-thumb {
+            background-color: #666;
+            border-radius: 2px;
+        }
+        
+        /* Dark mode support */
+        .dark .related-questions {
+            background-color: rgba(59, 130, 246, 0.1);
+        }
+        
+        .dark .related-question-item {
+            background-color: #1F2937;
+            border-color: rgba(59, 130, 246, 0.4);
+            color: #E5E7EB;
+        }
+        
+        .dark .related-question-item:hover {
+            background-color: #374151;
+            border-color: #3b82f6;
+            color: white;
+        }
+    </style>
 </body>
 </html> 

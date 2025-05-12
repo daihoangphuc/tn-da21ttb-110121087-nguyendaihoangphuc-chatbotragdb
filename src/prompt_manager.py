@@ -1,5 +1,6 @@
 import re
 from typing import List, Dict
+import os
 
 
 class PromptManager:
@@ -25,7 +26,9 @@ class PromptManager:
             - Liệt kê các khái niệm liên quan bằng danh sách có dấu gạch đầu dòng
             - Nếu có ví dụ sql, đặt trong khối ```sql và ```
             - Nếu cần so sánh, sử dụng bảng Markdown
-            - Trích dẫn nguồn cho mỗi phần thông tin
+            - Trích dẫn nguồn cho mỗi phần thông tin, đặt trong dấu ngoặc đơn: (nguồn)
+            - Nếu nhiều thông tin liên tiếp đến từ cùng một nguồn, chỉ trích dẫn nguồn một lần ở cuối đoạn
+            - Gom nhóm các nguồn giống nhau và chỉ hiển thị nguồn một lần ở cuối đoạn
             """,
             "comparison": """
             Bạn là chuyên gia Cơ sở dữ liệu. Hãy so sánh chi tiết các khái niệm được yêu cầu, 
@@ -46,7 +49,9 @@ class PromptManager:
             - Các ví dụ code PHẢI được đặt trong khối ```sql (hoặc ngôn ngữ khác) và ```
             - Trình bày điểm mạnh và điểm yếu của mỗi khái niệm bằng danh sách có dấu gạch đầu dòng
             - Có phần kết luận rõ ràng và khuyến nghị sử dụng
-            - Trích dẫn nguồn cho mỗi phần thông tin
+            - Trích dẫn nguồn cho mỗi phần thông tin, đặt trong dấu ngoặc đơn: (nguồn)
+            - Nếu nhiều thông tin liên tiếp đến từ cùng một nguồn, chỉ trích dẫn nguồn một lần ở cuối đoạn
+            - Gom nhóm các nguồn giống nhau và chỉ hiển thị nguồn một lần ở cuối đoạn
             """,
             "example": """
             Bạn là chuyên gia Cơ sở dữ liệu. Hãy cung cấp các ví dụ minh họa rõ ràng cho yêu cầu sau.
@@ -67,7 +72,9 @@ class PromptManager:
             - Nếu có nhiều bước, sử dụng danh sách có số để liệt kê các bước
             - Sử dụng **in đậm** cho các thuật ngữ và điểm quan trọng
             - Đánh dấu các lưu ý quan trọng bằng > để nhấn mạnh
-            - Trích dẫn nguồn cho mỗi phần thông tin
+            - Trích dẫn nguồn cho mỗi phần thông tin, đặt trong dấu ngoặc đơn: (nguồn)
+            - Nếu nhiều thông tin liên tiếp đến từ cùng một nguồn, chỉ trích dẫn nguồn một lần ở cuối đoạn
+            - Gom nhóm các nguồn giống nhau và chỉ hiển thị nguồn một lần ở cuối đoạn
             """,
             "implementation": """
             Bạn là chuyên gia Cơ sở dữ liệu. Hãy hướng dẫn từng bước cách triển khai yêu cầu sau, 
@@ -88,7 +95,9 @@ class PromptManager:
               + Chú thích cho mã code phức tạp
             - Nếu có nhiều cách tiếp cận, sử dụng tiêu đề riêng cho mỗi cách và so sánh ưu/nhược điểm
             - Sử dụng > để đánh dấu các cảnh báo và lưu ý quan trọng
-            - Trích dẫn nguồn cho mỗi phần thông tin
+            - Trích dẫn nguồn cho mỗi phần thông tin, đặt trong dấu ngoặc đơn: (nguồn)
+            - Nếu nhiều thông tin liên tiếp đến từ cùng một nguồn, chỉ trích dẫn nguồn một lần ở cuối đoạn
+            - Gom nhóm các nguồn giống nhau và chỉ hiển thị nguồn một lần ở cuối đoạn
             """,
             "troubleshooting": """
             Bạn là chuyên gia Cơ sở dữ liệu. Hãy phân tích và giải quyết vấn đề được mô tả dưới đây,
@@ -109,7 +118,9 @@ class PromptManager:
               3. Giải thích tại sao nó hoạt động
             - Thêm phần **Phòng ngừa** để giải thích cách ngăn chặn vấn đề tái diễn
             - Sử dụng bảng khi so sánh các giải pháp khác nhau
-            - Trích dẫn nguồn cho mỗi phần thông tin
+            - Trích dẫn nguồn cho mỗi phần thông tin, đặt trong dấu ngoặc đơn: (nguồn)
+            - Nếu nhiều thông tin liên tiếp đến từ cùng một nguồn, chỉ trích dẫn nguồn một lần ở cuối đoạn
+            - Gom nhóm các nguồn giống nhau và chỉ hiển thị nguồn một lần ở cuối đoạn
             """,
             "theory": """
             Bạn là chuyên gia Cơ sở dữ liệu. Hãy giải thích lý thuyết hoặc nguyên lý liên quan đến chủ đề sau,
@@ -129,7 +140,9 @@ class PromptManager:
             - Đưa ra ví dụ minh họa cho các khái niệm phức tạp (đặt code trong khối ```sql và ```)
             - Sử dụng bảng Markdown để so sánh các khái niệm khi cần
             - Có phần tổng kết và liên hệ với các khái niệm khác
-            - Trích dẫn nguồn cho mỗi phần thông tin
+            - Trích dẫn nguồn cho mỗi phần thông tin, đặt trong dấu ngoặc đơn: (nguồn)
+            - Nếu nhiều thông tin liên tiếp đến từ cùng một nguồn, chỉ trích dẫn nguồn một lần ở cuối đoạn
+            - Gom nhóm các nguồn giống nhau và chỉ hiển thị nguồn một lần ở cuối đoạn
             """,
             "sql_analysis": """
             Bạn là chuyên gia tối ưu hóa SQL. Hãy phân tích và giải thích câu truy vấn SQL sau,
@@ -156,7 +169,9 @@ class PromptManager:
               + Cung cấp truy vấn đã tối ưu trong khối ```sql và ```
               + Giải thích lý do cho mỗi thay đổi
             - Sử dụng bảng để so sánh trước và sau khi tối ưu nếu cần
-            - Trích dẫn nguồn cho mỗi phần thông tin
+            - Trích dẫn nguồn cho mỗi phần thông tin, đặt trong dấu ngoặc đơn: (nguồn)
+            - Nếu nhiều thông tin liên tiếp đến từ cùng một nguồn, chỉ trích dẫn nguồn một lần ở cuối đoạn
+            - Gom nhóm các nguồn giống nhau và chỉ hiển thị nguồn một lần ở cuối đoạn
             """,
             "sql_generation": """
             Bạn là chuyên gia lập trình SQL. Hãy viết câu truy vấn SQL đáp ứng yêu cầu sau.
@@ -181,7 +196,9 @@ class PromptManager:
               | Cột 1 | Cột 2 | ... |
               |-------|-------|-----|
               | Giá trị | Giá trị | ... |
-            - Trích dẫn nguồn cho mỗi phần thông tin
+            - Trích dẫn nguồn cho mỗi phần thông tin, đặt trong dấu ngoặc đơn: (nguồn)
+            - Nếu nhiều thông tin liên tiếp đến từ cùng một nguồn, chỉ trích dẫn nguồn một lần ở cuối đoạn
+            - Gom nhóm các nguồn giống nhau và chỉ hiển thị nguồn một lần ở cuối đoạn
             """,
             "nosql_design": """
             Bạn là chuyên gia thiết kế NoSQL. Hãy tư vấn thiết kế NoSQL cho yêu cầu được mô tả.
@@ -207,7 +224,9 @@ class PromptManager:
             - Phần **Khả năng mở rộng**:
               + Giải thích chiến lược mở rộng
               + Lưu ý về các thách thức tiềm ẩn
-            - Trích dẫn nguồn cho mỗi phần thông tin
+            - Trích dẫn nguồn cho mỗi phần thông tin, đặt trong dấu ngoặc đơn: (nguồn)
+            - Nếu nhiều thông tin liên tiếp đến từ cùng một nguồn, chỉ trích dẫn nguồn một lần ở cuối đoạn
+            - Gom nhóm các nguồn giống nhau và chỉ hiển thị nguồn một lần ở cuối đoạn
             """,
             "general": """
             Bạn là chuyên gia trích xuất thông tin chính xác từ tài liệu về Cơ sở dữ liệu. Hãy trả lời câu hỏi sau dựa CHÍNH XÁC trên ngữ cảnh được cung cấp, không thêm bớt thông tin.
@@ -221,6 +240,10 @@ class PromptManager:
             - Sử dụng tiêu đề ## cho tiêu đề chính và ### cho các phần nhỏ nếu cần
             - PHẢI trung thành tuyệt đối với thông tin trong tài liệu ngữ cảnh
             - PHẢI trích dẫn nguồn cụ thể cho từng phần thông tin quan trọng
+            - Nếu nhiều thông tin liên tiếp đến từ cùng một nguồn, chỉ trích dẫn nguồn một lần ở cuối đoạn
+            - KHÔNG trích dẫn cùng một nguồn nhiều lần trong cùng một đoạn văn
+            - Gom nhóm các nguồn giống nhau và chỉ hiển thị nguồn một lần ở cuối đoạn
+            - Tất cả thông tin trích dẫn đặt trong dấu ngoặc đơn: (nguồn)
             - Tổ chức nội dung theo cấu trúc rõ ràng và logic:
               + Câu trả lời trực tiếp cho câu hỏi ở đầu tiên
               + Giải thích chi tiết với các tiêu đề phù hợp
@@ -276,6 +299,9 @@ class PromptManager:
             6. Trích dẫn nguồn thông tin:
                - Nêu rõ nguồn tham khảo khi sử dụng thông tin từ tài liệu được cung cấp
                - Kết hợp thông tin từ nhiều nguồn để tạo giải thích toàn diện
+               - Đặt trích dẫn nguồn trong dấu ngoặc đơn: (nguồn)
+               - Nếu nhiều thông tin liên tiếp đến từ cùng một nguồn, chỉ trích dẫn nguồn một lần ở cuối đoạn
+               - Gom nhóm các nguồn giống nhau vào một chỗ khi trích dẫn
             """,
             # Template thống nhất mới
             "unified": """
@@ -293,6 +319,12 @@ class PromptManager:
             - KHÔNG được sử dụng kiến thức có sẵn nếu thông tin không có trong tài liệu nguồn
             - Tất cả thông tin trong câu trả lời của bạn PHẢI được trích dẫn từ tài liệu nguồn được cung cấp
             - Nếu câu hỏi chỉ được trả lời một phần từ tài liệu, hãy nêu rõ phần nào bạn có thể trả lời và phần nào không có thông tin
+
+            HƯỚNG DẪN TRÍCH DẪN NGUỒN:
+            - Khi trích dẫn nguồn, đặt thông tin nguồn trong dấu ngoặc đơn: (nguồn)
+            - Nếu nhiều phần thông tin liên tiếp đến từ cùng một nguồn, chỉ trích dẫn nguồn một lần ở cuối đoạn hoặc nhóm thông tin đó
+            - KHÔNG trích dẫn cùng một nguồn nhiều lần trong cùng một đoạn văn
+            - Nếu một đoạn văn/đoạn thông tin chứa dữ liệu từ nhiều nguồn, hãy gom nhóm và chỉ hiện thị nguồn một lần ở cuối đoạn
 
             HƯỚNG DẪN CHO VAI TRÒ GIA SƯ:
             1. Đánh giá hiểu biết của người học:
@@ -334,6 +366,26 @@ class PromptManager:
                - Khuyến khích đặt câu hỏi nếu có điểm chưa rõ
                - Liên kết kiến thức mới với những gì đã biết
                - Cung cấp phản hồi tích cực khi người dùng hiểu đúng
+            """,
+            # Thêm template mới cho việc gợi ý câu hỏi liên quan
+            "related_questions": """
+            Bạn là một trợ lý thông minh chuyên tạo câu hỏi để khuyến khích người dùng tiếp tục tìm hiểu về chủ đề.
+            
+            Câu hỏi vừa được trả lời: {query}
+            
+            Câu trả lời tương ứng: {answer}
+            
+            Dựa trên ngữ cảnh này, hãy tạo CHÍNH XÁC 3 câu hỏi liên quan mà người dùng có thể muốn biết tiếp theo. Những câu hỏi này nên:
+            1. Mở rộng kiến thức từ câu trả lời (đi sâu hơn hoặc liên kết với khái niệm khác)
+            2. Khám phá các trường hợp sử dụng thực tế hoặc ứng dụng cụ thể
+            3. Giúp hiểu rõ hơn về các khái niệm liên quan hoặc phương pháp thay thế
+            
+            Format câu trả lời của bạn như sau:
+            1. [Câu hỏi 1]
+            2. [Câu hỏi 2]
+            3. [Câu hỏi 3]
+            
+            QUAN TRỌNG: Chỉ trả về 3 câu hỏi theo đúng format trên, KHÔNG có nội dung giới thiệu hoặc kết luận. Mỗi câu hỏi phải là câu hoàn chỉnh kết thúc bằng dấu hỏi.
             """,
         }
 
@@ -403,16 +455,35 @@ class PromptManager:
 
     def _create_context_str(self, context: List[Dict]) -> str:
         """Phương thức phụ trợ để tạo chuỗi ngữ cảnh từ danh sách tài liệu"""
-        return "\n\n".join(
-            [
-                f"Source: {doc['metadata'].get('source', 'unknown')}\n"
-                + f"Page/Position: {doc['metadata'].get('page', 'unknown')}\n"
-                + f"Section: {doc['metadata'].get('chunk_type', 'unknown')}\n"
-                + f"Category: {doc['metadata'].get('category', 'general')}\n"
-                + f"Content: {doc['text']}"
-                for doc in context
-            ]
-        )
+        context_entries = []
+        for i, doc in enumerate(context):
+            metadata = doc.get("metadata", {})
+            source = metadata.get("source", doc.get("source", "unknown"))
+            page = metadata.get("page", "unknown")
+            section = metadata.get("chunk_type", metadata.get("position", "unknown"))
+
+            # Chuẩn bị tên nguồn tham khảo ngắn gọn
+            source_ref = source
+            if os.path.sep in source:  # Nếu là đường dẫn file
+                source_ref = os.path.basename(source)  # Chỉ lấy tên file
+
+            # Tạo tham chiếu ngắn gọn nếu có số trang
+            if page != "unknown":
+                source_citation = f"{source_ref}:{page}"
+            else:
+                source_citation = source_ref
+
+            context_entry = (
+                f"[Document {i+1}]\n"
+                f"Source: {source}\n"
+                f"Citation: {source_citation}\n"
+                f"Page/Position: {page}\n"
+                f"Section: {section}\n"
+                f"Content: {doc['text']}"
+            )
+            context_entries.append(context_entry)
+
+        return "\n\n".join(context_entries)
 
     def create_prompt(
         self, query: str, context: List[Dict], question_type: str = None
@@ -497,3 +568,8 @@ class PromptManager:
                 return matches.group(0).strip()
 
         return ""
+
+    def create_related_questions_prompt(self, query: str, answer: str) -> str:
+        """Tạo prompt để gợi ý 3 câu hỏi liên quan"""
+        prompt = self.templates["related_questions"].format(query=query, answer=answer)
+        return prompt
