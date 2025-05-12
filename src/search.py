@@ -418,9 +418,7 @@ class SearchManager:
 
             # In thông tin boost để debug
             if score_boost > 0:
-                print(
-                    f"Tăng điểm {score_boost:.2f} cho chunk có metadata phù hợp: {metadata}"
-                )
+                print(f"Tăng điểm {score_boost:.2f} cho chunk có metadata phù hợp.")
 
         return sorted(results, key=lambda x: x["rerank_score"], reverse=True)
 
