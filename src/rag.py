@@ -670,9 +670,7 @@ class AdvancedDatabaseRAG:
         if not retrieved:
             return "Không tìm thấy thông tin liên quan đến câu hỏi này trong cơ sở dữ liệu."
 
-        # Giới hạn số lượng tài liệu ngữ cảnh để tận dụng tối đa khả năng của LLM
-        # đồng thời không vượt quá ngưỡng context window
-        # Tăng từ mặc định (thường là 3 được sử dụng trong prompt_manager) lên 5
+        # Giới hạn số lượng tài liệu ngữ cảnh
         context_docs = retrieved[:5]
 
         # Xác định loại câu hỏi
@@ -681,20 +679,15 @@ class AdvancedDatabaseRAG:
         # Tạo prompt phù hợp
         prompt = self.prompt_manager.create_prompt(query, context_docs, question_type)
 
-        # Thêm yêu cầu định dạng Markdown
+        # Thêm lưu ý về độ dài và định dạng
         prompt += """
         
-        ĐỊNH DẠNG MARKDOWN:
-        Hãy định dạng câu trả lời của bạn bằng Markdown để dễ hiển thị ở frontend:
-        - Sử dụng **in đậm** cho các thuật ngữ và điểm quan trọng
-        - Sử dụng *in nghiêng* cho các nhấn mạnh
-        - Sử dụng ## cho tiêu đề cấp 2, ### cho tiêu đề cấp 3
-        - Sử dụng danh sách có dấu gạch đầu dòng (- item) hoặc số (1. item)
-        - Sử dụng ```code``` cho các đoạn mã, lệnh SQL, cú pháp
-        - Sử dụng bảng Markdown khi cần so sánh thông tin
-        - Sử dụng > cho các trích dẫn
-        
-        Đảm bảo câu trả lời có cấu trúc rõ ràng, dễ đọc và trực quan.
+        LƯU Ý QUAN TRỌNG:
+        - Trả lời phải ngắn gọn, tối đa 3-4 đoạn văn
+        - Sử dụng định dạng Markdown: ## cho tiêu đề, **in đậm** cho điểm quan trọng
+        - Đặt code SQL trong ```sql và ```
+        - Nếu cần bảng so sánh, tạo bảng đơn giản với tối đa 3 cột
+        - KHÔNG sử dụng HTML, chỉ dùng Markdown
         """
 
         # Gọi LLM

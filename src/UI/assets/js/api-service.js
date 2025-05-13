@@ -338,12 +338,45 @@ class APIService {
             },
             
             onEnd: (handler) => {
+                // Đăng ký handler gốc
                 eventHandlers.endHandlers.push(handler);
+                
+                // Thêm handler mới để kích hoạt lại input
+                eventHandlers.endHandlers.push(() => {
+                    // Đảm bảo input được kích hoạt lại khi kết thúc stream
+                    console.log('Stream kết thúc, kích hoạt lại input');
+                    const messageInput = document.getElementById('messageInput');
+                    const sendButton = document.getElementById('sendButton');
+                    if (messageInput && sendButton) {
+                        setTimeout(() => {
+                            messageInput.disabled = false;
+                            sendButton.disabled = messageInput.value.trim() === '';
+                            messageInput.focus();
+                        }, 200);
+                    }
+                });
+                
                 return this;
             },
             
             onError: (handler) => {
+                // Đăng ký handler gốc
                 eventHandlers.errorHandlers.push(handler);
+                
+                // Thêm handler mới để kích hoạt lại input khi có lỗi
+                eventHandlers.errorHandlers.push(() => {
+                    console.log('Stream gặp lỗi, kích hoạt lại input');
+                    const messageInput = document.getElementById('messageInput');
+                    const sendButton = document.getElementById('sendButton');
+                    if (messageInput && sendButton) {
+                        setTimeout(() => {
+                            messageInput.disabled = false;
+                            sendButton.disabled = messageInput.value.trim() === '';
+                            messageInput.focus();
+                        }, 200);
+                    }
+                });
+                
                 return this;
             },
             
@@ -352,6 +385,17 @@ class APIService {
                     console.log('Hủy streaming request');
                     abortController.abort();
                     isStreamActive = false;
+                    
+                    // Kích hoạt lại input khi đóng stream
+                    const messageInput = document.getElementById('messageInput');
+                    const sendButton = document.getElementById('sendButton');
+                    if (messageInput && sendButton) {
+                        setTimeout(() => {
+                            messageInput.disabled = false;
+                            sendButton.disabled = messageInput.value.trim() === '';
+                            messageInput.focus();
+                        }, 200);
+                    }
                 }
             },
             

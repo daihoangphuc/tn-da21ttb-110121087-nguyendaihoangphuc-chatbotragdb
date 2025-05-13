@@ -587,6 +587,14 @@ class ConversationController {
 
             // Nếu đã hoàn thành và nội dung giống nhau, không cần cập nhật
             if (isComplete && typingContent.getAttribute('data-content') === content) {
+                // Kích hoạt lại input ngay cả khi không cần cập nhật nội dung
+                const messageInput = document.getElementById('messageInput');
+                const sendButton = document.getElementById('sendButton');
+                if (messageInput && sendButton) {
+                    messageInput.disabled = false;
+                    sendButton.disabled = messageInput.value.trim() === '';
+                    messageInput.focus();
+                }
                 return;
             }
 
@@ -598,12 +606,38 @@ class ConversationController {
                 return;
             }
 
+            // Đảm bảo kích hoạt lại input khi hoàn thành
+            if (isComplete) {
+                const messageInput = document.getElementById('messageInput');
+                const sendButton = document.getElementById('sendButton');
+                if (messageInput && sendButton) {
+                    messageInput.disabled = false;
+                    sendButton.disabled = messageInput.value.trim() === '';
+                    messageInput.focus();
+                }
+            }
+
             // Tạo hiệu ứng đánh máy
             if (currentContent === '') {
                 // Lần đầu tiên nhận được nội dung
                 typingContent.setAttribute('data-content', content);
                 typingContent.innerHTML = this.formatMessageContent(content);
                 typingContent.style.opacity = '0.7';
+                
+                // Kích hoạt lại input ngay lập tức nếu đã hoàn thành
+                if (isComplete) {
+                    typingContent.classList.add('typing-done');
+                    typingContent.style.opacity = '1';
+                    
+                    // Kích hoạt lại input sau khi hoàn thành
+                    const messageInput = document.getElementById('messageInput');
+                    const sendButton = document.getElementById('sendButton');
+                    if (messageInput && sendButton) {
+                        messageInput.disabled = false;
+                        sendButton.disabled = messageInput.value.trim() === '';
+                        messageInput.focus();
+                    }
+                }
             } else {
                 // Cập nhật dần dần với độ trễ
                 const delay = 15; // Giảm độ trễ xuống 15ms
@@ -743,6 +777,18 @@ class ConversationController {
             
             // Cuộn xuống tin nhắn mới nhất
             this.scrollToBottom();
+        } else {
+            // Nếu không tìm thấy phần tử typing content, đảm bảo rằng input được kích hoạt lại
+            if (isComplete) {
+                // Kích hoạt lại input sau khi hoàn thành
+                const messageInput = document.getElementById('messageInput');
+                const sendButton = document.getElementById('sendButton');
+                if (messageInput && sendButton) {
+                    messageInput.disabled = false;
+                    sendButton.disabled = messageInput.value.trim() === '';
+                    messageInput.focus();
+                }
+            }
         }
     }
 

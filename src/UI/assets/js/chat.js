@@ -846,19 +846,76 @@ function appendAIMessage(content, sources = null) {
         `;
     }
     
+    // Chuyển đổi nội dung Markdown thành HTML
+    let processedContent = content;
+    
+    // Kiểm tra xem thư viện marked có tồn tại không
+    if (typeof marked !== 'undefined') {
+        try {
+            // Bọc bảng trong một div có lớp table-responsive để xử lý bảng quá rộng
+            const renderer = new marked.Renderer();
+            const originalTable = renderer.table;
+            
+            renderer.table = function(header, body) {
+                const table = originalTable.call(this, header, body);
+                return '<div class="table-responsive">' + table + '</div>';
+            };
+            
+            marked.setOptions({
+                renderer: renderer,
+                gfm: true,
+                breaks: true,
+                sanitize: false,
+                smartLists: true,
+                smartypants: false,
+                xhtml: false
+            });
+            
+            processedContent = marked.parse(content);
+        } catch (e) {
+            console.error('Lỗi khi chuyển đổi Markdown sang HTML:', e);
+            // Nếu có lỗi, sử dụng nội dung gốc
+            processedContent = `<p>${content}</p>`;
+        }
+    } else {
+        // Nếu không có thư viện marked, hiển thị nội dung gốc
+        processedContent = `<p>${content}</p>`;
+        console.warn('Thư viện marked.js không được tìm thấy. Nội dung Markdown sẽ không được xử lý.');
+    }
+    
     // Tạo nội dung HTML cho tin nhắn
     messageDiv.innerHTML = `
         <div class="avatar message-avatar">
             <i class="fas fa-robot"></i>
         </div>
-        <div class="message-content">
-            <p>${content}</p>
+        <div class="message-content markdown">
+            ${processedContent}
             ${sourcesHTML}
         </div>
     `;
     
     messagesContainer.appendChild(messageDiv);
+    
+    // Áp dụng highlight.js cho các khối mã sau khi thêm vào DOM
+    if (typeof hljs !== 'undefined') {
+        messageDiv.querySelectorAll('pre code').forEach((block) => {
+            hljs.highlightElement(block);
+        });
+    }
+    
     scrollToBottom();
+    
+    // Đảm bảo kích hoạt lại trường nhập
+    const messageInput = document.getElementById('messageInput');
+    const sendButton = document.getElementById('sendButton');
+    if (messageInput && sendButton) {
+        // Đặt timeout ngắn để đảm bảo UI đã được cập nhật
+        setTimeout(() => {
+            messageInput.disabled = false;
+            sendButton.disabled = messageInput.value.trim() === '';
+            messageInput.focus();
+        }, 100);
+    }
 }
 
 // Hàm cuộn xuống tin nhắn cuối cùng

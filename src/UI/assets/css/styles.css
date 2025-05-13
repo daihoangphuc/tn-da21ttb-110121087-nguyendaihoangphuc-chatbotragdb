@@ -2262,3 +2262,74 @@ input[type="checkbox"]:focus {
     box-shadow: none !important;
     outline: none !important;
 }
+
+/* Thêm các style cho bảng Markdown */
+.table-responsive {
+    overflow-x: auto;
+    margin-bottom: 1rem;
+    max-width: 100%;
+}
+
+.markdown table {
+    border-collapse: collapse;
+    margin: 1rem 0;
+    width: 100%;
+    background-color: transparent;
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+    overflow: hidden;
+}
+
+.markdown th, .markdown td {
+    border: 1px solid var(--border);
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+}
+
+.markdown th {
+    font-weight: 600;
+    background-color: var(--muted);
+}
+
+.markdown tr:nth-child(even) {
+    background-color: var(--background);
+}
+
+.markdown tr:nth-child(odd) {
+    background-color: var(--card);
+}
+
+.dark-theme .markdown table {
+    border-color: var(--border);
+}
+
+.dark-theme .markdown th {
+    background-color: var(--secondary);
+}
+
+.dark-theme .markdown tr:nth-child(even) {
+    background-color: var(--background);
+}
+
+.dark-theme .markdown tr:nth-child(odd) {
+    background-color: var(--card);
+}
+
+/* Đảm bảo bảng không vượt quá container */
+.message-content {
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+/* Style cho phần nội dung tin nhắn AI */
+.message-content.markdown {
+    line-height: 1.6;
+}
+
+.message-content.markdown > *:first-child {
+    margin-top: 0;
+}
+
+.message-content.markdown > *:last-child {
+    margin-bottom: 0;
+}
