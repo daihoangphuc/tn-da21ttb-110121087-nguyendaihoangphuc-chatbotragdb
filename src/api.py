@@ -379,6 +379,7 @@ async def ask_question(
         ge=1,
         le=50,
     ),
+    current_user=Depends(get_current_user),
 ):
     """
     Đặt câu hỏi và nhận câu trả lời từ hệ thống RAG
@@ -386,14 +387,17 @@ async def ask_question(
     - **question**: Câu hỏi cần trả lời
     - **search_type**: Loại tìm kiếm ("semantic", "keyword", "hybrid")
     - **alpha**: Hệ số kết hợp giữa semantic và keyword search (0.7 = 70% semantic + 30% keyword)
-    - **sources**: Danh sách các file nguồn cần tìm kiếm, có thể là tên file đơn thuần hoặc đường dẫn đầy đủ
+    - **sources**: Danh sách các file nguồn cần tìm kiếm
     - **session_id**: ID phiên hội thoại để duy trì ngữ cảnh cuộc hội thoại
-    - **max_sources**: Số lượng nguồn tham khảo tối đa trả về (query parameter)
     """
     try:
-        # Tạo hoặc lấy session_id
-        session_id = request.session_id or f"session_{uuid4().hex[:8]}"
-        print(f"Session ID: {session_id}")
+        # Lấy hoặc tạo ID phiên hội thoại
+        session_id = request.session_id
+        user_id = current_user.id
+
+        if not session_id:
+            # Tạo ID phiên mới nếu không có
+            session_id = f"session_{uuid4().hex[:8]}"
 
         # Kiểm tra xem người dùng đã chọn nguồn hay chưa
         if not request.sources or len(request.sources) == 0:
@@ -484,7 +488,9 @@ async def ask_question(
         start_time = time.time()
 
         # Thêm tin nhắn người dùng vào bộ nhớ hội thoại
-        conversation_manager.add_user_message(session_id, request.question)
+        conversation_manager.add_user_message(
+            session_id, request.question, user_id=user_id
+        )
 
         # Lấy lịch sử hội thoại để sử dụng trong prompt
         conversation_history = conversation_manager.format_for_prompt(session_id)
@@ -500,7 +506,9 @@ async def ask_question(
         )
 
         # Thêm câu trả lời của AI vào bộ nhớ hội thoại
-        conversation_manager.add_ai_message(session_id, result["answer"])
+        conversation_manager.add_ai_message(
+            session_id, result["answer"], user_id=user_id
+        )
 
         # Tạo các câu hỏi liên quan sau khi có kết quả
         related_questions = await rag_system.generate_related_questions(
@@ -559,6 +567,7 @@ async def ask_question_stream(
         ge=1,
         le=50,
     ),
+    current_user=Depends(get_current_user),
 ):
     """
     Đặt câu hỏi và nhận câu trả lời từ hệ thống RAG dưới dạng stream
@@ -571,9 +580,13 @@ async def ask_question_stream(
     - **max_sources**: Số lượng nguồn tham khảo tối đa trả về (query parameter)
     """
     try:
-        # Tạo hoặc lấy session_id
-        session_id = request.session_id or f"session_{uuid4().hex[:8]}"
-        print(f"Session ID (stream): {session_id}")
+        # Lấy hoặc tạo ID phiên hội thoại
+        session_id = request.session_id
+        user_id = current_user.id
+
+        if not session_id:
+            # Tạo ID phiên mới nếu không có
+            session_id = f"session_{uuid4().hex[:8]}"
 
         # Kiểm tra xem người dùng đã chọn nguồn hay chưa
         if not request.sources or len(request.sources) == 0:
@@ -649,7 +662,9 @@ async def ask_question_stream(
         question_id = f"q_{uuid4().hex[:8]}"
 
         # Thêm tin nhắn người dùng vào bộ nhớ hội thoại
-        conversation_manager.add_user_message(session_id, request.question)
+        conversation_manager.add_user_message(
+            session_id, request.question, user_id=user_id
+        )
 
         # Lấy lịch sử hội thoại để sử dụng trong prompt
         conversation_history = conversation_manager.format_for_prompt(session_id)
@@ -711,7 +726,9 @@ async def ask_question_stream(
 
                         # Thêm câu trả lời của AI vào bộ nhớ hội thoại
                         if full_answer:
-                            conversation_manager.add_ai_message(session_id, full_answer)
+                            conversation_manager.add_ai_message(
+                                session_id, full_answer, user_id=user_id
+                            )
 
                             # Tạo các câu hỏi liên quan sau khi có kết quả đầy đủ
                             try:
@@ -1038,7 +1055,6 @@ async def submit_feedback(feedback: FeedbackRequest):
 #         )
 
 
-# Thêm endpoint ngữ nghĩa
 @app.post(f"{PREFIX}/search/semantic")
 async def semantic_search(
     request: QuestionRequest, k: int = Query(5, description="Số lượng kết quả trả về")
@@ -1172,73 +1188,6 @@ async def hybrid_search(
         raise HTTPException(
             status_code=500, detail=f"Lỗi khi thực hiện hybrid search: {str(e)}"
         )
-
-
-# @app.get(f"{PREFIX}/feedback/stats", response_model=dict)
-# async def get_feedback_stats():
-#     """
-#     Trả về thống kê từ các phản hồi người dùng
-#     """
-#     FEEDBACK_DIR = os.path.join(os.path.dirname(__file__), "feedback")
-
-#     if not os.path.exists(FEEDBACK_DIR):
-#         return {
-#             "status": "error",
-#             "message": "Chưa có dữ liệu phản hồi",
-#             "total_feedback": 0,
-#             "average_rating": 0,
-#             "helpful_percentage": 0,
-#             "ratings_distribution": {},
-#         }
-
-#     feedback_files = [f for f in os.listdir(FEEDBACK_DIR) if f.endswith(".json")]
-
-#     if not feedback_files:
-#         return {
-#             "status": "success",
-#             "message": "Chưa có phản hồi nào",
-#             "total_feedback": 0,
-#             "average_rating": 0,
-#             "helpful_percentage": 0,
-#             "ratings_distribution": {},
-#         }
-
-#     total_feedback = len(feedback_files)
-#     total_rating = 0
-#     helpful_count = 0
-#     ratings_distribution = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-
-#     for file in feedback_files:
-#         file_path = os.path.join(FEEDBACK_DIR, file)
-#         with open(file_path, "r", encoding="utf-8") as f:
-#             try:
-#                 feedback = json.load(f)
-#                 rating = feedback.get("rating", 0)
-#                 total_rating += rating
-
-#                 if rating in ratings_distribution:
-#                     ratings_distribution[rating] += 1
-
-#                 if feedback.get("is_helpful", False):
-#                     helpful_count += 1
-#             except json.JSONDecodeError:
-#                 continue
-
-#     average_rating = (
-#         round(total_rating / total_feedback, 2) if total_feedback > 0 else 0
-#     )
-#     helpful_percentage = (
-#         round((helpful_count / total_feedback) * 100, 1) if total_feedback > 0 else 0
-#     )
-
-#     return {
-#         "status": "success",
-#         "message": "Thống kê phản hồi",
-#         "total_feedback": total_feedback,
-#         "average_rating": average_rating,
-#         "helpful_percentage": helpful_percentage,
-#         "ratings_distribution": ratings_distribution,
-#     }
 
 
 @app.delete(f"{PREFIX}/collection/reset")
@@ -1742,11 +1691,12 @@ async def clear_conversation(
     """
     try:
         session_id = request.session_id
+        user_id = current_user.id
 
         # Xóa lịch sử hội thoại
         if hasattr(conversation_manager, "clear_memory"):
             # Sử dụng phương thức clear_memory của cả hai loại manager
-            success = conversation_manager.clear_memory(session_id)
+            success = conversation_manager.clear_memory(session_id, user_id=user_id)
 
             if not success:
                 return JSONResponse(
@@ -1791,9 +1741,11 @@ async def get_all_conversations(
     Trả về danh sách các phiên hội thoại với thông tin cơ bản, có hỗ trợ phân trang
     """
     try:
+        user_id = current_user.id
+
         if hasattr(conversation_manager, "get_conversations"):
             # Sử dụng phương thức get_conversations của SupabaseConversationManager
-            all_conversations = conversation_manager.get_conversations(current_user.id)
+            all_conversations = conversation_manager.get_conversations(user_id)
 
             # Thực hiện phân trang
             total_items = len(all_conversations)
@@ -1817,7 +1769,23 @@ async def get_all_conversations(
             }
         else:
             # Sử dụng lưu trữ cục bộ
-            history_dir = os.path.join("src", "conversation_history")
+            history_dir = os.path.join(
+                "D:\\DATN\\V2", "src", "conversation_history", user_id
+            )
+            if not os.path.exists(history_dir):
+                os.makedirs(history_dir, exist_ok=True)
+                return {
+                    "status": "success",
+                    "message": "Không tìm thấy hội thoại nào",
+                    "conversations": [],
+                    "pagination": {
+                        "page": page,
+                        "page_size": page_size,
+                        "total_items": 0,
+                        "total_pages": 0,
+                    },
+                }
+
             all_conversations = []
 
             # Duyệt qua tất cả các file JSON trong thư mục hội thoại
@@ -1899,6 +1867,8 @@ async def get_conversation_detail(
     - **session_id**: ID phiên hội thoại cần lấy chi tiết
     """
     try:
+        user_id = current_user.id
+
         if hasattr(conversation_manager, "get_messages"):
             # Sử dụng phương thức get_messages của SupabaseConversationManager
             messages = conversation_manager.get_messages(session_id)
@@ -1928,22 +1898,47 @@ async def get_conversation_detail(
         else:
             # Sử dụng lưu trữ cục bộ
             # Đường dẫn đến file lịch sử hội thoại
-            history_dir = os.path.join("src", "conversation_history")
+            history_dir = os.path.join(
+                "D:\\DATN\\V2", "src", "conversation_history", user_id
+            )
             file_path = os.path.join(history_dir, f"{session_id}.json")
 
+            # Nếu không tìm thấy trong thư mục người dùng, thử tìm trong thư mục gốc
             if not os.path.exists(file_path):
-                return JSONResponse(
-                    status_code=404,
-                    content={
-                        "status": "error",
-                        "message": f"Không tìm thấy hội thoại với ID {session_id}",
-                        "session_id": session_id,
-                    },
+                root_path = os.path.join(
+                    "D:\\DATN\\V2", "src", "conversation_history", f"{session_id}.json"
                 )
+                if os.path.exists(root_path):
+                    file_path = root_path
+                else:
+                    return JSONResponse(
+                        status_code=404,
+                        content={
+                            "status": "error",
+                            "message": f"Không tìm thấy hội thoại với ID {session_id}",
+                            "session_id": session_id,
+                        },
+                    )
 
             # Đọc nội dung file JSON
             with open(file_path, "r", encoding="utf-8") as f:
                 conversation_data = json.load(f)
+
+            # Nếu file được tìm thấy trong thư mục gốc, di chuyển nó vào thư mục người dùng
+            if file_path == os.path.join(
+                "D:\\DATN\\V2", "src", "conversation_history", f"{session_id}.json"
+            ):
+                # Đảm bảo thư mục người dùng tồn tại
+                os.makedirs(history_dir, exist_ok=True)
+
+                # Lưu file vào thư mục người dùng
+                conversation_data["user_id"] = user_id
+                with open(
+                    os.path.join(history_dir, f"{session_id}.json"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump(conversation_data, f, ensure_ascii=False, indent=2)
 
             return {
                 "status": "success",
@@ -2365,10 +2360,12 @@ async def create_conversation(current_user=Depends(get_current_user)):
     Trả về session_id của cuộc hội thoại mới tạo
     """
     try:
+        user_id = current_user.id
+
         # Kiểm tra xem conversation_manager có phải là SupabaseConversationManager không
         if hasattr(conversation_manager, "create_conversation"):
             # Sử dụng phương thức create_conversation của SupabaseConversationManager
-            session_id = conversation_manager.create_conversation(current_user.id)
+            session_id = conversation_manager.create_conversation(user_id)
             if not session_id:
                 raise HTTPException(
                     status_code=500, detail="Không thể tạo cuộc hội thoại mới"
@@ -2390,7 +2387,7 @@ async def create_conversation(current_user=Depends(get_current_user)):
 
             # Thêm tin nhắn chào mừng
             conversation_manager.add_ai_message(
-                session_id, "Bắt đầu cuộc hội thoại mới"
+                session_id, "Bắt đầu cuộc hội thoại mới", user_id=user_id
             )
 
             return {
@@ -2417,12 +2414,12 @@ async def delete_conversation(
     - **session_id**: ID phiên hội thoại cần xóa
     """
     try:
+        user_id = current_user.id
+
         # Kiểm tra xem conversation_manager có phải là SupabaseConversationManager không
         if hasattr(conversation_manager, "delete_conversation"):
             # Sử dụng phương thức delete_conversation của SupabaseConversationManager
-            success = conversation_manager.delete_conversation(
-                session_id, current_user.id
-            )
+            success = conversation_manager.delete_conversation(session_id, user_id)
             if not success:
                 return JSONResponse(
                     status_code=404,
@@ -2434,23 +2431,32 @@ async def delete_conversation(
                 )
         else:
             # Xóa bộ nhớ hội thoại
-            conversation_manager.clear_memory(session_id)
+            conversation_manager.clear_memory(session_id, user_id=user_id)
 
             # Xóa file lưu trữ cục bộ nếu có
-            history_dir = os.path.join("src", "conversation_history")
+            history_dir = os.path.join(
+                "D:\\DATN\\V2", "src", "conversation_history", user_id
+            )
             file_path = os.path.join(history_dir, f"{session_id}.json")
 
             if os.path.exists(file_path):
                 os.remove(file_path)
             else:
-                return JSONResponse(
-                    status_code=404,
-                    content={
-                        "status": "error",
-                        "message": f"Không tìm thấy hội thoại với ID {session_id}",
-                        "session_id": session_id,
-                    },
+                # Kiểm tra trong thư mục gốc
+                root_path = os.path.join(
+                    "D:\\DATN\\V2", "src", "conversation_history", f"{session_id}.json"
                 )
+                if os.path.exists(root_path):
+                    os.remove(root_path)
+                else:
+                    return JSONResponse(
+                        status_code=404,
+                        content={
+                            "status": "error",
+                            "message": f"Không tìm thấy hội thoại với ID {session_id}",
+                            "session_id": session_id,
+                        },
+                    )
 
         return {
             "status": "success",

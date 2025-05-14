@@ -17,9 +17,22 @@ class ConversationManager:
         self.return_messages = return_messages
         self.output_key = output_key
 
-        # Thư mục lưu trữ lịch sử hội thoại
-        self.history_dir = os.path.join("src", "conversation_history")
+        # Thư mục gốc lưu trữ lịch sử hội thoại
+        self.base_history_dir = os.path.join(
+            "D:\\DATN\\V2", "src", "conversation_history"
+        )
+        self.history_dir = self.base_history_dir
         os.makedirs(self.history_dir, exist_ok=True)
+
+    def _get_user_history_dir(self, user_id: Optional[str] = None) -> str:
+        """Lấy đường dẫn thư mục lưu trữ lịch sử cho user cụ thể"""
+        if not user_id:
+            return self.base_history_dir
+
+        # Tạo thư mục cho người dùng cụ thể
+        user_dir = os.path.join(self.base_history_dir, user_id)
+        os.makedirs(user_dir, exist_ok=True)
+        return user_dir
 
     def get_memory(self, session_id: str) -> ConversationBufferMemory:
         """Lấy hoặc tạo bộ nhớ cho một phiên hội thoại cụ thể"""
@@ -32,17 +45,21 @@ class ConversationManager:
             )
         return self.memories[session_id]
 
-    def add_user_message(self, session_id: str, message: str) -> None:
+    def add_user_message(
+        self, session_id: str, message: str, user_id: Optional[str] = None
+    ) -> None:
         """Thêm tin nhắn người dùng vào bộ nhớ"""
         memory = self.get_memory(session_id)
         memory.chat_memory.add_user_message(message)
-        self._save_history(session_id)
+        self._save_history(session_id, user_id=user_id)
 
-    def add_ai_message(self, session_id: str, message: str) -> None:
+    def add_ai_message(
+        self, session_id: str, message: str, user_id: Optional[str] = None
+    ) -> None:
         """Thêm tin nhắn AI vào bộ nhớ"""
         memory = self.get_memory(session_id)
         memory.chat_memory.add_ai_message(message)
-        self._save_history(session_id)
+        self._save_history(session_id, user_id=user_id)
 
     def get_conversation_history(self, session_id: str) -> str:
         """Lấy lịch sử cuộc hội thoại dưới dạng chuỗi văn bản"""
@@ -65,21 +82,28 @@ class ConversationManager:
 
         return messages
 
-    def clear_memory(self, session_id: str) -> None:
+    def clear_memory(self, session_id: str, user_id: Optional[str] = None) -> bool:
         """Xóa bộ nhớ cho một phiên hội thoại cụ thể"""
         if session_id in self.memories:
             self.memories[session_id].clear()
-            self._save_history(session_id, is_cleared=True)
+            self._save_history(session_id, is_cleared=True, user_id=user_id)
+            return True
+        return False
 
-    def _save_history(self, session_id: str, is_cleared: bool = False) -> None:
+    def _save_history(
+        self, session_id: str, is_cleared: bool = False, user_id: Optional[str] = None
+    ) -> None:
         """Lưu lịch sử hội thoại ra file"""
         try:
-            file_path = os.path.join(self.history_dir, f"{session_id}.json")
+            # Lấy thư mục lưu trữ dựa trên user_id
+            history_dir = self._get_user_history_dir(user_id)
+            file_path = os.path.join(history_dir, f"{session_id}.json")
 
             if is_cleared:
                 # Nếu đã xóa bộ nhớ, tạo dữ liệu trống
                 history_data = {
                     "session_id": session_id,
+                    "user_id": user_id,
                     "last_updated": datetime.datetime.now().isoformat(),
                     "messages": [],
                 }
@@ -88,6 +112,7 @@ class ConversationManager:
                 messages = self.get_messages(session_id)
                 history_data = {
                     "session_id": session_id,
+                    "user_id": user_id,
                     "last_updated": datetime.datetime.now().isoformat(),
                     "messages": messages,
                 }
@@ -99,12 +124,19 @@ class ConversationManager:
         except Exception as e:
             print(f"Lỗi khi lưu lịch sử hội thoại: {str(e)}")
 
-    def load_history(self, session_id: str) -> bool:
+    def load_history(self, session_id: str, user_id: Optional[str] = None) -> bool:
         """Tải lịch sử hội thoại từ file"""
         try:
-            file_path = os.path.join(self.history_dir, f"{session_id}.json")
+            # Lấy thư mục lưu trữ dựa trên user_id
+            history_dir = self._get_user_history_dir(user_id)
+            file_path = os.path.join(history_dir, f"{session_id}.json")
 
-            if not os.path.exists(file_path):
+            # Nếu không tìm thấy trong thư mục user, thử tìm trong thư mục gốc
+            if not os.path.exists(file_path) and user_id:
+                file_path = os.path.join(self.base_history_dir, f"{session_id}.json")
+                if not os.path.exists(file_path):
+                    return False
+            elif not os.path.exists(file_path):
                 return False
 
             with open(file_path, "r", encoding="utf-8") as f:
@@ -127,6 +159,12 @@ class ConversationManager:
                     memory.chat_memory.add_user_message(message["content"])
                 else:
                     memory.chat_memory.add_ai_message(message["content"])
+
+            # Nếu file được tìm thấy trong thư mục gốc và có user_id, di chuyển nó vào thư mục user
+            if user_id and file_path == os.path.join(
+                self.base_history_dir, f"{session_id}.json"
+            ):
+                self._save_history(session_id, user_id=user_id)
 
             return True
 
