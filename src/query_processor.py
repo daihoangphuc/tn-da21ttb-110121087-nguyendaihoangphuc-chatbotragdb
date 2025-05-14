@@ -2,46 +2,42 @@ from typing import Dict, List, Optional
 import re
 import os
 from dotenv import load_dotenv
+from src.llm import GeminiLLM
 
 # Load biến môi trường từ .env
 load_dotenv()
 
 
 class QueryProcessor:
-    """Module xử lý truy vấn cơ bản (không sử dụng query expansion)"""
+    """Xử lý mở rộng truy vấn và giải quyết đồng tham chiếu"""
 
     def __init__(self):
-        """Khởi tạo processor với cấu hình đơn giản"""
-        self.max_query_length = int(os.getenv("MAX_QUERY_LENGTH", "250"))
-        print("Đã khởi tạo QueryProcessor đơn giản (không dùng query expansion)")
+        """Khởi tạo bộ xử lý truy vấn"""
+        self.llm = GeminiLLM()  # Hoặc một LLM nhẹ hơn dành riêng cho nhiệm vụ này
 
-    def extract_keywords(self, text: str, max_keywords: int = 10) -> List[str]:
-        """Trích xuất từ khóa từ văn bản"""
-        # Trích xuất đơn giản dựa trên tần suất từ
-        words = re.findall(r"\b\w{3,}\b", text.lower())
-        word_freq = {}
-        for word in words:
-            if word not in word_freq:
-                word_freq[word] = 0
-            word_freq[word] += 1
+    def expand_query(self, query: str, conversation_history: str) -> str:
+        """Mở rộng truy vấn bằng cách giải quyết đồng tham chiếu từ lịch sử hội thoại"""
+        if not conversation_history or len(conversation_history.strip()) == 0:
+            return query  # Không cần mở rộng nếu không có lịch sử
 
-        # Loại bỏ các từ dừng phổ biến
-        stop_words = {
-            "và",
-            "hoặc",
-            "là",
-            "của",
-            "trong",
-            "trên",
-            "dưới",
-            "có",
-            "được",
-            "cho",
-            "này",
-            "những",
-        }
-        word_freq = {k: v for k, v in word_freq.items() if k not in stop_words}
+        prompt = f"""
+        Dưới đây là lịch sử cuộc trò chuyện:
+        
+        {conversation_history}
+        
+        Câu hỏi tiếp theo: "{query}"
+        
+        Nhiệm vụ: Xem xét lịch sử trò chuyện và viết lại câu hỏi để nó rõ ràng, hoàn chỉnh và có thể hiểu độc lập, không phụ thuộc vào ngữ cảnh. 
+        Thay thế các đại từ (như "nó", "chúng") bằng các từ tham chiếu cụ thể. Viết lại câu hỏi một cách tự nhiên.
+        
+        Chỉ trả về câu hỏi đã viết lại, không thêm giải thích hay bất kỳ nội dung nào khác.
+        """
 
-        # Sắp xếp theo tần suất
-        sorted_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)
-        return [word for word, freq in sorted_words[:max_keywords]]
+        response = self.llm.invoke(prompt)
+        expanded_query = response.content.strip()
+
+        # Ghi log để debug
+        print(f"Câu hỏi gốc: '{query}'")
+        print(f"Câu hỏi mở rộng: '{expanded_query}'")
+
+        return expanded_query

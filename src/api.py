@@ -100,7 +100,9 @@ class AnswerResponse(BaseModel):
     question_id: str
     question: str
     answer: str
-    sources: List[Dict]  # Sẽ bao gồm source, page, section, score, content_snippet
+    sources: List[
+        Dict
+    ]  # Sẽ bao gồm source, page, section, score, content_snippet, original_page
     search_method: str
     total_reranked: Optional[int] = None  # Thêm trường hiển thị số lượng kết quả rerank
     filtered_sources: Optional[List[str]] = None  # Danh sách các file nguồn đã được lọc
@@ -108,6 +110,11 @@ class AnswerResponse(BaseModel):
     processing_time: Optional[float] = None  # Thời gian xử lý (giây)
     debug_info: Optional[Dict] = None  # Thông tin debug bổ sung
     related_questions: Optional[List[str]] = None  # Danh sách các câu hỏi liên quan
+    is_low_confidence: Optional[bool] = None  # Trạng thái độ tin cậy thấp
+    confidence_score: Optional[float] = None  # Điểm tin cậy của câu trả lời
+    query_type: Optional[str] = (
+        None  # Loại câu hỏi: question_from_document, realtime_question, other_question
+    )
 
 
 class SQLAnalysisRequest(BaseModel):
@@ -651,16 +658,28 @@ async def ask_question_stream(
         # Hàm generator để cung cấp dữ liệu cho SSE
         async def generate_response_stream():
             try:
-                # Gọi RAG để lấy kết quả dạng stream
-                async for chunk in rag_system.query_with_sources_streaming(
+                # Gọi RAG để lấy kết quả dạng stream - không cần await vì đây là async generator
+                stream_generator = rag_system.query_with_sources_streaming(
                     request.question,
                     search_type=request.search_type,
                     alpha=request.alpha,
                     sources=request.sources,
                     conversation_history=conversation_history,
-                ):
+                )
+
+                # Thu thập toàn bộ nội dung để lưu lịch sử
+                full_answer = ""
+
+                # Sử dụng async for để lặp qua stream generator
+                async for chunk in stream_generator:
                     # Xử lý chunk tùy theo loại
-                    if chunk["type"] == "sources":
+                    if chunk["type"] == "start":
+                        # Truyền thông tin bắt đầu
+                        chunk["data"]["question_id"] = question_id
+                        chunk["data"]["session_id"] = session_id
+                        yield f"event: start\ndata: {json.dumps(chunk['data'])}\n\n"
+
+                    elif chunk["type"] == "sources":
                         # Giới hạn số lượng nguồn trả về theo tham số nếu người dùng yêu cầu
                         if (
                             max_sources
@@ -680,26 +699,25 @@ async def ask_question_stream(
 
                     elif chunk["type"] == "content":
                         # Trả về từng đoạn nội dung
-                        yield f"event: content\ndata: {json.dumps({'content': chunk['data']})}\n\n"
+                        yield f"event: content\ndata: {json.dumps({'content': chunk['data']['content']})}\n\n"
+
+                        # Thu thập toàn bộ nội dung
+                        full_answer += chunk["data"]["content"]
 
                     elif chunk["type"] == "end":
                         # Khi kết thúc, thêm thông tin bổ sung
                         chunk["data"]["question_id"] = question_id
                         chunk["data"]["session_id"] = session_id
 
-                        # Lưu vào lịch sử nếu đã có đủ dữ liệu
-                        if hasattr(generate_response_stream, "full_answer"):
-                            # Thêm câu trả lời của AI vào bộ nhớ hội thoại
-                            conversation_manager.add_ai_message(
-                                session_id, generate_response_stream.full_answer
-                            )
+                        # Thêm câu trả lời của AI vào bộ nhớ hội thoại
+                        if full_answer:
+                            conversation_manager.add_ai_message(session_id, full_answer)
 
                             # Tạo các câu hỏi liên quan sau khi có kết quả đầy đủ
                             try:
                                 related_questions = (
                                     await rag_system.generate_related_questions(
-                                        request.question,
-                                        generate_response_stream.full_answer,
+                                        request.question, full_answer
                                     )
                                 )
                                 # Thêm vào chunk data để trả về cho client
@@ -713,14 +731,17 @@ async def ask_question_stream(
                                     "Bạn có muốn biết thêm thông tin về ứng dụng thực tế không?",
                                 ]
 
+                            # Lưu vào lịch sử
                             questions_history[question_id] = {
                                 "question": request.question,
                                 "search_type": request.search_type,
                                 "alpha": request.alpha,
                                 "sources": request.sources,
                                 "timestamp": datetime.now().isoformat(),
-                                "answer": generate_response_stream.full_answer,
-                                "processing_time": chunk["data"]["processing_time"],
+                                "answer": full_answer,
+                                "processing_time": chunk["data"].get(
+                                    "processing_time", 0
+                                ),
                                 "session_id": session_id,
                                 "related_questions": chunk["data"].get(
                                     "related_questions", []
@@ -729,13 +750,6 @@ async def ask_question_stream(
 
                         # Trả về sự kiện kết thúc
                         yield f"event: end\ndata: {json.dumps(chunk['data'])}\n\n"
-
-                    # Thu thập toàn bộ nội dung để lưu lịch sử
-                    if chunk["type"] == "content":
-                        if not hasattr(generate_response_stream, "full_answer"):
-                            generate_response_stream.full_answer = chunk["data"]
-                        else:
-                            generate_response_stream.full_answer += chunk["data"]
 
             except Exception as e:
                 # Trả về lỗi dưới dạng SSE
@@ -747,6 +761,9 @@ async def ask_question_stream(
                 }
                 yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
                 print(f"Lỗi khi xử lý stream: {str(e)}")
+                import traceback
+
+                print(f"Chi tiết lỗi: {traceback.format_exc()}")
 
         # Trả về StreamingResponse với định dạng SSE
         return StreamingResponse(

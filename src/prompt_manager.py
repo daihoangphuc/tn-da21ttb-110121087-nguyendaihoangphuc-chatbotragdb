@@ -30,9 +30,14 @@ class PromptManager:
             --Cung cấp ví dụ cụ thể--
             Sử dụng ví dụ cụ thể, thực tế để minh họa khái niệm. Nếu phù hợp, hãy đề xuất các bài tập ngắn để tôi có thể thực hành.
 
-            NGUYÊN TẮC TRÍCH DẪN:
-            - Khi sử dụng thông tin từ tài liệu, đặt nguồn trong ngoặc đơn: (nguồn)
-            - Nếu không có thông tin trong tài liệu, hãy nói rõ "Tôi không tìm thấy thông tin về [chủ đề] trong tài liệu được cung cấp."
+            NGUYÊN TẮC NGHIÊM NGẶT VỀ THÔNG TIN:
+            - BẠN CHỈ ĐƯỢC SỬ DỤNG THÔNG TIN CÓ TRONG TÀI LIỆU NGUỒN đã cung cấp ở phần Ngữ cảnh.
+            - TRẢ LỜI CHÍNH XÁC NHỮNG GÌ ĐƯỢC ĐỀ CẶP TRONG NGỮ CẢNH KHÔNG ĐƯỢC TỰ Ý THÊM BỚT.
+            - CÓ THỂ TỰ ĐIỀU CHỈNH NHỮNG TRƯỜNG HỢP NHƯ CHỮ KHÔNG DẪU, SAI CHÍNH TẢ, ...
+            - KHÔNG ĐƯỢC SỬ DỤNG KIẾN THỨC BÊN NGOÀI, dù bạn biết thông tin đó.
+            - Mỗi khi sử dụng thông tin từ tài liệu, hãy trích dẫn nguồn cụ thể bằng cách đặt nguồn trong ngoặc đơn: (nguồn).
+            - Nếu không tìm thấy thông tin đầy đủ để trả lời câu hỏi, KHÔNG được sử dụng kiến thức bên ngoài. Hãy trả lời: "Tôi không thể trả lời đầy đủ câu hỏi này dựa trên tài liệu hiện có. Thông tin về [chủ đề] không được tìm thấy trong tài liệu được cung cấp."
+            - Nếu chỉ tìm thấy một phần thông tin, hãy chỉ trả lời phần đó và nói rõ: "Tôi chỉ tìm thấy thông tin giới hạn về chủ đề này trong tài liệu được cung cấp."
 
             NGUYÊN TẮC ĐỊNH DẠNG MARKDOWN:
             - Sử dụng ## cho tiêu đề chính, ### cho tiêu đề phụ
@@ -63,6 +68,7 @@ class PromptManager:
             2. [Câu hỏi 2]
             3. [Câu hỏi 3]
             
+            - NẾU CÂU HỎI NGƯỜI DÙNG ĐẶT RA KHÔNG LIÊN QUAN ĐẾN LĨNH VỰC VỰC CƠ SỞ DỮ LIỆU THÌ HÃY ĐƯA RA 3 CÂU HỔI TRÊN SAO CHO HƯỚNG NGƯỜI DÙNG ĐẾN VIỆC HỎI CÁC CÂU HỎI LIÊN QUAN ĐẾ LĨNH VỰC CƠ SỞ DỮ LIỆU.
             QUAN TRỌNG: Chỉ trả về 3 câu hỏi theo đúng format trên, KHÔNG có nội dung giới thiệu hoặc kết luận. Mỗi câu hỏi phải là câu hoàn chỉnh kết thúc bằng dấu hỏi.
             """,
         }
@@ -101,7 +107,7 @@ class PromptManager:
                 f"Citation: {source_citation}\n"
                 f"Page/Position: {page}\n"
                 f"Section: {section}\n"
-                f"Content: {doc['text']}"
+                f"Content: {doc.get('text', doc.get('content', 'Không có nội dung'))}"
             )
             context_entries.append(context_entry)
 

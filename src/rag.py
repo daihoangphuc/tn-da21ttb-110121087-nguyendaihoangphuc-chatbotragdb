@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, AsyncGenerator
 from src.embedding import EmbeddingModel
 from src.llm import GeminiLLM
 from src.vector_store import VectorStore
@@ -6,11 +6,13 @@ from src.document_processor import DocumentProcessor
 from src.prompt_manager import PromptManager
 from src.search import SearchManager
 from src.query_processor import QueryProcessor
+from src.query_router import QueryRouter
 import os
 import re
 import concurrent.futures
 from dotenv import load_dotenv
 import time
+import asyncio
 
 # Load biến môi trường từ .env
 load_dotenv()
@@ -29,9 +31,13 @@ class AdvancedDatabaseRAG:
         self.prompt_manager = PromptManager()
         self.search_manager = SearchManager(self.vector_store, self.embedding_model)
 
-        # Không sử dụng QueryProcessor vì đã loại bỏ tính năng query expansion
-        self.query_processor = None
-        print("Query expansion bị tắt")
+        # Thêm QueryProcessor cho việc xử lý đồng tham chiếu
+        self.query_processor = QueryProcessor()
+        print("Đã khởi tạo QueryProcessor với khả năng xử lý đồng tham chiếu")
+
+        # Thêm QueryRouter cho việc phân loại câu hỏi
+        self.query_router = QueryRouter()
+        print("Đã khởi tạo QueryRouter để phân loại câu hỏi thành 3 loại")
 
         # Đọc tham số alpha mặc định từ biến môi trường
         try:
@@ -65,6 +71,12 @@ class AdvancedDatabaseRAG:
         self.fact_checking_threshold = float(
             os.getenv("FACT_CHECKING_THRESHOLD", "0.6")
         )
+
+        # Cấu hình confidence threshold cho kết quả
+        self.enable_confidence_check = os.getenv(
+            "ENABLE_CONFIDENCE_CHECK", "True"
+        ).lower() in ["true", "1", "yes"]
+        self.confidence_threshold = float(os.getenv("CONFIDENCE_THRESHOLD", "0.5"))
 
         # Cài đặt cơ chế xử lý song song
         self.max_workers = int(os.getenv("MAX_PARALLEL_WORKERS", "4"))
@@ -413,6 +425,29 @@ class AdvancedDatabaseRAG:
 
         start_time = time.time()
 
+        # Lưu lại câu hỏi gốc
+        original_query = query
+
+        # Mở rộng câu hỏi nếu có lịch sử hội thoại và đối tượng query_processor
+        if conversation_history and self.query_processor:
+            query = self.query_processor.expand_query(query, conversation_history)
+            print(f"Đã mở rộng câu hỏi: '{original_query}' -> '{query}'")
+
+        # Phân loại câu hỏi bằng QueryRouter
+        query_type = self.query_router._classify_with_llm(query)
+        print(f"Phân loại ban đầu: '{query_type}'")
+
+        # Nếu là other_question, trả về ngay
+        if query_type == "other_question":
+            return {
+                "answer": "Vì mình là Chatbot chỉ hỗ trợ và phản hồi trong lĩnh vực cơ sở dữ liệu thôi.",
+                "sources": [],
+                "question": original_query,
+                "search_method": "none",
+                "expanded_query": query if query != original_query else None,
+                "query_type": "other_question",
+            }
+
         # Tăng số lượng kết quả ban đầu để có nhiều hơn cho reranking
         search_k = 25  # Tăng lên 25 kết quả đầu vào
 
@@ -428,13 +463,44 @@ class AdvancedDatabaseRAG:
                 query, k=search_k, alpha=alpha, sources=sources
             )
 
-        # Nếu không có kết quả tìm kiếm, trả về thông báo không tìm thấy
+        # Phân loại lại câu hỏi dựa trên kết quả tìm kiếm
+        vector_store_has_results = len(retrieved) > 0
+        final_query_type = self.query_router.classify_query(
+            query, vector_store_has_results=vector_store_has_results
+        )
+        print(f"Phân loại cuối cùng: '{final_query_type}'")
+
+        # Nếu là realtime_question, trả về ngay
+        if final_query_type == "realtime_question":
+            return {
+                "answer": "Đây là câu hỏi thời gian thực mình không đủ kiến thức đề trả lời cho bạn hiện tại.",
+                "sources": [],
+                "question": original_query,
+                "search_method": search_type,
+                "expanded_query": query if query != original_query else None,
+                "query_type": "realtime_question",
+            }
+
+        # Nếu là other_question, trả về ngay
+        if final_query_type == "other_question":
+            return {
+                "answer": "Vì mình là Chatbot chỉ hỗ trợ và phản hồi trong lĩnh vực cơ sở dữ liệu thôi.",
+                "sources": [],
+                "question": original_query,
+                "search_method": search_type,
+                "expanded_query": query if query != original_query else None,
+                "query_type": "other_question",
+            }
+
+        # Nếu không có kết quả tìm kiếm
         if not retrieved:
             return {
                 "answer": "Không tìm thấy thông tin liên quan đến câu hỏi này trong cơ sở dữ liệu.",
                 "sources": [],
-                "question": query,
+                "question": original_query,
                 "search_method": search_type,
+                "expanded_query": query if query != original_query else None,
+                "query_type": "question_from_document",
             }
 
         # Lưu thông tin về số lượng kết quả được rerank
@@ -453,6 +519,25 @@ class AdvancedDatabaseRAG:
             # Giới hạn số lượng kết quả
             retrieved = retrieved[:10]
 
+        # Kiểm tra độ tin cậy của kết quả
+        is_low_confidence = False
+        confidence_message = ""
+        if self.enable_confidence_check and retrieved:
+            # Lấy rerank_score cao nhất của kết quả đầu tiên
+            top_score = retrieved[0].get("rerank_score", 0)
+            print(
+                f"Top rerank_score: {top_score}, Threshold: {self.confidence_threshold}"
+            )
+
+            if top_score < self.confidence_threshold:
+                is_low_confidence = True
+                confidence_message = (
+                    f"\n\n**Lưu ý**: Độ tin cậy của câu trả lời này thấp "
+                    f"(điểm {top_score:.2f} < ngưỡng {self.confidence_threshold:.2f}). "
+                    f"Thông tin có thể không đầy đủ hoặc không chính xác hoàn toàn. "
+                    f"Vui lòng kiểm tra thêm thông tin từ các nguồn tham khảo."
+                )
+
         # Xác định loại câu hỏi
         question_type = self.prompt_manager.classify_question(query)
 
@@ -466,6 +551,11 @@ class AdvancedDatabaseRAG:
 
         # Gọi LLM để tạo câu trả lời
         response = self.llm.invoke(prompt)
+        answer_content = response.content
+
+        # Thêm cảnh báo độ tin cậy thấp nếu cần
+        if is_low_confidence:
+            answer_content += confidence_message
 
         # Chuẩn bị phần thông tin về nguồn tham khảo
         sources_info = []
@@ -490,9 +580,28 @@ class AdvancedDatabaseRAG:
                 if key in metadata and metadata[key]:
                     special_metadata[key] = True
 
+            # Cải thiện thông tin trang để hiển thị chính xác
+            page_info = metadata.get("page", "Unknown")
+            page_source = metadata.get("page_source", "unknown")
+            section_in_page = metadata.get("section_in_page", "")
+
+            # Định dạng thông tin trang dựa trên nguồn
+            if page_source == "original_document":
+                # Nếu là trang gốc từ tài liệu, hiển thị rõ ràng
+                formatted_page = f"Trang {page_info}"
+                if section_in_page:
+                    formatted_page += f" (Phần {section_in_page})"
+            elif page_source == "auto_generated":
+                # Nếu là trang tự động tạo, đánh dấu rõ
+                formatted_page = f"{page_info} (tự động tạo)"
+            else:
+                # Trường hợp khác
+                formatted_page = f"{page_info}"
+
             source_info = {
                 "source": metadata.get("source", doc.get("source", "Unknown")),
-                "page": metadata.get("page", "Unknown"),
+                "page": formatted_page,
+                "original_page": metadata.get("original_page", page_info),
                 "section": metadata.get(
                     "position", metadata.get("chunk_type", "Unknown")
                 ),
@@ -509,12 +618,20 @@ class AdvancedDatabaseRAG:
         print(f"Tổng thời gian trả lời: {total_time:.2f}s")
 
         return {
-            "answer": response.content,
+            "answer": answer_content,
             "sources": sources_info,
-            "question": query,
+            "question": original_query,  # Trả về câu hỏi gốc
+            "expanded_query": (
+                query if query != original_query else None
+            ),  # Thêm thông tin query đã expand
             "search_method": search_type,
             "total_reranked": total_reranked,  # Thêm tổng số kết quả được rerank
             "filtered_sources": sources,
+            "is_low_confidence": is_low_confidence,  # Thêm trạng thái độ tin cậy thấp
+            "confidence_score": (
+                retrieved[0].get("rerank_score", 0) if retrieved else 0
+            ),  # Thêm điểm tin cậy
+            "query_type": final_query_type,
         }
 
     async def query_with_sources_streaming(
@@ -522,146 +639,281 @@ class AdvancedDatabaseRAG:
         query: str,
         search_type: str = "hybrid",
         alpha: float = None,
+        k: int = 10,
         sources: List[str] = None,
         conversation_history: str = None,
-    ):
-        """Gọi model LLM với prompt và trả về kết quả dạng streaming"""
-        # Sử dụng alpha mặc định nếu không được chỉ định
-        if alpha is None:
-            alpha = self.default_alpha
+    ) -> AsyncGenerator[Dict, None]:
+        """
+        Truy vấn hệ thống RAG với các nguồn và trả về kết quả dưới dạng stream
 
-        print(f"=== Bắt đầu streaming cho query: '{query}' ===")
+        Args:
+            query: Câu hỏi người dùng
+            search_type: Loại tìm kiếm ("semantic", "keyword", "hybrid")
+            alpha: Hệ số kết hợp giữa semantic và keyword search
+            k: Số lượng kết quả trả về
+            sources: Danh sách các file nguồn cần tìm kiếm
+            conversation_history: Lịch sử hội thoại
+
+        Returns:
+            AsyncGenerator trả về từng phần của câu trả lời
+        """
+        print(f"Đang xử lý câu hỏi (stream): '{query}'")
+        print(f"Phương pháp tìm kiếm: {search_type}")
+        print(f"Alpha: {alpha if alpha is not None else self.default_alpha}")
 
         # Bắt đầu đo thời gian xử lý
         start_time = time.time()
 
-        try:
-            # Xác định loại tìm kiếm
-            if search_type == "semantic":
-                retrieved = self.semantic_search(query, k=25, sources=sources)
-            elif search_type == "keyword":
-                retrieved = self.search_manager.keyword_search(
-                    query, k=25, sources=sources
-                )
-            else:
-                retrieved = self.hybrid_search(
-                    query, k=25, alpha=alpha, sources=sources
-                )
+        # Xử lý query với QueryProcessor nếu có conversation_history
+        if conversation_history and len(conversation_history.strip()) > 0:
+            print(f"Lịch sử hội thoại: {conversation_history[:100]}...")
+            expanded_query = self.query_processor.expand_query(
+                query, conversation_history
+            )
+            print(f"Câu hỏi ban đầu: {query}")
+            print(f"Câu hỏi mở rộng: {expanded_query}")
+            query_to_use = expanded_query
+        else:
+            query_to_use = query
 
-            # Nếu không có kết quả tìm kiếm, trả về thông báo không tìm thấy
-            if not retrieved:
-                yield {
-                    "type": "sources",
-                    "data": {
-                        "sources": [],
-                        "total_reranked": 0,
-                        "search_method": search_type,
-                    },
-                }
+        # Phân loại câu hỏi bằng QueryRouter
+        query_type = self.query_router.classify_query(query_to_use)
+        print(f"Loại câu hỏi: {query_type}")
 
-                yield {
-                    "type": "content",
-                    "data": "Không tìm thấy thông tin liên quan đến câu hỏi này trong cơ sở dữ liệu.",
-                }
-
-                end_time = time.time()
-                yield {
-                    "type": "end",
-                    "data": {"processing_time": round(end_time - start_time, 2)},
-                }
-                return
-
-            # Lưu thông tin về số lượng kết quả được rerank
-            total_reranked = 0
-            for result in retrieved:
-                if "total_reranked" in result:
-                    total_reranked = max(total_reranked, result["total_reranked"])
-
-            if total_reranked == 0:
-                total_reranked = len(retrieved)
-
-            # Chỉ rerank nếu không phải hybrid search (đã được rerank)
-            if search_type != "hybrid":
-                # Tái xếp hạng kết quả
-                retrieved = self.rerank_results(query, retrieved)
-                # Giới hạn số lượng kết quả
-                retrieved = retrieved[:10]
-
-            # Chuẩn bị phần thông tin về nguồn tham khảo
-            sources_info = []
-            for idx, doc in enumerate(retrieved[:10]):  # Giới hạn hiển thị 10 nguồn
-                # Lấy metadata
-                metadata = doc.get("metadata", {})
-
-                # Tính điểm nâng cao từ metadata nếu có
-                metadata_boost = doc.get("metadata_boost", 0.0)
-
-                # Kiểm tra các metadata đặc biệt
-                special_metadata = {}
-                for key in [
-                    "chứa_định_nghĩa",
-                    "chứa_cú_pháp",
-                    "chứa_mẫu_code",
-                    "chứa_cú_pháp_select",
-                    "chứa_cú_pháp_join",
-                    "chứa_cú_pháp_ddl",
-                    "chứa_cú_pháp_dml",
-                ]:
-                    if key in metadata and metadata[key]:
-                        special_metadata[key] = True
-
-                source_info = {
-                    "source": metadata.get("source", doc.get("source", "Unknown")),
-                    "page": metadata.get("page", "Unknown"),
-                    "section": metadata.get(
-                        "position", metadata.get("chunk_type", "Unknown")
-                    ),
-                    "content_snippet": doc["text"][:300] + "...",  # Hiển thị preview
-                    "score": doc.get("score", 0.0),
-                    "rerank_score": doc.get("rerank_score", 0.0),  # Điểm sau rerank
-                    "metadata_boost": metadata_boost,  # Thêm thông tin về điểm nâng cao từ metadata
-                    "special_metadata": special_metadata,  # Các metadata đặc biệt
-                }
-                sources_info.append(source_info)
-
-            # Trả về nguồn tham khảo
+        # Trả về ngay nếu là câu hỏi không liên quan đến cơ sở dữ liệu
+        if query_type == "other_question":
+            # Trả về thông báo bắt đầu
             yield {
-                "type": "sources",
+                "type": "start",
                 "data": {
-                    "sources": sources_info,
-                    "total_reranked": total_reranked,
-                    "search_method": search_type,
+                    "query_type": query_type,
+                    "search_type": search_type,
+                    "alpha": alpha if alpha is not None else self.default_alpha,
+                    "sources": sources,
                 },
             }
 
-            # Xác định loại câu hỏi
-            question_type = self.prompt_manager.classify_question(query)
+            # Trả về nguồn rỗng
+            yield {
+                "type": "sources",
+                "data": {
+                    "sources": [],
+                    "filtered_sources": sources if sources else [],
+                },
+            }
 
-            # Tạo prompt phù hợp, bổ sung lịch sử hội thoại nếu có
-            if conversation_history:
-                prompt = self.prompt_manager.create_prompt_with_history(
-                    query, retrieved, question_type, conversation_history
-                )
-            else:
-                prompt = self.prompt_manager.create_prompt(
-                    query, retrieved, question_type
-                )
+            # Trả về nội dung
+            response = self.query_router.get_response_for_other_question(query)
+            yield {"type": "content", "data": {"content": response}}
 
-            # Gọi LLM streaming để tạo câu trả lời
-            async for content_chunk in self.llm.invoke_streaming(prompt):
-                yield {"type": "content", "data": content_chunk}
+            # Trả về kết thúc
+            elapsed_time = time.time() - start_time
+            yield {
+                "type": "end",
+                "data": {
+                    "processing_time": round(elapsed_time, 2),
+                    "query_type": query_type,
+                },
+            }
+            return
 
-            # Trả về thông tin kết thúc
-            end_time = time.time()
-            processing_time = round(end_time - start_time, 2)
-            yield {"type": "end", "data": {"processing_time": processing_time}}
+        # Trả về ngay nếu là câu hỏi thời gian thực
+        if query_type == "realtime_question":
+            # Trả về thông báo bắt đầu
+            yield {
+                "type": "start",
+                "data": {
+                    "query_type": query_type,
+                    "search_type": search_type,
+                    "alpha": alpha if alpha is not None else self.default_alpha,
+                    "sources": sources,
+                },
+            }
 
-            print(f"=== Kết thúc streaming sau {processing_time}s ===")
+            # Trả về nguồn rỗng
+            yield {
+                "type": "sources",
+                "data": {
+                    "sources": [],
+                    "filtered_sources": sources if sources else [],
+                },
+            }
 
+            # Trả về nội dung
+            response = self.query_router.prepare_realtime_response(query)
+            yield {"type": "content", "data": {"content": response}}
+
+            # Trả về kết thúc
+            elapsed_time = time.time() - start_time
+            yield {
+                "type": "end",
+                "data": {
+                    "processing_time": round(elapsed_time, 2),
+                    "query_type": query_type,
+                },
+            }
+            return
+
+        # Tìm kiếm dựa trên loại tìm kiếm được chỉ định
+        if search_type == "semantic":
+            search_results = self.semantic_search(query_to_use, k=k, sources=sources)
+        elif search_type == "keyword":
+            search_results = self.search_manager.keyword_search(
+                query_to_use, k=k, sources=sources
+            )
+        else:  # hybrid
+            search_results = self.hybrid_search(
+                query_to_use,
+                k=k,
+                alpha=alpha if alpha is not None else self.default_alpha,
+                sources=sources,
+            )
+
+        # Nếu không có kết quả tìm kiếm, trả về thông báo không tìm thấy
+        if not search_results or len(search_results) == 0:
+            # Trả về thông báo bắt đầu
+            yield {
+                "type": "start",
+                "data": {
+                    "query_type": "no_results",
+                    "search_type": search_type,
+                    "alpha": alpha if alpha is not None else self.default_alpha,
+                    "sources": sources,
+                },
+            }
+
+            # Trả về nguồn rỗng
+            yield {
+                "type": "sources",
+                "data": {
+                    "sources": [],
+                    "filtered_sources": sources if sources else [],
+                },
+            }
+
+            # Trả về nội dung
+            response = "Không tìm thấy thông tin liên quan đến câu hỏi của bạn trong tài liệu. Vui lòng thử lại với câu hỏi khác hoặc điều chỉnh từ khóa tìm kiếm."
+            yield {"type": "content", "data": {"content": response}}
+
+            # Trả về kết thúc
+            elapsed_time = time.time() - start_time
+            yield {
+                "type": "end",
+                "data": {
+                    "processing_time": round(elapsed_time, 2),
+                    "query_type": "no_results",
+                },
+            }
+            return
+
+        # Rerank kết quả nếu có nhiều hơn 1 kết quả
+        if len(search_results) > 1:
+            reranked_results = self.search_manager.rerank_results(
+                query_to_use, search_results
+            )
+            # Lấy số lượng kết quả đã rerank
+            total_reranked = len(reranked_results)
+        else:
+            reranked_results = search_results
+            total_reranked = 1
+
+        # Chuẩn bị context từ các kết quả đã rerank
+        context_docs = []
+        for i, result in enumerate(reranked_results[:5]):  # Chỉ lấy top 5 kết quả
+            # Chuẩn bị metadata
+            metadata = result.get("metadata", {})
+            source = metadata.get("source", "unknown")
+            page = metadata.get("page", "N/A")
+            section = metadata.get("section", "N/A")
+
+            # Thêm vào danh sách context
+            context_docs.append(
+                {
+                    "content": result["text"],
+                    "source": source,
+                    "page": page,
+                    "section": section,
+                    "score": result.get("score", 0.0),
+                }
+            )
+
+        # Chuẩn bị danh sách nguồn tham khảo
+        sources_list = []
+        for i, doc in enumerate(reranked_results):
+            # Trích xuất thông tin từ metadata
+            metadata = doc.get("metadata", {})
+            source = metadata.get("source", "unknown")
+            page = metadata.get("page", "N/A")
+            section = metadata.get("section", "N/A")
+
+            # Tạo snippet từ nội dung
+            content = doc["text"]
+            snippet = content[:200] + "..." if len(content) > 200 else content
+
+            # Thêm vào danh sách nguồn
+            sources_list.append(
+                {
+                    "source": source,
+                    "page": page,
+                    "section": section,
+                    "score": doc.get("score", 0.0),
+                    "content_snippet": snippet,
+                }
+            )
+
+        # Trả về thông báo bắt đầu
+        yield {
+            "type": "start",
+            "data": {
+                "query_type": query_type,
+                "search_type": search_type,
+                "alpha": alpha if alpha is not None else self.default_alpha,
+                "sources": sources,
+                "total_results": len(search_results),
+                "total_reranked": total_reranked,
+            },
+        }
+
+        # Trả về nguồn tham khảo
+        yield {
+            "type": "sources",
+            "data": {
+                "sources": sources_list,
+                "filtered_sources": sources if sources else [],
+            },
+        }
+
+        # Chuẩn bị prompt cho LLM
+        prompt = self.prompt_manager.create_prompt_with_history(
+            query_to_use, context_docs, conversation_history=conversation_history
+        )
+
+        # Gọi LLM để trả lời
+        try:
+            # Sử dụng LLM để trả lời dưới dạng stream
+            async for content in self.llm.stream(prompt):
+                yield {"type": "content", "data": {"content": content}}
         except Exception as e:
-            print(f"Lỗi trong quá trình streaming: {str(e)}")
-            # Kết thúc với lỗi
-            yield {"type": "error", "data": {"error_message": str(e)}}
+            print(f"Lỗi khi gọi LLM stream: {str(e)}")
+            # Trả về lỗi
+            yield {
+                "type": "content",
+                "data": {
+                    "content": f"Xin lỗi, có lỗi xảy ra khi xử lý câu hỏi: {str(e)}"
+                },
+            }
+
+        # Kết thúc đo thời gian
+        elapsed_time = time.time() - start_time
+
+        # Trả về kết thúc
+        yield {
+            "type": "end",
+            "data": {
+                "processing_time": round(elapsed_time, 2),
+                "query_type": query_type,
+            },
+        }
 
     def generate_response_with_context(
         self, query: str, retrieved: List[Dict], search_type: str = "hybrid"

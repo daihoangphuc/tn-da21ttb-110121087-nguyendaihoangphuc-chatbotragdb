@@ -2333,3 +2333,12 @@ input[type="checkbox"]:focus {
 .message-content.markdown > *:last-child {
     margin-bottom: 0;
 }
+
+/* Thêm CSS cho query type indicator */
+.query-type-indicator {
+    display: none !important;
+}
+
+.message-footer {
+    display: none !important;
+}

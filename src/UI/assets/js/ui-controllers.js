@@ -568,227 +568,25 @@ class ConversationController {
 
     // Thêm phương thức mới để cập nhật nội dung tin nhắn hiện tại
     updateMessageContent(content, isComplete = false, relatedQuestions = null) {
-        // Tìm tin nhắn assistant cuối cùng
-        const assistantMessages = document.querySelectorAll('.assistant-message');
-        if (assistantMessages.length === 0) return;
+        if (!this.currentMessage) return;
         
-        const lastAssistantMessage = assistantMessages[assistantMessages.length - 1];
-        const contentElement = lastAssistantMessage.querySelector('.message-content');
-        if (!contentElement) return;
+        // Cập nhật nội dung tin nhắn
+        const formattedContent = this.formatMessageContent(content);
+        this.currentMessage.querySelector('.message-content').innerHTML = formattedContent;
         
-        // Cập nhật nội dung markdown
-        const typingContent = contentElement.querySelector('.assistant-typing-content');
-        if (typingContent) {
-            // Nếu không có nội dung, hiển thị typing indicator
-            if (!content) {
-                typingContent.innerHTML = '<div class="typing-indicator-inline"><span></span><span></span><span></span></div>';
-                return;
-            }
-
-            // Nếu đã hoàn thành và nội dung giống nhau, không cần cập nhật
-            if (isComplete && typingContent.getAttribute('data-content') === content) {
-                // Kích hoạt lại input ngay cả khi không cần cập nhật nội dung
-                const messageInput = document.getElementById('messageInput');
-                const sendButton = document.getElementById('sendButton');
-                if (messageInput && sendButton) {
-                    messageInput.disabled = false;
-                    sendButton.disabled = messageInput.value.trim() === '';
-                    messageInput.focus();
-                }
-                return;
-            }
-
-            // Lưu nội dung hiện tại để so sánh
-            const currentContent = typingContent.getAttribute('data-content') || '';
-            
-            // Nếu nội dung mới ngắn hơn nội dung hiện tại, có thể là do stream bị ngắt
-            if (content.length < currentContent.length && !isComplete) {
-                return;
-            }
-
-            // Đảm bảo kích hoạt lại input khi hoàn thành
             if (isComplete) {
-                const messageInput = document.getElementById('messageInput');
-                const sendButton = document.getElementById('sendButton');
-                if (messageInput && sendButton) {
-                    messageInput.disabled = false;
-                    sendButton.disabled = messageInput.value.trim() === '';
-                    messageInput.focus();
-                }
-            }
-
-            // Tạo hiệu ứng đánh máy
-            if (currentContent === '') {
-                // Lần đầu tiên nhận được nội dung
-                typingContent.setAttribute('data-content', content);
-                typingContent.innerHTML = this.formatMessageContent(content);
-                typingContent.style.opacity = '0.7';
-                
-                // Kích hoạt lại input ngay lập tức nếu đã hoàn thành
-                if (isComplete) {
-                    typingContent.classList.add('typing-done');
-                    typingContent.style.opacity = '1';
-                    
-                    // Kích hoạt lại input sau khi hoàn thành
-                    const messageInput = document.getElementById('messageInput');
-                    const sendButton = document.getElementById('sendButton');
-                    if (messageInput && sendButton) {
-                        messageInput.disabled = false;
-                        sendButton.disabled = messageInput.value.trim() === '';
-                        messageInput.focus();
-                    }
-                }
-            } else {
-                // Cập nhật dần dần với độ trễ
-                const delay = 15; // Giảm độ trễ xuống 15ms
-                const newContent = content;
-                const oldContent = currentContent;
-                
-                // Tìm vị trí bắt đầu khác nhau
-                let diffIndex = 0;
-                while (diffIndex < oldContent.length && 
-                       diffIndex < newContent.length && 
-                       oldContent[diffIndex] === newContent[diffIndex]) {
-                    diffIndex++;
-                }
-                
-                // Chỉ cập nhật phần khác biệt
-                const remainingContent = newContent.slice(diffIndex);
-                let currentIndex = 0;
-                let buffer = '';
-                let lastRenderTime = 0;
-                
-                const typeNextChar = () => {
-                    const now = Date.now();
-                    
-                    // Tích lũy các ký tự vào buffer
-                    while (currentIndex < remainingContent.length) {
-                        buffer += remainingContent[currentIndex];
-                        currentIndex++;
-                        
-                        // Nếu gặp ký tự đặc biệt hoặc đã đủ 5 ký tự, render ngay
-                        if (buffer.length >= 5 || 
-                            buffer.includes('\n') || 
-                            buffer.includes('`') || 
-                            buffer.includes('*') ||
-                            currentIndex === remainingContent.length) {
-                            break;
-                        }
-                    }
-                    
-                    if (buffer.length > 0) {
-                        // Cập nhật nội dung
-                        const updatedContent = newContent.slice(0, diffIndex + currentIndex - buffer.length) + buffer;
-                        typingContent.setAttribute('data-content', updatedContent);
-                        
-                        // Chỉ render markdown khi cần thiết
-                        if (now - lastRenderTime > 50 || currentIndex === remainingContent.length) {
-                            typingContent.innerHTML = this.formatMessageContent(updatedContent);
-                            lastRenderTime = now;
-                        }
-                        
-                        buffer = '';
-                    }
-                    
-                    if (currentIndex < remainingContent.length) {
-                        setTimeout(typeNextChar, delay);
-                    } else if (isComplete) {
-                        // Khi hoàn thành, render lại lần cuối và thêm các event listeners
-                        typingContent.innerHTML = this.formatMessageContent(newContent);
-                        typingContent.classList.add('typing-done');
-                        typingContent.style.opacity = '1';
-                        
-                        // Thêm related questions nếu có
-                        if (relatedQuestions && Array.isArray(relatedQuestions) && relatedQuestions.length > 0) {
-                            console.log('Thêm câu hỏi liên quan:', relatedQuestions);
-                            const relatedQuestionsDiv = document.createElement('div');
-                            relatedQuestionsDiv.className = 'related-questions';
-                            
-                            let relatedQuestionsHTML = `
-                                <div class="related-questions-title">
-                                    <i class="fas fa-lightbulb mr-2"></i>Câu hỏi liên quan
-                                </div>
-                                <div class="related-question-list">
-                            `;
-                            
-                            relatedQuestions.forEach(question => {
-                                relatedQuestionsHTML += `
-                                    <div class="related-question-item" role="button">
-                                        ${question}
-                                    </div>
-                                `;
-                            });
-                            
-                            relatedQuestionsHTML += '</div>';
-                            relatedQuestionsDiv.innerHTML = relatedQuestionsHTML;
-                            contentElement.appendChild(relatedQuestionsDiv);
-                            
-                            // Thêm event listener cho các câu hỏi liên quan
-                            const questionItems = relatedQuestionsDiv.querySelectorAll('.related-question-item');
-                            questionItems.forEach(item => {
-                                item.addEventListener('click', () => {
-                                    const questionText = item.textContent.trim();
-                                    if (questionText) {
-                                        // Đặt câu hỏi vào input
-                                        const messageInput = document.getElementById('messageInput');
-                                        if (messageInput) {
-                                            messageInput.value = questionText;
-                                            // Focus vào input
-                                            messageInput.focus();
-                                            // Kích hoạt nút gửi
-                                            document.getElementById('sendButton').disabled = false;
-                                            // Tự động gửi câu hỏi
-                                            document.getElementById('messageForm').dispatchEvent(new Event('submit'));
-                                        }
-                                    }
-                                });
-                            });
-                        }
-                        
-                        // Thêm event listeners cho nút copy code
-                        const codeBlocks = typingContent.querySelectorAll('.code-block');
-                        codeBlocks.forEach(block => {
-                            const copyBtn = block.querySelector('.code-copy-btn');
-                            if (copyBtn) {
-                                const codeContent = block.querySelector('.code-content')?.textContent || '';
-                                copyBtn.addEventListener('click', () => {
-                                    navigator.clipboard.writeText(codeContent);
-                                    copyBtn.innerHTML = '<i class="fas fa-check"></i>';
-                                    setTimeout(() => {
-                                        copyBtn.innerHTML = '<i class="fas fa-copy"></i>';
-                                    }, 2000);
-                                });
-                            }
-                        });
-                        
-                        // Kích hoạt lại input sau khi quá trình hiển thị hoàn tất
-                        const messageInput = document.getElementById('messageInput');
-                        const sendButton = document.getElementById('sendButton');
-                        if (messageInput && sendButton) {
-                            messageInput.disabled = false;
-                            sendButton.disabled = messageInput.value.trim() === '';
-                            messageInput.focus();
-                        }
-                    }
-                };
-                
-                typeNextChar();
+            // Đã hoàn thành tin nhắn
+            this.currentMessage.classList.remove('loading');
+            this.loadingMessage = null;
+            
+            // Thêm related questions nếu có
+            if (relatedQuestions && relatedQuestions.length > 0) {
+                this.addRelatedQuestions(relatedQuestions);
             }
             
-            // Cuộn xuống tin nhắn mới nhất
+            // Kích hoạt highlight syntax
+            this.highlightCodeBlocks();
             this.scrollToBottom();
-        } else {
-            // Nếu không tìm thấy phần tử typing content, đảm bảo rằng input được kích hoạt lại
-            if (isComplete) {
-                // Kích hoạt lại input sau khi hoàn thành
-                const messageInput = document.getElementById('messageInput');
-                const sendButton = document.getElementById('sendButton');
-                if (messageInput && sendButton) {
-                    messageInput.disabled = false;
-                    sendButton.disabled = messageInput.value.trim() === '';
-                    messageInput.focus();
-                }
-            }
         }
     }
 
@@ -870,6 +668,10 @@ class ConversationController {
                 </div>
             `;
             messagesContainer.appendChild(messageElement);
+            // Lưu tham chiếu đến tin nhắn hiện tại cho tin nhắn của user
+            if (message.role === 'user') {
+                this.currentMessage = messageElement;
+            }
         } else {
             // Với tin nhắn từ trợ lý, không hiển thị nội dung ngay, mà chỉ hiển thị avatar 
             // và placeholder để cập nhật sau bằng updateMessageContent
@@ -882,6 +684,10 @@ class ConversationController {
             `;
             
             messagesContainer.appendChild(messageElement);
+            // Lưu tham chiếu đến tin nhắn hiện tại cho tin nhắn của trợ lý
+            if (message.role === 'assistant') {
+                this.currentMessage = messageElement;
+            }
         }
         
         // In log để debug
@@ -1112,7 +918,44 @@ class ConversationController {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 
-    // Thêm hàm mới cho hiệu ứng đánh máy
+    // Tô màu cú pháp cho các code blocks
+    highlightCodeBlocks() {
+        // Kiểm tra xem highlight.js đã được tải chưa
+        if (typeof hljs !== 'undefined' && this.currentMessage) {
+            // Tìm tất cả các phần tử code trong tin nhắn hiện tại
+            const codeBlocks = this.currentMessage.querySelectorAll('pre code');
+            if (codeBlocks.length > 0) {
+                console.log(`Tô màu cú pháp cho ${codeBlocks.length} khối mã`);
+                codeBlocks.forEach(block => {
+                    hljs.highlightElement(block);
+                });
+            }
+            
+            // Thêm sự kiện cho các nút copy nếu có
+            const copyButtons = this.currentMessage.querySelectorAll('.code-copy-btn');
+            copyButtons.forEach(btn => {
+                if (!btn.hasAttribute('data-listener-added')) {
+                    const codeBlock = btn.closest('.code-block');
+                    if (codeBlock) {
+                        const codeContent = codeBlock.querySelector('.code-content');
+                        if (codeContent) {
+                            btn.addEventListener('click', () => {
+                                navigator.clipboard.writeText(codeContent.textContent);
+                                // Hiệu ứng đã copy
+                                btn.innerHTML = '<i class="fas fa-check"></i>';
+                                setTimeout(() => {
+                                    btn.innerHTML = '<i class="fas fa-copy"></i>';
+                                }, 2000);
+                            });
+                            btn.setAttribute('data-listener-added', 'true');
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    // Tạo hiệu ứng đánh máy
     typeWriterEffect(element, html) {
         // Tạo một div tạm thời để phân tích HTML
         const tempDiv = document.createElement('div');
@@ -1258,6 +1101,57 @@ class ConversationController {
         if (conversationMeta) {
             conversationMeta.textContent = "Hỏi đáp với tài liệu";
         }
+    }
+
+    // Thêm câu hỏi liên quan vào tin nhắn hiện tại
+    addRelatedQuestions(questions) {
+        if (!this.currentMessage || !questions || questions.length === 0) return;
+        
+        console.log('Thêm câu hỏi liên quan:', questions);
+        
+        // Tạo container cho câu hỏi liên quan
+        const relatedQuestionsDiv = document.createElement('div');
+        relatedQuestionsDiv.className = 'related-questions';
+        
+        // Tạo tiêu đề
+        const titleDiv = document.createElement('div');
+        titleDiv.className = 'related-questions-title';
+        titleDiv.innerHTML = '<i class="fas fa-lightbulb mr-1"></i> Câu hỏi gợi ý:';
+        relatedQuestionsDiv.appendChild(titleDiv);
+        
+        // Tạo danh sách câu hỏi
+        const questionsList = document.createElement('div');
+        questionsList.className = 'related-question-list';
+        
+        // Thêm mỗi câu hỏi vào danh sách
+        questions.forEach(question => {
+            const questionItem = document.createElement('div');
+            questionItem.className = 'related-question-item';
+            questionItem.textContent = question;
+            
+            // Thêm sự kiện click để gửi câu hỏi này
+            questionItem.addEventListener('click', () => {
+                // Lấy tham chiếu đến input và điền nội dung
+                const messageInput = document.getElementById('messageInput');
+                if (messageInput) {
+                    messageInput.value = question;
+                    messageInput.focus();
+                    
+                    // Kích hoạt nút gửi
+                    const sendButton = document.getElementById('sendButton');
+                    if (sendButton) {
+                        sendButton.disabled = false;
+                    }
+                }
+            });
+            
+            questionsList.appendChild(questionItem);
+        });
+        
+        relatedQuestionsDiv.appendChild(questionsList);
+        
+        // Thêm vào tin nhắn
+        this.currentMessage.querySelector('.message-content').appendChild(relatedQuestionsDiv);
     }
 }
 

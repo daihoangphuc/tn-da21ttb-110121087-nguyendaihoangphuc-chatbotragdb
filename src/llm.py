@@ -46,7 +46,7 @@ class GeminiLLM:
             - Đặt code SQL trong ```sql và ```
             - KHÔNG dùng HTML, chỉ dùng Markdown
             - Giới hạn độ dài trả lời không quá 4 đoạn văn
-            - Nếu cần bảng so sánh, hãy tạo bảng đơn giản với tối đa 3 cột
+            - Nếu cần bảng so sánh, hãy tạo bảng đơn giản với tối đa 3 cột, nếu có nhiều cột quá thì trả lời dạng liệt kê
             """
 
             # Thêm hướng dẫn vào cuối prompt
@@ -64,6 +64,15 @@ class GeminiLLM:
         processed_prompt = self.preprocess_prompt(prompt)
         # Trả về response gốc từ LLM không qua xử lý
         return self.model.invoke(processed_prompt)
+
+    async def stream(self, prompt):
+        """Gọi mô hình LLM với prompt và trả về kết quả dạng streaming
+
+        Phương thức này là wrapper của invoke_streaming để tương thích với
+        phương thức query_with_sources_streaming trong rag.py
+        """
+        async for chunk in self.invoke_streaming(prompt):
+            yield chunk
 
     async def invoke_streaming(self, prompt):
         """Gọi mô hình LLM với prompt và trả về kết quả dạng streaming"""
