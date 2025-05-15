@@ -598,9 +598,41 @@ async def ask_question_stream(
         # Đặt collection_name cho vector store
         rag_system.vector_store.collection_name = "user_" + str(user_id)
 
+        # Xử lý session_id
         if not session_id:
-            # Tạo ID phiên mới nếu không có
+            # Nếu không có session_id, tạo mới
             session_id = f"session_{uuid4().hex[:8]}"
+            print(f"Tạo session_id mới: {session_id}")
+        else:
+            print(f"Kiểm tra session_id hiện có: {session_id}")
+            # Kiểm tra xem session có tồn tại và thuộc về user hiện tại không
+            try:
+                # Nếu session_id bắt đầu bằng "conversation_", chuyển đổi sang "session_"
+                if session_id.startswith("conversation_"):
+                    new_session_id = (
+                        "session_" + session_id[13:]
+                    )  # Bỏ "conversation_" prefix
+                    print(
+                        f"Chuyển đổi conversation_id thành session_id: {session_id} -> {new_session_id}"
+                    )
+                    session_id = new_session_id
+
+                existing_messages = conversation_manager.get_messages(session_id)
+                if not existing_messages:
+                    # Nếu không tìm thấy tin nhắn nào, tạo session mới
+                    print(
+                        f"Session {session_id} không tồn tại hoặc không có tin nhắn nào"
+                    )
+                    session_id = f"session_{uuid4().hex[:8]}"
+                    print(f"Tạo session_id mới: {session_id}")
+                else:
+                    print(
+                        f"Sử dụng session hiện có: {session_id} ({len(existing_messages)} tin nhắn)"
+                    )
+            except Exception as e:
+                print(f"Lỗi khi kiểm tra session: {str(e)}")
+                session_id = f"session_{uuid4().hex[:8]}"
+                print(f"Tạo session_id mới do lỗi: {session_id}")
 
         # Kiểm tra xem người dùng đã chọn nguồn hay chưa
         if not request.sources or len(request.sources) == 0:
@@ -632,46 +664,6 @@ async def ask_question_stream(
                 },
             )
 
-        # Kiểm tra xem sources có tồn tại không nếu đã chỉ định
-        if request.sources and len(request.sources) > 0:
-            # Lấy danh sách các nguồn có sẵn
-            all_docs = rag_system.vector_store.get_all_documents(limit=1000)
-            available_sources = set()
-            available_filenames = set()  # Tập hợp tên file không có đường dẫn
-
-            for doc in all_docs:
-                # Lấy nguồn từ cả metadata và direct
-                source = doc.get("metadata", {}).get(
-                    "source", doc.get("source", "unknown")
-                )
-                if source != "unknown":
-                    available_sources.add(source)
-                    # Thêm tên file đơn thuần
-                    if os.path.sep in source:
-                        available_filenames.add(os.path.basename(source))
-                    else:
-                        available_filenames.add(source)
-
-            # Kiểm tra xem các nguồn được yêu cầu có tồn tại không (tính cả tên file đơn thuần)
-            missing_sources = []
-            for s in request.sources:
-                # Kiểm tra cả đường dẫn đầy đủ và tên file đơn thuần
-                filename = os.path.basename(s) if os.path.sep in s else s
-                if s not in available_sources and filename not in available_filenames:
-                    missing_sources.append(s)
-
-            if missing_sources:
-                return JSONResponse(
-                    status_code=404,
-                    content={
-                        "status": "error",
-                        "message": f"Không tìm thấy các nguồn: {', '.join(missing_sources)}",
-                        "available_sources": sorted(list(available_sources)),
-                        "available_filenames": sorted(list(available_filenames)),
-                        "note": "Bạn có thể dùng tên file đơn thuần hoặc đường dẫn đầy đủ",
-                    },
-                )
-
         # Tạo ID cho câu hỏi
         question_id = f"q_{uuid4().hex[:8]}"
 
@@ -682,12 +674,17 @@ async def ask_question_stream(
 
         # Lấy lịch sử hội thoại để sử dụng trong prompt
         conversation_history = conversation_manager.format_for_prompt(session_id)
-        print(f"Lịch sử hội thoại (stream): {conversation_history}")
+        print(f"Lịch sử hội thoại cho session {session_id}:")
+        print(
+            conversation_history[:200] + "..."
+            if len(conversation_history) > 200
+            else conversation_history
+        )
 
         # Hàm generator để cung cấp dữ liệu cho SSE
         async def generate_response_stream():
             try:
-                # Gọi RAG để lấy kết quả dạng stream - không cần await vì đây là async generator
+                # Gọi RAG để lấy kết quả dạng stream
                 stream_generator = rag_system.query_with_sources_streaming(
                     request.question,
                     search_type=request.search_type,
@@ -1422,193 +1419,6 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"Lỗi khi xóa file: {str(e)}")
 
 
-# @app.get(f"{PREFIX}/files/sources")
-# async def get_available_sources():
-#     """
-#     Lấy danh sách các file nguồn có thể sử dụng để tìm kiếm
-#     """
-#     try:
-#         # Lấy tất cả tài liệu từ vector store
-#         all_docs = rag_system.vector_store.get_all_documents()
-
-#         # Trích xuất danh sách nguồn duy nhất
-#         sources = set()
-#         filenames = set()  # Thêm tập hợp để lưu tên file không có đường dẫn
-#         sources_location = []  # Để debug xem source nằm ở đâu
-
-#         for doc in all_docs:
-#             # Kiểm tra cả trong metadata.source và source trực tiếp
-#             meta_source = doc.get("metadata", {}).get("source", None)
-#             direct_source = doc.get("source", "unknown")
-
-#             if meta_source:
-#                 sources.add(meta_source)
-#                 # Thêm tên file đơn thuần
-#                 if os.path.sep in meta_source:
-#                     filenames.add(os.path.basename(meta_source))
-#                 else:
-#                     filenames.add(meta_source)
-#                 sources_location.append({"location": "metadata", "source": meta_source})
-
-#             if direct_source and direct_source != meta_source:
-#                 sources.add(direct_source)
-#                 # Thêm tên file đơn thuần
-#                 if os.path.sep in direct_source:
-#                     filenames.add(os.path.basename(direct_source))
-#                 else:
-#                     filenames.add(direct_source)
-#                 sources_location.append({"location": "direct", "source": direct_source})
-
-#         # Log 10 mẫu đầu tiên để debug
-#         samples = all_docs[:5] if len(all_docs) > 5 else all_docs
-#         sample_structures = []
-#         for doc in samples:
-#             # Tính toán filenames
-#             meta_source = doc.get("metadata", {}).get("source", "not_found")
-#             direct_source = doc.get("source", "unknown")
-#             meta_filename = (
-#                 os.path.basename(meta_source)
-#                 if meta_source != "not_found" and os.path.sep in meta_source
-#                 else meta_source
-#             )
-#             direct_filename = (
-#                 os.path.basename(direct_source)
-#                 if direct_source != "not_found" and os.path.sep in direct_source
-#                 else direct_source
-#             )
-
-#             sample_structures.append(
-#                 {
-#                     "metadata_keys": list(doc.get("metadata", {}).keys()),
-#                     "top_level_keys": list(doc.keys()),
-#                     "has_source_in_metadata": "source" in doc.get("metadata", {}),
-#                     "has_direct_source": "source" in doc,
-#                     "metadata_source": meta_source,
-#                     "direct_source": direct_source,
-#                     "metadata_filename": meta_filename,
-#                     "direct_filename": direct_filename,
-#                 }
-#             )
-
-#         # Trả về danh sách nguồn
-#         return {
-#             "total_sources": len(sources),
-#             "sources": sorted(list(sources)),
-#             "filenames": sorted(
-#                 list(filenames)
-#             ),  # Thêm danh sách các tên file đơn thuần
-#             "recommendation": "Bạn có thể sử dụng sources là tên file đơn thuần hoặc đường dẫn đầy đủ",
-#             "debug_info": {
-#                 "sample_count": len(samples),
-#                 "sample_structures": sample_structures,
-#                 "sources_location": sources_location[:10],  # Chỉ trả về 10 mẫu đầu
-#             },
-#         }
-#     except Exception as e:
-#         raise HTTPException(
-#             status_code=500, detail=f"Lỗi khi lấy danh sách nguồn: {str(e)}"
-#         )
-
-
-# @app.get(f"{PREFIX}/files/sources/details")
-# async def get_source_details(
-#     source_name: Optional[str] = Query(
-#         None, description="Tên file nguồn cụ thể cần kiểm tra"
-#     )
-# ):
-#     """
-#     Lấy thông tin chi tiết về một nguồn tài liệu cụ thể hoặc tất cả các nguồn
-
-#     - **source_name**: (Tùy chọn) Tên file nguồn cần kiểm tra chi tiết
-#     """
-#     try:
-#         # Lấy tất cả tài liệu từ vector store
-#         all_docs = rag_system.vector_store.get_all_documents(limit=5000)
-
-#         # Nếu không chỉ định nguồn cụ thể, trả về thống kê tổng hợp
-#         if not source_name:
-#             source_stats = {}
-#             for doc in all_docs:
-#                 # Lấy nguồn từ cả metadata và trực tiếp
-#                 meta_source = doc.get("metadata", {}).get("source", "unknown")
-#                 direct_source = doc.get("source", "unknown")
-
-#                 # Ưu tiên source từ metadata nếu có
-#                 source = meta_source if meta_source != "unknown" else direct_source
-
-#                 if source not in source_stats:
-#                     source_stats[source] = {
-#                         "count": 0,
-#                         "categories": set(),
-#                     }
-
-#                 source_stats[source]["count"] += 1
-
-#                 # Thêm category vào set nếu có
-#                 category = doc.get("metadata", {}).get("category", "unknown")
-#                 if category != "unknown":
-#                     source_stats[source]["categories"].add(category)
-
-#             # Chuyển đổi set thành list cho JSON serialization
-#             for source in source_stats:
-#                 source_stats[source]["categories"] = list(
-#                     source_stats[source]["categories"]
-#                 )
-
-#             return {"total_sources": len(source_stats), "sources": source_stats}
-
-#         # Nếu chỉ định nguồn cụ thể, trả về thông tin chi tiết về nguồn đó
-#         source_chunks = []
-#         for doc in all_docs:
-#             meta_source = doc.get("metadata", {}).get("source", "unknown")
-#             direct_source = doc.get("source", "unknown")
-
-#             if meta_source == source_name or direct_source == source_name:
-#                 source_chunks.append(
-#                     {
-#                         "text": doc["text"][:200] + "...",  # Chỉ trả về preview
-#                         "category": doc.get("metadata", {}).get("category", "unknown"),
-#                         "full_length": len(doc["text"]),
-#                     }
-#                 )
-
-#         if not source_chunks:
-#             return JSONResponse(
-#                 status_code=404,
-#                 content={
-#                     "status": "error",
-#                     "message": f"Không tìm thấy nguồn '{source_name}'",
-#                     "available_sources": sorted(
-#                         list(
-#                             set(
-#                                 [
-#                                     doc.get("metadata", {}).get(
-#                                         "source", doc.get("source", "unknown")
-#                                     )
-#                                     for doc in all_docs
-#                                     if doc.get("metadata", {}).get(
-#                                         "source", doc.get("source", "unknown")
-#                                     )
-#                                     != "unknown"
-#                                 ]
-#                             )
-#                         )
-#                     ),
-#                 },
-#             )
-
-#         return {
-#             "source_name": source_name,
-#             "total_chunks": len(source_chunks),
-#             "chunks": source_chunks,
-#         }
-
-#     except Exception as e:
-#         raise HTTPException(
-#             status_code=500, detail=f"Lỗi khi lấy thông tin chi tiết nguồn: {str(e)}"
-#         )
-
-
 @app.post(f"{PREFIX}/collections/delete-by-filter")
 async def delete_points_by_filter(filter_request: Dict):
     """
@@ -1691,34 +1501,6 @@ async def delete_points_by_filter(filter_request: Dict):
             status_code=500,
             content={"status": "error", "message": f"Lỗi khi xóa điểm: {str(e)}"},
         )
-
-
-@app.post(f"{PREFIX}/conversation/clear")
-async def clear_conversation(
-    request: ConversationRequest,
-    current_user=Depends(get_current_user),
-):
-    """
-    Xóa toàn bộ tin nhắn trong hội thoại nhưng giữ nguyên session
-    """
-    try:
-        user_id = current_user.id
-
-        # Xóa tất cả tin nhắn trong hội thoại
-        success = conversation_manager.clear_memory(request.conversation_id)
-
-        if not success:
-            return {
-                "status": "error",
-                "message": f"Không thể xóa tin nhắn trong hội thoại {request.conversation_id}",
-            }
-
-        return {
-            "status": "success",
-            "message": f"Đã xóa tin nhắn trong hội thoại {request.conversation_id}",
-        }
-    except Exception as e:
-        return {"status": "error", "message": f"Lỗi khi xóa tin nhắn: {str(e)}"}
 
 
 @app.get(f"{PREFIX}/conversations")
@@ -2214,51 +1996,21 @@ async def auth_callback(
 
 
 @app.post(f"{PREFIX}/conversations/create", response_model=CreateConversationResponse)
-async def create_conversation_redirect(current_user=Depends(get_current_user)):
-    """
-    API này đã lỗi thời, vui lòng sử dụng POST /api/conversations thay thế
-    """
-    return await create_new_conversation(current_user)
-
-
-@app.post(f"{PREFIX}/conversations", response_model=CreateConversationResponse)
-async def create_new_conversation(current_user=Depends(get_current_user)):
+async def create_conversation(current_user=Depends(get_current_user)):
     """
     Tạo một cuộc hội thoại mới
+
+    Returns:
+        CreateConversationResponse: Thông tin về cuộc hội thoại mới được tạo
     """
     try:
         user_id = current_user.id
+        # Tạo conversation mới trong database
+        conversation_id = conversation_manager.create_conversation(user_id)
 
-        # Tạo conversation_id mới bắt đầu bằng "conv_"
-        import uuid
+        if not conversation_id:
+            raise HTTPException(status_code=500, detail="Không thể tạo hội thoại mới")
 
-        conversation_id = f"conv_{uuid.uuid4().hex}"
-
-        # Tạo hội thoại mới sử dụng phương thức thích hợp
-        if hasattr(conversation_manager, "create_conversation"):
-            # Nếu conversation_manager có phương thức này, sử dụng nó với ID đã tạo
-            result_id = conversation_manager.create_conversation(
-                user_id, conversation_id
-            )
-            if not result_id:
-                raise HTTPException(
-                    status_code=500, detail="Không thể tạo hội thoại mới"
-                )
-            conversation_id = result_id  # Sử dụng ID trả về nếu có
-        else:
-            # Không có phương thức create_conversation, tự xử lý
-            # Khởi tạo bộ nhớ hội thoại cho session mới
-            conversation_manager.get_memory(conversation_id)
-
-            # Thêm tin nhắn chào mừng
-            conversation_manager.add_ai_message(
-                conversation_id,
-                f"Chào mừng bạn! Tôi có thể giúp gì cho bạn?",
-                user_id=user_id,
-            )
-
-        # Thông báo tạo thành công
-        print(f"Đã tạo phiên hội thoại mới {conversation_id} cho người dùng {user_id}")
         return {
             "status": "success",
             "message": "Đã tạo hội thoại mới thành công",
@@ -2271,111 +2023,155 @@ async def create_new_conversation(current_user=Depends(get_current_user)):
         )
 
 
+@app.get(f"{PREFIX}/conversations")
+async def get_user_conversations(
+    page: int = Query(1, ge=1, description="Trang hiện tại"),
+    page_size: int = Query(10, ge=1, le=50, description="Số lượng hội thoại mỗi trang"),
+    current_user=Depends(get_current_user),
+):
+    """
+    Lấy danh sách tất cả cuộc hội thoại của người dùng hiện tại
+
+    Args:
+        page: Trang hiện tại (bắt đầu từ 1)
+        page_size: Số lượng hội thoại mỗi trang
+        current_user: Thông tin người dùng hiện tại
+
+    Returns:
+        Dict: Danh sách hội thoại và thông tin phân trang
+    """
+    try:
+        user_id = current_user.id
+
+        # Tính offset cho phân trang
+        offset = (page - 1) * page_size
+
+        # Lấy tổng số hội thoại
+        count_result = (
+            await supabase_client.table("conversations")
+            .select("*", count="exact")
+            .eq("user_id", user_id)
+            .execute()
+        )
+
+        total_items = count_result.count if hasattr(count_result, "count") else 0
+
+        # Lấy danh sách hội thoại có phân trang
+        conversations = (
+            await supabase_client.table("conversations")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("last_updated", desc=True)
+            .range(offset, offset + page_size - 1)
+            .execute()
+        )
+
+        # Lấy tin nhắn đầu tiên cho mỗi hội thoại
+        for conv in conversations.data:
+            first_message = (
+                await supabase_client.table("messages")
+                .select("content")
+                .eq("conversation_id", conv["conversation_id"])
+                .eq("role", "user")
+                .order("sequence")
+                .limit(1)
+                .execute()
+            )
+
+            conv["first_message"] = (
+                first_message.data[0]["content"] if first_message.data else ""
+            )
+
+            # Đếm số tin nhắn trong hội thoại
+            message_count = (
+                await supabase_client.table("messages")
+                .select("*", count="exact")
+                .eq("conversation_id", conv["conversation_id"])
+                .execute()
+            )
+
+            conv["message_count"] = (
+                message_count.count if hasattr(message_count, "count") else 0
+            )
+
+        return {
+            "status": "success",
+            "data": conversations.data if conversations.data else [],
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_items": total_items,
+                "total_pages": (total_items + page_size - 1) // page_size,
+            },
+        }
+    except Exception as e:
+        print(f"Lỗi khi lấy danh sách hội thoại: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Lỗi khi lấy danh sách hội thoại: {str(e)}"
+        )
+
+
 @app.delete(f"{PREFIX}/conversations/{{conversation_id}}")
 async def delete_conversation(
-    conversation_id: str, current_user=Depends(get_current_user)
+    conversation_id: str = Path(..., description="ID của cuộc hội thoại cần xóa"),
+    current_user=Depends(get_current_user),
 ):
     """
     Xóa một cuộc hội thoại và tất cả tin nhắn của nó
 
-    - **conversation_id**: ID của cuộc hội thoại cần xóa
+    Args:
+        conversation_id: ID của cuộc hội thoại cần xóa
+        current_user: Thông tin người dùng hiện tại
+
+    Returns:
+        Dict: Kết quả xóa hội thoại
     """
     try:
         user_id = current_user.id
 
-        # Kiểm tra xem hội thoại có tồn tại và thuộc về người dùng hiện tại
-        result = conversation_manager.delete_conversation(conversation_id, user_id)
+        # Kiểm tra quyền xóa conversation
+        conversation = (
+            supabase_client.table("conversations")
+            .select("*")
+            .eq("conversation_id", conversation_id)
+            .eq("user_id", user_id)
+            .single()
+            .execute()
+        )
 
-        if result and result.get("success", False):
-            print(f"Đã xóa phiên hội thoại {conversation_id}")
-            return {
-                "success": True,
-                "message": f"Đã xóa phiên hội thoại {conversation_id}",
-                "conversation_id": conversation_id,
-            }
-        else:
-            error_msg = result.get(
-                "message", "Phiên hội thoại không tồn tại hoặc không thuộc về bạn"
-            )
-            return JSONResponse(
+        if not conversation.data:
+            raise HTTPException(
                 status_code=404,
-                content={
-                    "success": False,
-                    "message": error_msg,
-                    "conversation_id": conversation_id,
-                },
-            )
-    except Exception as e:
-        print(f"Lỗi khi xóa hội thoại: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Lỗi khi xóa hội thoại: {str(e)}")
-
-
-@app.get(f"{PREFIX}/messages")
-async def get_conversation_messages(
-    conversation_id: str = Query(
-        None, description="ID phiên hội thoại cần lấy tin nhắn"
-    ),
-    session_id: str = Query(
-        None,
-        description="ID phiên hội thoại cần lấy tin nhắn (tương thích với code cũ)",
-    ),
-    current_user=Depends(get_current_user),
-):
-    """
-    Lấy danh sách tin nhắn của một phiên hội thoại cụ thể
-
-    - **conversation_id**: ID phiên hội thoại cần lấy tin nhắn
-    - **session_id**: ID phiên hội thoại dùng cho tương thích ngược (sẽ được ưu tiên nếu cung cấp cả hai)
-    """
-    try:
-        user_id = current_user.id
-
-        # Ưu tiên sử dụng session_id nếu được cung cấp (tương thích ngược)
-        final_id = session_id if session_id else conversation_id
-
-        if not final_id:
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "status": "error",
-                    "message": "Vui lòng cung cấp ID hội thoại (conversation_id hoặc session_id)",
-                },
+                detail=f"Không tìm thấy hội thoại {conversation_id} hoặc bạn không có quyền xóa",
             )
 
-        # Lấy tin nhắn từ Supabase
-        messages = conversation_manager.get_messages(final_id)
+        # Xóa conversation (messages sẽ tự động bị xóa do có ON DELETE CASCADE)
+        result = (
+            supabase_client.table("conversations")
+            .delete()
+            .eq("conversation_id", conversation_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
 
-        if not messages:
-            return JSONResponse(
-                status_code=404,
-                content={
-                    "status": "error",
-                    "message": f"Không tìm thấy tin nhắn trong hội thoại với ID {final_id}",
-                    "conversation_id": final_id,
-                },
+        if not result.data:
+            raise HTTPException(
+                status_code=500,
+                detail="Không thể xóa hội thoại",
             )
-
-        # Tạo dữ liệu trả về
-        conversation_data = {
-            "conversation_id": final_id,
-            "last_updated": datetime.now().isoformat(),
-            "messages": messages,
-        }
 
         return {
             "status": "success",
-            "message": f"Đã tìm thấy tin nhắn cho phiên {final_id}",
-            "data": conversation_data,
+            "message": f"Đã xóa hội thoại {conversation_id}",
+            "conversation_id": conversation_id,
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Lỗi khi lấy tin nhắn hội thoại: {str(e)}")
-        return JSONResponse(
+        print(f"Lỗi khi xóa hội thoại: {str(e)}")
+        raise HTTPException(
             status_code=500,
-            content={
-                "status": "error",
-                "message": f"Lỗi khi lấy tin nhắn hội thoại: {str(e)}",
-                "data": {"conversation_id": final_id, "messages": []},
-            },
+            detail=f"Lỗi khi xóa hội thoại: {str(e)}",
         )
 
 

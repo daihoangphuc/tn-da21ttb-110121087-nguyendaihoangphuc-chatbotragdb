@@ -768,88 +768,54 @@ class APIService {
     }
     
     // Lấy danh sách hội thoại
-    async getConversations() {
+    async getConversations(page = 1, pageSize = 10) {
         try {
-            return await this.fetchApi('/api/conversations', {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${this.getAuthToken()}`
-                }
+            const response = await this.fetchApi(`/conversations?page=${page}&page_size=${pageSize}`, {
+                method: 'GET'
             });
+            return response;
         } catch (error) {
             console.error('Lỗi khi lấy danh sách hội thoại:', error);
-            return { status: 'error', data: [] };
+            throw error;
         }
     }
     
-    // Phương thức để xóa một cuộc hội thoại
-    async deleteConversation(conversationId) {
-        console.log('Gọi API xóa hội thoại với conversation_id:', conversationId);
-        
-        // Kiểm tra conversation_id hợp lệ trước khi gửi request
-        if (!conversationId || conversationId === 'undefined' || conversationId === 'null') {
-            console.error('Không thể xóa hội thoại: conversation_id không hợp lệ:', conversationId);
-            throw new Error('ID hội thoại không hợp lệ');
-        }
-        
+    // Lấy chi tiết một conversation
+    async getConversationDetail(conversationId) {
         try {
-            const result = await this.fetchApi(`/api/conversations/${conversationId}`, {
-                method: 'DELETE'
+            const response = await this.fetchApi(`/conversations/${conversationId}`, {
+                method: 'GET'
             });
-            
-            console.log('Kết quả xóa hội thoại:', result);
-            
-            // Kiểm tra kết quả từ API
-            if (result.success === true) {
-                console.log('Xóa hội thoại thành công');
-                return { status: 'success', message: result.message };
-            } else {
-                console.error('Lỗi khi xóa hội thoại:', result.message || 'Không xác định');
-                return { status: 'error', message: result.message || 'Không thể xóa hội thoại' };
-            }
+            return response;
         } catch (error) {
-            console.error('Lỗi khi gọi API xóa hội thoại:', error);
-            return { status: 'error', message: error.message || 'Không thể xóa hội thoại' };
+            console.error('Lỗi khi lấy chi tiết hội thoại:', error);
+            throw error;
         }
     }
     
-    // Tạo hội thoại mới
+    // Tạo conversation mới
     async createConversation() {
         try {
-            console.log('Bắt đầu tạo hội thoại mới...');
-            const result = await this.fetchApi('/api/conversations', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${this.getAuthToken()}`
-                }
+            const response = await this.fetchApi('/conversations/create', {
+                method: 'POST'
             });
-            
-            console.log('Kết quả tạo hội thoại mới:', result);
-            
-            // Kiểm tra kết quả chi tiết hơn
-            if (result && result.status === 'success' && result.conversation_id) {
-                console.log('Tạo hội thoại thành công với ID:', result.conversation_id);
-                this.setConversationId(result.conversation_id);
-                return {
-                    status: 'success',
-                    message: 'Đã tạo hội thoại mới thành công',
-                    conversation_id: result.conversation_id
-                };
-            } else {
-                console.error('Lỗi không xác định khi tạo hội thoại mới:', result);
-                return {
-                    status: 'error',
-                    message: result.message || 'Không thể tạo hội thoại mới vì lỗi không xác định',
-                    error_detail: JSON.stringify(result)
-                };
-            }
+            return response;
         } catch (error) {
             console.error('Lỗi khi tạo hội thoại mới:', error);
-            return {
-                status: 'error',
-                message: `Không thể tạo hội thoại mới: ${error.message}`,
-                error: error
-            };
+            throw error;
+        }
+    }
+    
+    // Xóa một conversation
+    async deleteConversation(conversationId) {
+        try {
+            const response = await this.fetchApi(`/conversations/${conversationId}`, {
+                method: 'DELETE'
+            });
+            return response;
+        } catch (error) {
+            console.error('Lỗi khi xóa hội thoại:', error);
+            throw error;
         }
     }
     

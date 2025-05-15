@@ -1,9 +1,7 @@
 """
 Supabase Conversation Manager for handling conversation history with Supabase.
-Replaces the traditional conversation_memory.py functionality.
 """
 
-import os
 import json
 import datetime
 from typing import Dict, List, Optional, Any
@@ -21,6 +19,7 @@ original_print = print
 def print(*args, **kwargs):
     prefix = "[Conversation_Manager] "
     original_print(prefix + " ".join(map(str, args)), **kwargs)
+
 
 class SupabaseConversationManager:
     """
@@ -80,8 +79,7 @@ class SupabaseConversationManager:
             )
         except Exception as e:
             print(f"Lỗi khi thêm tin nhắn người dùng: {str(e)}")
-            # Lưu cục bộ nếu lỗi
-            self._save_locally(session_id, "user", message, user_id)
+            raise e
 
     def add_ai_message(
         self,
@@ -113,8 +111,7 @@ class SupabaseConversationManager:
             )
         except Exception as e:
             print(f"Lỗi khi thêm tin nhắn AI: {str(e)}")
-            # Lưu cục bộ nếu lỗi
-            self._save_locally(session_id, "assistant", message, user_id, metadata)
+            raise e
 
     def _get_next_sequence(self, session_id: str) -> int:
         """Lấy sequence tiếp theo cho tin nhắn mới"""
@@ -215,23 +212,12 @@ class SupabaseConversationManager:
             Danh sách tin nhắn theo thứ tự tăng dần của sequence
         """
         try:
-            # Thử lấy từ Supabase trước
+            # Lấy tin nhắn từ Supabase
             messages = self.db.get_conversation_history(session_id, limit)
-
-            if not messages:
-                # Nếu không có kết quả từ Supabase, thử lấy từ local
-                local_messages = self._get_locally(session_id)
-                if local_messages:
-                    print(
-                        f"Đã tìm thấy {len(local_messages)} tin nhắn cục bộ cho {session_id}"
-                    )
-                return local_messages
-
-            return messages
+            return messages if messages else []
         except Exception as e:
             print(f"Lỗi khi lấy tin nhắn: {str(e)}")
-            # Thử lấy từ local nếu lỗi
-            return self._get_locally(session_id)
+            return []
 
     def clear_memory(self, session_id: str) -> bool:
         """
@@ -249,24 +235,10 @@ class SupabaseConversationManager:
             if isinstance(result, dict) and result.get("error"):
                 print(f"Lỗi khi xóa tin nhắn từ Supabase: {result.get('error')}")
                 return False
-
-            # Xóa tin nhắn cục bộ
-            self._clear_local_memory(session_id)
-
             return True
         except Exception as e:
             print(f"Lỗi khi xóa bộ nhớ hội thoại: {str(e)}")
             return False
-
-    def _clear_local_memory(self, session_id: str) -> None:
-        """Xóa bộ nhớ cục bộ cho phiên hội thoại"""
-        try:
-            local_path = self._get_local_path(session_id)
-            if os.path.exists(local_path):
-                os.remove(local_path)
-                print(f"Đã xóa tệp lưu trữ cục bộ: {local_path}")
-        except Exception as e:
-            print(f"Lỗi khi xóa bộ nhớ cục bộ: {str(e)}")
 
     def format_for_prompt(self, session_id: str) -> str:
         """
@@ -278,20 +250,50 @@ class SupabaseConversationManager:
         Returns:
             Chuỗi định dạng lịch sử hội thoại
         """
-        messages = self.get_messages(session_id)
-        if not messages:
+        try:
+            # Nếu session_id bắt đầu bằng "conversation_", chuyển đổi sang "session_"
+            if session_id.startswith("conversation_"):
+                session_id = "session_" + session_id[13:]
+                print(
+                    f"Chuyển đổi conversation_id thành session_id trong format_for_prompt: {session_id}"
+                )
+
+            # Lấy tin nhắn từ database
+            messages = self.get_messages(session_id)
+            if not messages:
+                print(f"Không tìm thấy tin nhắn cho session {session_id}")
+                return ""
+
+            # Sắp xếp tin nhắn theo sequence để đảm bảo đúng thứ tự
+            messages.sort(key=lambda x: x.get("sequence", 0))
+            print(f"Đã tìm thấy {len(messages)} tin nhắn cho session {session_id}")
+
+            formatted_history = []
+            for msg in messages:
+                role = msg.get("role", "")
+                content = msg.get("content", "").strip()
+
+                # Chỉ thêm tin nhắn có nội dung
+                if content:
+                    if role == "user":
+                        formatted_history.append(f"Người dùng: {content}")
+                    elif role == "assistant":
+                        formatted_history.append(f"Trợ lý: {content}")
+
+            formatted_text = "\n".join(formatted_history)
+            print(
+                f"Lịch sử hội thoại được định dạng ({len(formatted_history)} tin nhắn):"
+            )
+            print(
+                formatted_text[:200] + "..."
+                if len(formatted_text) > 200
+                else formatted_text
+            )
+
+            return formatted_text
+        except Exception as e:
+            print(f"Lỗi khi format lịch sử hội thoại: {str(e)}")
             return ""
-
-        formatted_history = []
-        for msg in messages:
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            if role == "user":
-                formatted_history.append(f"Người dùng: {content}")
-            elif role == "assistant":
-                formatted_history.append(f"Trợ lý: {content}")
-
-        return "\n".join(formatted_history)
 
     def get_conversations(self, user_id: str) -> List[Dict]:
         """
@@ -399,9 +401,6 @@ class SupabaseConversationManager:
                 .execute()
             )
 
-            # Xóa bộ nhớ cục bộ
-            self._clear_local_memory(session_id)
-
             if hasattr(delete_result, "data") and delete_result.data:
                 print(f"Đã xóa phiên hội thoại {session_id}")
                 return True
@@ -412,15 +411,12 @@ class SupabaseConversationManager:
             print(f"Lỗi khi xóa phiên hội thoại: {str(e)}")
             return False
 
-    def create_conversation(
-        self, user_id: str, conversation_id: Optional[str] = None
-    ) -> str:
+    def create_conversation(self, user_id: str) -> str:
         """
         Tạo một phiên hội thoại mới
 
         Args:
             user_id: ID người dùng sở hữu
-            conversation_id: ID phiên hội thoại (tùy chọn, nếu không có sẽ tạo ID mới)
 
         Returns:
             ID phiên hội thoại mới tạo
@@ -428,9 +424,8 @@ class SupabaseConversationManager:
         try:
             import uuid
 
-            # Nếu không cung cấp ID, tạo ID mới
-            if not conversation_id:
-                conversation_id = f"conv_{uuid.uuid4().hex}"
+            # Tạo ID mới với prefix conv_
+            conversation_id = f"conv_{uuid.uuid4().hex}"
 
             # Tạo phiên hội thoại mới
             result = (
@@ -445,125 +440,12 @@ class SupabaseConversationManager:
                 .execute()
             )
 
-            if hasattr(result, "data") and result.data:
-                # Tạo tin nhắn chào mừng
-                welcome_message = "Chào mừng bạn! Tôi có thể giúp gì cho bạn?"
-                self.add_ai_message(
-                    session_id=conversation_id, message=welcome_message, user_id=user_id
-                )
+            # Nếu không có lỗi (status 201), trả về conversation_id
+            print(
+                f"Đã tạo phiên hội thoại mới {conversation_id} cho người dùng {user_id}"
+            )
+            return conversation_id
 
-                print(
-                    f"Đã tạo phiên hội thoại mới {conversation_id} cho người dùng {user_id}"
-                )
-                return conversation_id
-            else:
-                print(f"Lỗi khi tạo phiên hội thoại: {result}")
-                raise Exception("Không thể tạo phiên hội thoại mới")
         except Exception as e:
             print(f"Lỗi khi tạo phiên hội thoại: {str(e)}")
             raise e
-
-    # Các phương thức hỗ trợ lưu trữ cục bộ có thể giữ nguyên
-    def _get_local_path(self, session_id: str) -> str:
-        import os
-
-        # Xác định thư mục lưu trữ
-        history_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "data",
-            "conversation_history",
-        )
-        if not os.path.exists(history_dir):
-            os.makedirs(history_dir, exist_ok=True)
-
-        return os.path.join(history_dir, f"{session_id}.json")
-
-    def _save_locally(
-        self,
-        session_id: str,
-        role: str,
-        content: str,
-        user_id: Optional[str] = None,
-        metadata: Optional[Dict] = None,
-    ) -> None:
-        """Save message to local file as fallback"""
-        # Kiểm tra xem có cần lưu cục bộ hay không
-        import os
-
-        use_local_storage = os.getenv("USE_LOCAL_STORAGE", "False").lower() in [
-            "true",
-            "1",
-            "yes",
-        ]
-
-        if not use_local_storage:
-            print("Bỏ qua lưu cục bộ vì USE_LOCAL_STORAGE không bật")
-            return
-
-        file_path = self._get_local_path(session_id)
-
-        # Read existing history if it exists
-        history_data = {
-            "session_id": session_id,
-            "last_updated": datetime.datetime.now().isoformat(),
-            "messages": [],
-        }
-
-        if os.path.exists(file_path):
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    history_data = json.load(f)
-            except Exception:
-                # If file is corrupted, start with a fresh history
-                pass
-
-        # Add new message
-        message = {
-            "role": role,
-            "content": content,
-            "timestamp": datetime.datetime.now().isoformat(),
-        }
-
-        # Add optional fields if provided
-        if user_id:
-            message["user_id"] = user_id
-
-        if metadata:
-            message["metadata"] = metadata
-
-        history_data["messages"].append(message)
-        history_data["last_updated"] = datetime.datetime.now().isoformat()
-
-        # Save updated history
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(history_data, f, ensure_ascii=False, indent=2)
-
-    def _get_locally(self, session_id: str) -> List[Dict]:
-        """Get messages from local file as fallback"""
-        file_path = self._get_local_path(session_id)
-
-        if not os.path.exists(file_path):
-            return []
-
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                history_data = json.load(f)
-
-            # Extract and format messages
-            messages = []
-            for msg in history_data.get("messages", []):
-                formatted_message = {
-                    "role": msg.get("role"),
-                    "content": msg.get("content"),
-                }
-
-                # Add metadata if available
-                if "metadata" in msg:
-                    formatted_message["metadata"] = msg.get("metadata")
-
-                messages.append(formatted_message)
-
-            return messages
-        except Exception as e:
-            print(f"Warning: Failed to read local conversation history: {str(e)}")
-            return []
