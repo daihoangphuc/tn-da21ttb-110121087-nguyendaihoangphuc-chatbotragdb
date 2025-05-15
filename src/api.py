@@ -595,6 +595,9 @@ async def ask_question_stream(
         session_id = request.session_id
         user_id = current_user.id
 
+        # Đặt collection_name cho vector store
+        rag_system.vector_store.collection_name = "user_" + str(user_id)
+
         if not session_id:
             # Tạo ID phiên mới nếu không có
             session_id = f"session_{uuid4().hex[:8]}"
