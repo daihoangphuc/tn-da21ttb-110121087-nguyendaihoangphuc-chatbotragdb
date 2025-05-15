@@ -1,188 +1,66 @@
-from langchain.memory import ConversationBufferMemory
-from typing import Dict, List, Optional
-import datetime
 import os
 import json
 
 
-class ConversationManager:
-    """Lớp quản lý bộ nhớ hội thoại dựa trên ConversationBufferMemory"""
-
-    def __init__(
-        self, memory_key="chat_history", return_messages=True, output_key="answer"
-    ):
-        """Khởi tạo trình quản lý bộ nhớ hội thoại"""
-        self.memories = {}  # Dictionary để lưu trữ bộ nhớ theo session_id
-        self.memory_key = memory_key
-        self.return_messages = return_messages
-        self.output_key = output_key
-
-        # Thư mục gốc lưu trữ lịch sử hội thoại
-        self.base_history_dir = os.path.join(
-            "D:\\DATN\\V2", "src", "conversation_history"
-        )
-        self.history_dir = self.base_history_dir
-        os.makedirs(self.history_dir, exist_ok=True)
-
-    def _get_user_history_dir(self, user_id: Optional[str] = None) -> str:
-        """Lấy đường dẫn thư mục lưu trữ lịch sử cho user cụ thể"""
-        if not user_id:
-            return self.base_history_dir
-
-        # Tạo thư mục cho người dùng cụ thể
-        user_dir = os.path.join(self.base_history_dir, user_id)
-        os.makedirs(user_dir, exist_ok=True)
-        return user_dir
-
-    def get_memory(self, session_id: str) -> ConversationBufferMemory:
-        """Lấy hoặc tạo bộ nhớ cho một phiên hội thoại cụ thể"""
-        if session_id not in self.memories:
-            # Tạo bộ nhớ mới nếu chưa tồn tại
-            self.memories[session_id] = ConversationBufferMemory(
-                memory_key=self.memory_key,
-                return_messages=self.return_messages,
-                output_key=self.output_key,
-            )
-        return self.memories[session_id]
-
-    def add_user_message(
-        self, session_id: str, message: str, user_id: Optional[str] = None
-    ) -> None:
-        """Thêm tin nhắn người dùng vào bộ nhớ"""
-        memory = self.get_memory(session_id)
-        memory.chat_memory.add_user_message(message)
-        self._save_history(session_id, user_id=user_id)
-
-    def add_ai_message(
-        self, session_id: str, message: str, user_id: Optional[str] = None
-    ) -> None:
-        """Thêm tin nhắn AI vào bộ nhớ"""
-        memory = self.get_memory(session_id)
-        memory.chat_memory.add_ai_message(message)
-        self._save_history(session_id, user_id=user_id)
-
-    def get_conversation_history(self, session_id: str) -> str:
-        """Lấy lịch sử cuộc hội thoại dưới dạng chuỗi văn bản"""
-        memory = self.get_memory(session_id)
-        return memory.load_memory_variables({})[self.memory_key]
-
-    def get_messages(self, session_id: str) -> List[Dict]:
-        """Lấy danh sách các tin nhắn trong hội thoại"""
-        memory = self.get_memory(session_id)
-        messages = []
-
-        # Chuyển đổi từ dạng lưu trữ nội bộ sang danh sách tin nhắn
-        for message in memory.chat_memory.messages:
-            messages.append(
-                {
-                    "role": "user" if message.type == "human" else "assistant",
-                    "content": message.content,
-                }
-            )
-
-        return messages
-
-    def clear_memory(self, session_id: str, user_id: Optional[str] = None) -> bool:
-        """Xóa bộ nhớ cho một phiên hội thoại cụ thể"""
-        if session_id in self.memories:
-            self.memories[session_id].clear()
-            self._save_history(session_id, is_cleared=True, user_id=user_id)
-            return True
-        return False
-
-    def _save_history(
-        self, session_id: str, is_cleared: bool = False, user_id: Optional[str] = None
-    ) -> None:
-        """Lưu lịch sử hội thoại ra file"""
+class ConversationMemory:
+    def clear_memory(self, conversation_id, user_id=None):
+        """Xóa tất cả các tin nhắn trong một cuộc hội thoại nhưng giữ nguyên cuộc hội thoại đó"""
         try:
-            # Lấy thư mục lưu trữ dựa trên user_id
-            history_dir = self._get_user_history_dir(user_id)
-            file_path = os.path.join(history_dir, f"{session_id}.json")
-
-            if is_cleared:
-                # Nếu đã xóa bộ nhớ, tạo dữ liệu trống
-                history_data = {
-                    "session_id": session_id,
-                    "user_id": user_id,
-                    "last_updated": datetime.datetime.now().isoformat(),
-                    "messages": [],
-                }
-            else:
-                # Lấy tin nhắn từ bộ nhớ
-                messages = self.get_messages(session_id)
-                history_data = {
-                    "session_id": session_id,
-                    "user_id": user_id,
-                    "last_updated": datetime.datetime.now().isoformat(),
-                    "messages": messages,
-                }
-
-            # Lưu ra file JSON
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(history_data, f, ensure_ascii=False, indent=2)
-
-        except Exception as e:
-            print(f"Lỗi khi lưu lịch sử hội thoại: {str(e)}")
-
-    def load_history(self, session_id: str, user_id: Optional[str] = None) -> bool:
-        """Tải lịch sử hội thoại từ file"""
-        try:
-            # Lấy thư mục lưu trữ dựa trên user_id
-            history_dir = self._get_user_history_dir(user_id)
-            file_path = os.path.join(history_dir, f"{session_id}.json")
-
-            # Nếu không tìm thấy trong thư mục user, thử tìm trong thư mục gốc
-            if not os.path.exists(file_path) and user_id:
-                file_path = os.path.join(self.base_history_dir, f"{session_id}.json")
-                if not os.path.exists(file_path):
-                    return False
-            elif not os.path.exists(file_path):
-                return False
-
-            with open(file_path, "r", encoding="utf-8") as f:
-                history_data = json.load(f)
-
-            # Xóa bộ nhớ hiện tại
-            if session_id in self.memories:
-                self.memories[session_id].clear()
-            else:
-                self.memories[session_id] = ConversationBufferMemory(
-                    memory_key=self.memory_key,
-                    return_messages=self.return_messages,
-                    output_key=self.output_key,
+            # Nếu đang sử dụng Supabase, gọi phương thức clear_conversation_history
+            if hasattr(self.database, "clear_conversation_history"):
+                return self.database.clear_conversation_history(
+                    conversation_id, user_id
                 )
 
-            # Thêm tin nhắn từ lịch sử
-            memory = self.get_memory(session_id)
-            for message in history_data.get("messages", []):
-                if message["role"] == "user":
-                    memory.chat_memory.add_user_message(message["content"])
-                else:
-                    memory.chat_memory.add_ai_message(message["content"])
+            # Còn không, xóa file history hiện tại và tạo mới một file rỗng
+            file_path = os.path.join(
+                self._get_user_history_dir(user_id), f"{conversation_id}.json"
+            )
 
-            # Nếu file được tìm thấy trong thư mục gốc và có user_id, di chuyển nó vào thư mục user
-            if user_id and file_path == os.path.join(
-                self.base_history_dir, f"{session_id}.json"
-            ):
-                self._save_history(session_id, user_id=user_id)
+            # Nếu file không tồn tại, kiểm tra ở thư mục gốc
+            if not os.path.exists(file_path):
+                root_file_path = os.path.join(
+                    self.history_dir, f"{conversation_id}.json"
+                )
+                if os.path.exists(root_file_path):
+                    file_path = root_file_path
 
-            return True
+            # Nếu file tồn tại, xóa nội dung nhưng giữ lại file
+            if os.path.exists(file_path):
+                with open(file_path, "w") as f:
+                    json.dump([], f)
+                return True
 
+            return False
         except Exception as e:
-            print(f"Lỗi khi tải lịch sử hội thoại: {str(e)}")
+            print(f"Lỗi khi xóa bộ nhớ hội thoại: {str(e)}")
             return False
 
-    def format_for_prompt(self, session_id: str) -> str:
-        """Định dạng lịch sử hội thoại để sử dụng trong prompt"""
-        messages = self.get_messages(session_id)
-        if not messages:
-            return ""
+    def delete_conversation(self, conversation_id, user_id=None):
+        """Xóa hoàn toàn một cuộc hội thoại"""
+        try:
+            # Nếu đang sử dụng Supabase, gọi phương thức delete_conversation
+            if hasattr(self.database, "delete_conversation"):
+                return self.database.delete_conversation(conversation_id, user_id)
 
-        formatted_history = "LỊCH SỬ CUỘC HỘI THOẠI:\n"
-        for i, message in enumerate(messages):
-            if message["role"] == "user":
-                formatted_history += f"Người dùng: {message['content']}\n"
-            else:
-                formatted_history += f"Trợ lý: {message['content']}\n"
+            # Còn không, xóa file history
+            user_dir = self._get_user_history_dir(user_id)
+            file_path = os.path.join(user_dir, f"{conversation_id}.json")
 
-        return formatted_history
+            # Nếu file không tồn tại trong thư mục user, kiểm tra trong thư mục gốc
+            if not os.path.exists(file_path):
+                root_file_path = os.path.join(
+                    self.history_dir, f"{conversation_id}.json"
+                )
+                if os.path.exists(root_file_path):
+                    file_path = root_file_path
+
+            # Nếu file tồn tại, xóa file
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            return True
+
+            return False
+        except Exception as e:
+            print(f"Lỗi khi xóa cuộc hội thoại: {str(e)}")
+            return False

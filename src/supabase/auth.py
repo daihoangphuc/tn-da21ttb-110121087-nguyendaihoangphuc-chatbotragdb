@@ -4,7 +4,17 @@ Supabase Auth module for user authentication and management.
 
 from typing import Dict, Optional, Any, List
 from .client import SupabaseClient
+import logging
 
+# Cấu hình logging
+logging.basicConfig(format="[Auth] %(message)s", level=logging.INFO)
+# Ghi đè hàm print để thêm prefix
+original_print = print
+
+
+def print(*args, **kwargs):
+    prefix = "[Auth] "
+    original_print(prefix + " ".join(map(str, args)), **kwargs)
 
 class SupabaseAuth:
     """Class for managing user authentication with Supabase"""

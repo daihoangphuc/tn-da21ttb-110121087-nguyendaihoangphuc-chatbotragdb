@@ -1,4 +1,17 @@
 from sentence_transformers import SentenceTransformer
+import logging
+
+# Cấu hình logging
+logging.basicConfig(
+    format='[Embedding] %(message)s',
+    level=logging.INFO
+)
+# Ghi đè hàm print để thêm prefix
+original_print = print
+def print(*args, **kwargs):
+    prefix = "[Embedding] "
+    original_print(prefix + " ".join(map(str, args)), **kwargs)
+logger = logging.getLogger(__name__)
 import os
 from dotenv import load_dotenv
 

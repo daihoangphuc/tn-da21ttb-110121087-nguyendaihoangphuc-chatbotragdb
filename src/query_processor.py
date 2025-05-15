@@ -1,4 +1,18 @@
 from typing import Dict, List, Optional
+import logging
+
+# Cấu hình logging
+logging.basicConfig(format="[Query Processor] %(message)s", level=logging.INFO)
+# Ghi đè hàm print để thêm prefix
+original_print = print
+
+
+def print(*args, **kwargs):
+    prefix = "[Query Processor] "
+    original_print(prefix + " ".join(map(str, args)), **kwargs)
+
+
+logger = logging.getLogger(__name__)
 import re
 import os
 from dotenv import load_dotenv
@@ -29,6 +43,7 @@ class QueryProcessor:
         
         Nhiệm vụ: Xem xét lịch sử trò chuyện và viết lại câu hỏi để nó rõ ràng, hoàn chỉnh và có thể hiểu độc lập, không phụ thuộc vào ngữ cảnh. 
         Thay thế các đại từ (như "nó", "chúng") bằng các từ tham chiếu cụ thể. Viết lại câu hỏi một cách tự nhiên.
+        Tôi cần câu hỏi viết lại phải sát nhất với câu hỏi gốc.
         
         Chỉ trả về câu hỏi đã viết lại, không thêm giải thích hay bất kỳ nội dung nào khác.
         """

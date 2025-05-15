@@ -9,45 +9,49 @@ class APIService {
         console.log('APIService khởi tạo với baseUrl:', baseUrl);
         
         // Session ID cho hội thoại hiện tại
-        this.session_id = sessionStorage.getItem('rag_session_id') || this._generateSessionId();
+        this.conversation_id = localStorage.getItem('currentConversationId') || this._generateConversationId();
         
-        console.log('Khởi tạo ApiService với session_id:', this.session_id);
+        console.log('Khởi tạo ApiService với conversation_id:', this.conversation_id);
     }
 
-    _generateSessionId() {
+    _generateConversationId() {
         // Tạo UUID đơn giản
-        const sessionId = 'session_' + Math.random().toString(36).substring(2, 15);
-        sessionStorage.setItem('rag_session_id', sessionId);
-        return sessionId;
+        const conversationId = 'conversation_' + Math.random().toString(36).substring(2, 15);
+        localStorage.setItem('currentConversationId', conversationId);
+        return conversationId;
     }
     
-    // Lấy session ID hiện tại
-    getSessionId() {
-        return this.session_id;
+    // Lấy conversation ID hiện tại
+    getConversationId() {
+        if (!this.conversation_id && typeof localStorage !== 'undefined') {
+            this.conversation_id = localStorage.getItem('currentConversationId');
+        }
+        return this.conversation_id;
     }
     
-    // Đặt session ID mới
-    setSessionId(sessionId) {
-        this.session_id = sessionId;
-        sessionStorage.setItem('rag_session_id', sessionId);
+    // Đặt conversation ID mới
+    setConversationId(conversationId) {
+        this.conversation_id = conversationId;
+        localStorage.setItem('currentConversationId', conversationId);
+        console.log(`Đã lưu conversation_id hiện tại: ${conversationId}`);
     }
     
-    // Tạo session ID mới và xóa session cũ
-    resetSession() {
-        // Trước tiên, thử xóa session cũ
-        this.clearConversation(this.session_id)
-            .then(() => console.log('Đã xóa session cũ:', this.session_id))
-            .catch(err => console.error('Lỗi khi xóa session cũ:', err));
+    // Tạo conversation ID mới và xóa conversation cũ
+    resetConversation() {
+        // Trước tiên, thử xóa conversation cũ
+        this.clearConversation(this.conversation_id)
+            .then(() => console.log('Đã xóa conversation cũ:', this.conversation_id))
+            .catch(err => console.error('Lỗi khi xóa conversation cũ:', err));
             
-        // Sau đó tạo session mới
-        this.session_id = this._generateSessionId();
-        console.log('Đã tạo session mới:', this.session_id);
-        return this.session_id;
+        // Sau đó tạo conversation mới
+        this.conversation_id = this._generateConversationId();
+        console.log('Đã tạo conversation mới:', this.conversation_id);
+        return this.conversation_id;
     }
     
     // Phương thức để xóa hội thoại
-    async clearConversation(sessionId = null) {
-        const sid = sessionId || this.session_id;
+    async clearConversation(conversationId = null) {
+        const cid = conversationId || this.conversation_id;
         try {
             const response = await fetch(`${this.baseUrl}/conversation/clear`, {
                 method: 'POST',
@@ -55,7 +59,7 @@ class APIService {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    session_id: sid
+                    conversation_id: cid
                 })
             });
             
@@ -72,10 +76,10 @@ class APIService {
     }
     
     // Phương thức để lấy lịch sử hội thoại
-    async getConversationHistory(sessionId = null) {
-        const sid = sessionId || this.session_id;
+    async getConversationHistory(conversationId = null) {
+        const cid = conversationId || this.conversation_id;
         try {
-            const response = await fetch(`${this.baseUrl}/conversation/history?session_id=${sid}`);
+            const response = await fetch(`${this.baseUrl}/conversation/history?conversation_id=${cid}`);
             
             if (!response.ok) {
                 const errorData = await response.json();
@@ -172,7 +176,7 @@ class APIService {
                 search_type: searchType,
                 alpha: 0.7,
                 sources: sources || [],
-                session_id: this.session_id
+                conversation_id: this.conversation_id
             }),
         });
     }
@@ -191,7 +195,7 @@ class APIService {
             search_type: searchType,
             alpha: 0.7,
             sources: sources || [],
-            session_id: this.session_id
+            conversation_id: this.conversation_id
         };
         
         // Biến lưu trạng thái
@@ -779,17 +783,17 @@ class APIService {
     }
     
     // Phương thức để xóa một cuộc hội thoại
-    async deleteConversation(sessionId) {
-        console.log('Gọi API xóa hội thoại với session_id:', sessionId);
+    async deleteConversation(conversationId) {
+        console.log('Gọi API xóa hội thoại với conversation_id:', conversationId);
         
-        // Kiểm tra session_id hợp lệ trước khi gửi request
-        if (!sessionId || sessionId === 'undefined' || sessionId === 'null') {
-            console.error('Không thể xóa hội thoại: session_id không hợp lệ:', sessionId);
+        // Kiểm tra conversation_id hợp lệ trước khi gửi request
+        if (!conversationId || conversationId === 'undefined' || conversationId === 'null') {
+            console.error('Không thể xóa hội thoại: conversation_id không hợp lệ:', conversationId);
             throw new Error('ID hội thoại không hợp lệ');
         }
         
         try {
-            const result = await this.fetchApi(`/api/conversations/${sessionId}`, {
+            const result = await this.fetchApi(`/api/conversations/${conversationId}`, {
                 method: 'DELETE'
             });
             
@@ -800,8 +804,8 @@ class APIService {
                 console.log('Xóa hội thoại thành công');
                 return { status: 'success', message: result.message };
             } else {
-                console.error('Lỗi khi xóa hội thoại:', result.error || 'Không xác định');
-                return { status: 'error', message: result.error || 'Không thể xóa hội thoại' };
+                console.error('Lỗi khi xóa hội thoại:', result.message || 'Không xác định');
+                return { status: 'error', message: result.message || 'Không thể xóa hội thoại' };
             }
         } catch (error) {
             console.error('Lỗi khi gọi API xóa hội thoại:', error);
@@ -812,30 +816,83 @@ class APIService {
     // Tạo hội thoại mới
     async createConversation() {
         try {
-            return await this.fetchApi('/api/conversations', {
+            console.log('Bắt đầu tạo hội thoại mới...');
+            const result = await this.fetchApi('/api/conversations', {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${this.getAuthToken()}`
                 }
             });
+            
+            console.log('Kết quả tạo hội thoại mới:', result);
+            
+            // Kiểm tra kết quả chi tiết hơn
+            if (result && result.status === 'success' && result.conversation_id) {
+                console.log('Tạo hội thoại thành công với ID:', result.conversation_id);
+                this.setConversationId(result.conversation_id);
+                return {
+                    status: 'success',
+                    message: 'Đã tạo hội thoại mới thành công',
+                    conversation_id: result.conversation_id
+                };
+            } else {
+                console.error('Lỗi không xác định khi tạo hội thoại mới:', result);
+                return {
+                    status: 'error',
+                    message: result.message || 'Không thể tạo hội thoại mới vì lỗi không xác định',
+                    error_detail: JSON.stringify(result)
+                };
+            }
         } catch (error) {
             console.error('Lỗi khi tạo hội thoại mới:', error);
-            return { status: 'error', message: error.message };
+            return {
+                status: 'error',
+                message: `Không thể tạo hội thoại mới: ${error.message}`,
+                error: error
+            };
         }
     }
     
     // Lấy tin nhắn của một hội thoại
-    async getMessages(sessionId) {
+    async getMessages(conversationId) {
         try {
-            return await this.fetchApi(`/api/messages?session_id=${sessionId}`, {
+            const response = await this.fetchApi(`/api/messages?conversation_id=${conversationId}`, {
                 method: 'GET',
                 headers: {
                     'Authorization': `Bearer ${this.getAuthToken()}`
                 }
             });
+            
+            // Kiểm tra cấu trúc dữ liệu trả về
+            if (!response.data || !response.data.messages) {
+                console.error('Cấu trúc dữ liệu trả về không đúng:', response);
+                return { 
+                    status: 'error', 
+                    message: 'Cấu trúc dữ liệu trả về không đúng', 
+                    data: { 
+                        conversation_id: conversationId,
+                        messages: [] 
+                    } 
+                };
+            }
+            
+            // Đảm bảo messages là một mảng
+            if (!Array.isArray(response.data.messages)) {
+                console.error('Dữ liệu messages không phải là mảng:', response.data.messages);
+                response.data.messages = [];
+            }
+            
+            return response;
         } catch (error) {
-            console.error(`Lỗi khi lấy tin nhắn của hội thoại ${sessionId}:`, error);
-            return { status: 'error', data: [] };
+            console.error(`Lỗi khi lấy tin nhắn của hội thoại ${conversationId}:`, error);
+            return { 
+                status: 'error', 
+                message: `Không thể tải nội dung hội thoại: ${error.message}`,
+                data: { 
+                    conversation_id: conversationId,
+                    messages: [] 
+                } 
+            };
         }
     }
 }

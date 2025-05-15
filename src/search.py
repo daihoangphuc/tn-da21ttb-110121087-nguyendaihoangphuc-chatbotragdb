@@ -1,4 +1,18 @@
 from typing import List, Dict
+import logging
+
+# Cấu hình logging
+logging.basicConfig(
+    format='[Search] %(message)s',
+    level=logging.INFO
+)
+# Ghi đè hàm print để thêm prefix
+original_print = print
+def print(*args, **kwargs):
+    prefix = "[Search] "
+    original_print(prefix + " ".join(map(str, args)), **kwargs)
+
+logger = logging.getLogger(__name__)
 from rank_bm25 import BM25Okapi
 import re
 import numpy as np

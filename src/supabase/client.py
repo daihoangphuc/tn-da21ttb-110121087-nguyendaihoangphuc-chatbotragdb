@@ -7,6 +7,17 @@ import os
 # Thay đổi import để tránh xung đột
 import supabase as supabase_lib
 from supabase.client import Client
+import logging
+
+# Cấu hình logging
+logging.basicConfig(format="[Client_Supabase] %(message)s", level=logging.INFO)
+# Ghi đè hàm print để thêm prefix
+original_print = print
+
+
+def print(*args, **kwargs):
+    prefix = "[Client_Supabase] "
+    original_print(prefix + " ".join(map(str, args)), **kwargs)
 
 
 class SupabaseClient:

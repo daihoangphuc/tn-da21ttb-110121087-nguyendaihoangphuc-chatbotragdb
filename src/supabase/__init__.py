@@ -5,5 +5,5 @@ This module contains all necessary components to integrate with Supabase.
 
 from .client import SupabaseClient
 from .auth import SupabaseAuth
-from .storage import SupabaseStorage
-from .realtime import SupabaseRealtime
+from .database import SupabaseDatabase
+from .conversation_manager import SupabaseConversationManager

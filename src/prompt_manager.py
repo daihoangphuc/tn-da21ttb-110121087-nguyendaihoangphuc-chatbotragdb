@@ -1,4 +1,18 @@
 import re
+import logging
+
+# Cấu hình logging
+logging.basicConfig(format="[Prompt Manager] %(message)s", level=logging.INFO)
+# Ghi đè hàm print để thêm prefix
+original_print = print
+
+
+def print(*args, **kwargs):
+    prefix = "[Prompt Manager] "
+    original_print(prefix + " ".join(map(str, args)), **kwargs)
+
+
+logger = logging.getLogger(__name__)
 from typing import List, Dict
 import os
 
@@ -28,7 +42,7 @@ class PromptManager:
             Khi giải thích mã SQL, hãy đặt chúng trong khối ```sql và ```
 
             --Cung cấp ví dụ cụ thể--
-            Sử dụng ví dụ cụ thể, thực tế để minh họa khái niệm. Nếu phù hợp, hãy đề xuất các bài tập ngắn để tôi có thể thực hành.
+            Sử dụng ví dụ cụ thể, thực tế để minh họa khái niệm.
 
             NGUYÊN TẮC NGHIÊM NGẶT VỀ THÔNG TIN:
             - BẠN CHỈ ĐƯỢC SỬ DỤNG THÔNG TIN CÓ TRONG TÀI LIỆU NGUỒN đã cung cấp ở phần Ngữ cảnh.

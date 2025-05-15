@@ -1,4 +1,19 @@
 from qdrant_client import QdrantClient, models
+import logging
+import numpy as np
+
+# Cấu hình logging
+logging.basicConfig(format="[Vector Store] %(message)s", level=logging.INFO)
+# Ghi đè hàm print để thêm prefix
+original_print = print
+
+
+def print(*args, **kwargs):
+    prefix = "[Vector Store] "
+    original_print(prefix + " ".join(map(str, args)), **kwargs)
+
+
+logger = logging.getLogger(__name__)
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter
 from typing import List, Dict
 import os
@@ -18,6 +33,7 @@ class VectorStore:
         url=None,
         api_key=None,
         collection_name=None,
+        user_id=None,
     ):
         """Khởi tạo Qdrant client"""
         # Lấy URL và API key từ môi trường hoặc tham số
@@ -38,31 +54,100 @@ class VectorStore:
             https=True,
         )
 
-        self.collection_name = collection_name or os.getenv(
-            "QDRANT_COLLECTION_NAME", "csdl_rag_e5_base"
-        )
+        # Lưu user_id và collection_name nếu có
+        self.user_id = user_id
+        self.collection_name = collection_name
 
-    def ensure_collection_exists(self, vector_size):
+        # Nếu đã có cả user_id và collection_name, thì ghi log
+        if user_id and collection_name:
+            print(
+                f"Khởi tạo Vector Store với collection: {self.collection_name} cho user: {user_id}"
+            )
+        # Nếu chỉ có user_id, tạo collection_name từ user_id
+        elif user_id:
+            self.collection_name = f"user_{user_id}"
+            print(f"Khởi tạo Vector Store với collection: {self.collection_name}")
+        # Nếu không có gì cả, chỉ khởi tạo client
+        else:
+            print(
+                "Khởi tạo Vector Store mà không chỉ định collection. Collection sẽ được xác định khi thao tác với cụ thể user_id."
+            )
+
+    def get_collection_name_for_user(self, user_id):
+        """Lấy tên collection cho user_id cụ thể"""
+        if not user_id:
+            raise ValueError("user_id là bắt buộc để xác định collection")
+
+        # Cập nhật user_id và collection_name hiện tại
+        if self.user_id != user_id:
+            self.user_id = user_id
+            self.collection_name = f"user_{user_id}"
+
+        return self.collection_name
+
+    def ensure_collection_exists(self, vector_size, user_id=None):
         """Đảm bảo collection tồn tại trong Qdrant"""
+        # Nếu có user_id mới, cập nhật collection_name
+        if user_id and user_id != self.user_id:
+            self.collection_name = self.get_collection_name_for_user(user_id)
+
+        # Nếu không có collection_name, không thực hiện gì cả và trả về False
+        if not self.collection_name:
+            print(
+                "THÔNG BÁO: Bỏ qua tạo collection vì chưa có collection_name hoặc user_id"
+            )
+            return False
+
         collections = self.client.get_collections().collections
         collection_names = [c.name for c in collections]
 
         if self.collection_name not in collection_names:
+            print(
+                f"Tạo collection mới: {self.collection_name} với vector_size={vector_size}"
+            )
             self.client.create_collection(
                 collection_name=self.collection_name,
                 vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
             )
+            return True
+        else:
+            print(f"Collection {self.collection_name} đã tồn tại")
+            return True
 
-    def index_documents(self, chunks, embeddings, user_id="default_user"):
+    def index_documents(self, chunks, embeddings, user_id):
         """Index dữ liệu lên Qdrant"""
         start_time = time.time()
-        print(f"[INDEX] Bắt đầu index {len(chunks)} chunks với user_id={user_id}")
+
+        # Kiểm tra user_id phải được cung cấp
+        if not user_id:
+            raise ValueError(
+                "user_id là bắt buộc để xác định collection cho từng người dùng"
+            )
+
+        # Cập nhật collection_name nếu user_id khác hoặc chưa có collection_name
+        if self.user_id != user_id or not self.collection_name:
+            self.collection_name = self.get_collection_name_for_user(user_id)
+            print(
+                f"[INDEX] Sử dụng collection: {self.collection_name} cho user_id: {user_id}"
+            )
+
+        print(
+            f"[INDEX] Bắt đầu index {len(chunks)} chunks vào collection {self.collection_name}"
+        )
 
         # Đảm bảo collection có tồn tại
         if not self.client.collection_exists(self.collection_name):
-            vector_size = (
-                len(embeddings[0]) if embeddings and len(embeddings) > 0 else 768
-            )
+            # Lấy kích thước vector an toàn
+            vector_size = 768  # Giá trị mặc định
+            if embeddings is not None and len(embeddings) > 0:
+                if isinstance(embeddings[0], (list, np.ndarray)):
+                    # Kiểm tra xem embeddings[0] có phải là mảng hoặc danh sách
+                    vector_size = len(embeddings[0])
+                else:
+                    print(
+                        "[INDEX] Cảnh báo: embeddings[0] không phải là mảng như mong đợi"
+                    )
+
             print(
                 f"[INDEX] Collection {self.collection_name} chưa tồn tại, tạo mới với size={vector_size}"
             )
@@ -80,27 +165,30 @@ class VectorStore:
             if "metadata" not in chunk or not isinstance(chunk["metadata"], dict):
                 chunk["metadata"] = {}
 
-            # Đảm bảo source cũng có trong metadata và thêm user_id
+            # Đảm bảo source cũng có trong metadata
             chunk["metadata"]["source"] = source
-            chunk["metadata"]["user_id"] = user_id  # Thêm user_id vào metadata
             # Thêm timestamp để theo dõi
             chunk["metadata"]["indexed_at"] = int(time.time())
 
             # In thông tin để debug nếu là chunk đầu tiên hoặc mỗi 50 chunks
             if idx == 0 or idx % 50 == 0 or idx == len(chunks) - 1:
                 print(
-                    f"[INDEX] Indexing chunk {idx}/{len(chunks)}: id={point_id}, source={source}, user_id={user_id}"
+                    f"[INDEX] Indexing chunk {idx}/{len(chunks)}: id={point_id}, source={source}"
                 )
+
+            # Đảm bảo embedding là danh sách trước khi thêm vào points
+            current_embedding = embeddings[idx]
+            if isinstance(current_embedding, np.ndarray):
+                current_embedding = current_embedding.tolist()
 
             points.append(
                 PointStruct(
                     id=point_id,  # Sử dụng ID ngẫu nhiên
-                    vector=embeddings[idx].tolist(),
+                    vector=current_embedding,
                     payload={
                         "text": chunk["text"],
                         "metadata": chunk["metadata"],
                         "source": source,  # Lưu source trực tiếp trong payload
-                        "user_id": user_id,  # Thêm user_id trực tiếp trong payload
                         "indexed_at": int(time.time()),  # Thêm timestamp
                     },
                 )
@@ -145,8 +233,21 @@ class VectorStore:
         except Exception as e:
             print(f"[INDEX] Error getting collection info: {str(e)}")
 
-    def search(self, query_vector, limit=5):
+    def search(self, query_vector, limit=5, user_id=None):
         """Tìm kiếm trong Qdrant"""
+        # Cập nhật collection_name nếu có user_id mới
+        if user_id and user_id != self.user_id:
+            self.collection_name = self.get_collection_name_for_user(user_id)
+
+        if not self.collection_name:
+            raise ValueError(
+                "collection_name không được để trống. Cần user_id để xác định collection."
+            )
+
+        if not self.client.collection_exists(self.collection_name):
+            print(f"Collection {self.collection_name} không tồn tại")
+            return []
+
         results = self.client.search(
             collection_name=self.collection_name,
             query_vector=query_vector,
@@ -164,10 +265,23 @@ class VectorStore:
         ]
 
     def search_with_filter(self, query_vector, sources=None, user_id=None, limit=5):
-        """Tìm kiếm trong Qdrant với filter theo nguồn tài liệu và user_id"""
-        # Nếu không có danh sách nguồn và user_id, sử dụng search thông thường
-        if not sources and not user_id:
-            return self.search(query_vector, limit)
+        """Tìm kiếm trong Qdrant với filter theo nguồn tài liệu"""
+        # Cập nhật collection_name nếu có user_id mới
+        if user_id and user_id != self.user_id:
+            self.collection_name = self.get_collection_name_for_user(user_id)
+
+        if not self.collection_name:
+            raise ValueError(
+                "collection_name không được để trống. Cần user_id để xác định collection."
+            )
+
+        if not self.client.collection_exists(self.collection_name):
+            print(f"Collection {self.collection_name} không tồn tại")
+            return []
+
+        # Nếu không có danh sách nguồn, sử dụng search thông thường
+        if not sources:
+            return self.search(query_vector, limit, user_id)
 
         # Xử lý danh sách nguồn để hỗ trợ so sánh với cả tên file đơn thuần và đường dẫn
         normalized_sources = []
@@ -181,20 +295,18 @@ class VectorStore:
                         normalized_sources.append(filename)
 
         print(
-            f"Tìm kiếm với sources={sources}, normalized_sources={normalized_sources}, user_id={user_id}"
+            f"Tìm kiếm với sources={sources}, normalized_sources={normalized_sources}"
         )
 
         # Lấy nhiều kết quả hơn để đảm bảo đủ sau khi lọc
-        results = self.search(query_vector, limit=limit * 3)
+        results = self.search(query_vector, limit=limit * 3, user_id=user_id)
 
-        # Lọc kết quả theo nguồn và user_id
+        # Lọc kết quả theo nguồn
         filtered_results = []
         for result in results:
             # Kiểm tra source trong cả metadata và trực tiếp trong kết quả
             meta_source = result.get("metadata", {}).get("source", "unknown")
             direct_source = result.get("source", "unknown")
-            meta_user_id = result.get("metadata", {}).get("user_id", "unknown")
-            direct_user_id = result.get("user_id", "unknown")
 
             # Extract filename từ source nếu có đường dẫn
             meta_filename = (
@@ -206,23 +318,16 @@ class VectorStore:
                 else "unknown"
             )
 
-            # Kiểm tra điều kiện user_id
-            user_id_match = True
-            if user_id:
-                user_id_match = meta_user_id == user_id or direct_user_id == user_id
-
             # Kiểm tra điều kiện source
-            source_match = True
-            if normalized_sources:
-                source_match = (
-                    meta_source in normalized_sources
-                    or direct_source in normalized_sources
-                    or meta_filename in normalized_sources
-                    or direct_filename in normalized_sources
-                )
+            source_match = (
+                meta_source in normalized_sources
+                or direct_source in normalized_sources
+                or meta_filename in normalized_sources
+                or direct_filename in normalized_sources
+            )
 
-            # Nếu thỏa mãn cả hai điều kiện
-            if source_match and user_id_match:
+            # Nếu thỏa mãn điều kiện
+            if source_match:
                 filtered_results.append(result)
 
                 # Nếu đã đủ số kết quả cần thiết, dừng lại
@@ -231,10 +336,23 @@ class VectorStore:
 
         return filtered_results
 
-    def get_all_documents(self, limit=1000):
+    def get_all_documents(self, limit=1000, user_id=None):
         """Lấy tất cả tài liệu từ collection"""
+        # Cập nhật collection_name nếu có user_id mới
+        if user_id and user_id != self.user_id:
+            self.collection_name = self.get_collection_name_for_user(user_id)
+
+        if not self.collection_name:
+            raise ValueError(
+                "collection_name không được để trống. Cần user_id để xác định collection."
+            )
+
         try:
             # Kiểm tra xem collection có tồn tại không
+            if not self.client.collection_exists(self.collection_name):
+                print(f"Collection {self.collection_name} không tồn tại")
+                return []
+
             collection_info = self.get_collection_info()
             if not collection_info:
                 print(f"Collection {self.collection_name} không tồn tại")
@@ -274,21 +392,61 @@ class VectorStore:
             print(f"Lỗi khi lấy tất cả tài liệu: {str(e)}")
             return []
 
-    def delete_collection(self):
+    def delete_collection(self, user_id=None):
         """Xóa collection trong Qdrant"""
-        self.client.delete_collection(self.collection_name)
+        # Cập nhật collection_name nếu có user_id mới
+        if user_id and user_id != self.user_id:
+            self.collection_name = self.get_collection_name_for_user(user_id)
 
-    def get_collection_info(self):
+        if not self.collection_name:
+            raise ValueError(
+                "collection_name không được để trống. Cần user_id để xác định collection."
+            )
+
+        if not self.client.collection_exists(self.collection_name):
+            print(f"Collection {self.collection_name} không tồn tại, không cần xóa")
+            return
+
+        self.client.delete_collection(self.collection_name)
+        print(f"Đã xóa collection {self.collection_name}")
+
+    def get_collection_info(self, user_id=None):
         """Lấy thông tin collection"""
+        # Cập nhật collection_name nếu có user_id mới
+        if user_id and user_id != self.user_id:
+            self.collection_name = self.get_collection_name_for_user(user_id)
+
+        if not self.collection_name:
+            raise ValueError(
+                "collection_name không được để trống. Cần user_id để xác định collection."
+            )
+
         try:
+            if not self.client.collection_exists(self.collection_name):
+                print(f"Collection {self.collection_name} không tồn tại")
+                return None
+
             collection_info = self.client.get_collection(self.collection_name)
             return collection_info.dict()
         except Exception as e:
             print(f"Lỗi khi lấy thông tin collection: {str(e)}")
             return None
 
-    def get_document_by_category(self, category, limit=100):
+    def get_document_by_category(self, category, limit=100, user_id=None):
         """Lấy tài liệu theo danh mục (SQL, NoSQL, ...)"""
+        # Cập nhật collection_name nếu có user_id mới
+        if user_id and user_id != self.user_id:
+            self.collection_name = self.get_collection_name_for_user(user_id)
+
+        if not self.collection_name:
+            raise ValueError(
+                "collection_name không được để trống. Cần user_id để xác định collection."
+            )
+
+        if not self.client.collection_exists(self.collection_name):
+            print(f"Collection {self.collection_name} không tồn tại")
+            return []
+
         try:
             # Tạo bộ lọc theo danh mục
             category_filter = Filter(
@@ -322,16 +480,19 @@ class VectorStore:
             print(f"Lỗi khi lấy tài liệu theo danh mục: {str(e)}")
             return []
 
-    def delete_points(self, point_ids: List[str]) -> bool:
+    def delete_points(self, point_ids: List[str], user_id=None) -> bool:
         """
         Xóa các điểm cụ thể từ collection theo danh sách ID
-
-        Args:
-            point_ids: Danh sách ID của các điểm cần xóa
-
-        Returns:
-            True nếu xóa thành công, False nếu có lỗi
         """
+        # Cập nhật collection_name nếu có user_id mới
+        if user_id and user_id != self.user_id:
+            self.collection_name = self.get_collection_name_for_user(user_id)
+
+        if not self.collection_name:
+            raise ValueError(
+                "collection_name không được để trống. Cần user_id để xác định collection."
+            )
+
         try:
             print(
                 f"[VECTOR_STORE] Bắt đầu xóa {len(point_ids)} điểm. ID mẫu: {point_ids[:3] if len(point_ids) > 3 else point_ids}"
@@ -359,16 +520,19 @@ class VectorStore:
             print(f"[VECTOR_STORE] Traceback: {traceback_str}")
             return False
 
-    def delete_points_by_filter(self, filter_dict):
+    def delete_points_by_filter(self, filter_dict, user_id=None):
         """
         Xóa các điểm theo filter
-
-        Args:
-            filter_dict: Dictionary chứa filter theo định dạng của Qdrant
-
-        Returns:
-            Tuple (success, message) với success là True nếu xóa thành công
         """
+        # Cập nhật collection_name nếu có user_id mới
+        if user_id and user_id != self.user_id:
+            self.collection_name = self.get_collection_name_for_user(user_id)
+
+        if not self.collection_name:
+            raise ValueError(
+                "collection_name không được để trống. Cần user_id để xác định collection."
+            )
+
         try:
             print(f"[VECTOR_STORE] Bắt đầu xóa điểm theo filter: {filter_dict}")
 

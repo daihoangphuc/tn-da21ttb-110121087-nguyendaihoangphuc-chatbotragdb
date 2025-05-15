@@ -1,3 +1,22 @@
+import logging
+
+# Cấu hình logging cho cả logging và print
+logging.basicConfig(format="[RAG_Pipeline] %(message)s", level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Ghi đè hàm print để thêm prefix
+original_print = print
+
+
+def print(*args, **kwargs):
+    prefix = "[RAG_Pipeline] "
+    original_print(prefix + " ".join(map(str, args)), **kwargs)
+
+
+# Cấu hình logging
+logging.basicConfig(format="[RAG_Pipeline] %(message)s", level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 from typing import List, Dict, AsyncGenerator
 from src.embedding import EmbeddingModel
 from src.llm import GeminiLLM
@@ -17,19 +36,112 @@ import asyncio
 # Load biến môi trường từ .env
 load_dotenv()
 
+# Khai báo các biến toàn cục cho các tài nguyên dùng chung
+global_embedding_model = None
+global_llm_model = None
+global_document_processor = None
+global_prompt_manager = None
+global_search_manager = None
+global_resources_initialized = False
+
+
+def initialize_global_resources():
+    """Khởi tạo các tài nguyên dùng chung toàn cục một lần duy nhất"""
+    global global_embedding_model, global_llm_model, global_document_processor, global_prompt_manager, global_search_manager, global_resources_initialized
+
+    if not global_resources_initialized:
+        print("Bắt đầu khởi tạo các tài nguyên toàn cục...")
+
+        # Khởi tạo các model chỉ một lần
+        global_embedding_model = EmbeddingModel()
+        print("Đã khởi tạo embedding model toàn cục")
+
+        global_llm_model = GeminiLLM()
+        print("Đã khởi tạo LLM toàn cục")
+
+        global_document_processor = DocumentProcessor()
+        print("Đã khởi tạo Document Processor toàn cục")
+
+        global_prompt_manager = PromptManager()
+        print("Đã khởi tạo Prompt Manager toàn cục")
+
+        # Tạo search manager dùng chung
+        temp_vector_store = VectorStore()  # Tạm thời tạo để khởi tạo SearchManager
+        global_search_manager = SearchManager(temp_vector_store, global_embedding_model)
+        print("Đã khởi tạo Search Manager toàn cục (BM25, reranker)")
+
+        global_resources_initialized = True
+        print("Hoàn thành khởi tạo tất cả tài nguyên toàn cục")
+    else:
+        print("Các tài nguyên toàn cục đã được khởi tạo trước đó")
+
+    return {
+        "embedding_model": global_embedding_model,
+        "llm_model": global_llm_model,
+        "document_processor": global_document_processor,
+        "prompt_manager": global_prompt_manager,
+        "search_manager": global_search_manager,
+    }
+
 
 class AdvancedDatabaseRAG:
     """Lớp chính kết hợp tất cả các thành phần của hệ thống RAG"""
 
-    def __init__(self, api_key=None):
+    def __init__(
+        self,
+        api_key=None,
+        user_id=None,
+        embedding_model=None,
+        llm_model=None,
+        document_processor=None,
+        prompt_manager=None,
+        search_manager=None,
+    ):
         """Khởi tạo hệ thống RAG"""
-        # Khởi tạo các thành phần riêng biệt
-        self.embedding_model = EmbeddingModel()
-        self.llm = GeminiLLM(api_key)
-        self.vector_store = VectorStore()
-        self.document_processor = DocumentProcessor()
-        self.prompt_manager = PromptManager()
-        self.search_manager = SearchManager(self.vector_store, self.embedding_model)
+        # Khởi tạo các thành phần riêng biệt từ bên ngoài hoặc tạo mới
+        if embedding_model is not None:
+            self.embedding_model = embedding_model
+            print("Sử dụng embedding model được cung cấp từ bên ngoài")
+        else:
+            print("Khởi tạo embedding model mới")
+            self.embedding_model = EmbeddingModel()
+
+        if llm_model is not None:
+            self.llm = llm_model
+            print("Sử dụng LLM được cung cấp từ bên ngoài")
+        else:
+            print("Khởi tạo LLM mới")
+            self.llm = GeminiLLM(api_key)
+
+        # Lưu trữ user_id
+        self.user_id = user_id
+        # Khởi tạo vector store với user_id
+        self.vector_store = VectorStore(user_id=user_id)
+        print(f"Khởi tạo hệ thống RAG cho user_id={user_id}")
+
+        if document_processor is not None:
+            self.document_processor = document_processor
+            print("Sử dụng Document Processor được cung cấp từ bên ngoài")
+        else:
+            print("Khởi tạo Document Processor mới")
+            self.document_processor = DocumentProcessor()
+
+        if prompt_manager is not None:
+            self.prompt_manager = prompt_manager
+            print("Sử dụng Prompt Manager được cung cấp từ bên ngoài")
+        else:
+            print("Khởi tạo Prompt Manager mới")
+            self.prompt_manager = PromptManager()
+
+        # Sử dụng search_manager từ bên ngoài hoặc tạo mới với vector_store của user
+        if search_manager is not None:
+            # Gán search_manager toàn cục nhưng cập nhật vector_store
+            self.search_manager = search_manager
+            self.search_manager.vector_store = self.vector_store
+            print("Sử dụng Search Manager toàn cục (cập nhật vector_store cho user)")
+        else:
+            print("Khởi tạo Search Manager mới")
+            self.search_manager = SearchManager(self.vector_store, self.embedding_model)
 
         # Thêm QueryProcessor cho việc xử lý đồng tham chiếu
         self.query_processor = QueryProcessor()
@@ -60,9 +172,6 @@ class AdvancedDatabaseRAG:
         self.enable_fact_checking = (
             False  # Tính năng kiểm tra sự kiện (có thể kích hoạt sau)
         )
-
-        # Đảm bảo collection tồn tại
-        self.vector_store.ensure_collection_exists(self.embedding_model.get_dimension())
 
         # Cấu hình fact checking
         self.enable_fact_checking = os.getenv(
@@ -127,19 +236,68 @@ class AdvancedDatabaseRAG:
         """Xử lý một tài liệu đơn lẻ"""
         return self.document_processor.process_documents([document])
 
-    def index_to_qdrant(self, chunks: List[Dict]) -> None:
+    def index_to_qdrant(self, chunks: List[Dict], user_id) -> None:
         """Index dữ liệu lên Qdrant với xử lý song song cho embedding"""
+        # Sử dụng user_id được truyền vào
+        if not user_id:
+            raise ValueError(
+                "user_id là bắt buộc để xác định collection cho từng người dùng"
+            )
+
+        current_user_id = user_id
+
         # Xử lý embedding song song theo batches
         texts = [chunk["text"] for chunk in chunks]
         batch_size = 32  # Số lượng văn bản xử lý trong mỗi batch
 
         print(f"Tính embedding cho {len(texts)} chunks với batch_size={batch_size}...")
-        embeddings = self.embedding_model.encode(
-            texts, batch_size=batch_size, show_progress=True
+
+        try:
+            embeddings = self.embedding_model.encode(
+                texts, batch_size=batch_size, show_progress=True
+            )
+            print(
+                f"Đã hoàn thành embedding, shape: {embeddings.shape if hasattr(embeddings, 'shape') else 'unknown'}"
+            )
+        except Exception as e:
+            print(f"Lỗi khi tạo embeddings: {str(e)}")
+            print("Thử tạo embeddings lại với các tham số khác...")
+            try:
+                # Thử lại với batch nhỏ hơn
+                batch_size = 16
+                embeddings = self.embedding_model.encode(
+                    texts, batch_size=batch_size, show_progress=True
+                )
+            except Exception as e2:
+                print(f"Vẫn lỗi khi tạo embeddings lần 2: {str(e2)}")
+                raise ValueError(
+                    f"Không thể tạo embeddings cho các texts đã cung cấp: {str(e2)}"
+                )
+
+        print(
+            f"Đã hoàn thành embedding, đang index lên Qdrant cho user_id={current_user_id}..."
         )
 
-        print(f"Đã hoàn thành embedding, đang index lên Qdrant...")
-        self.vector_store.index_documents(chunks, embeddings)
+        # Chuyển danh sách embeddings thành danh sách các vector
+        if hasattr(embeddings, "tolist"):
+            # Nếu embeddings là một mảng NumPy
+            embeddings_list = embeddings.tolist()
+        elif isinstance(embeddings, list):
+            # Nếu embeddings đã là một danh sách
+            embeddings_list = embeddings
+        else:
+            print(f"Loại embeddings không rõ: {type(embeddings)}")
+            # Cố gắng chuyển đổi sang danh sách nếu có thể
+            try:
+                embeddings_list = list(embeddings)
+            except:
+                raise ValueError(
+                    f"Không thể chuyển đổi embeddings sang danh sách, loại: {type(embeddings)}"
+                )
+
+        self.vector_store.index_documents(
+            chunks, embeddings_list, user_id=current_user_id
+        )
 
     def semantic_search(
         self, query: str, k: int = 5, sources: List[str] = None

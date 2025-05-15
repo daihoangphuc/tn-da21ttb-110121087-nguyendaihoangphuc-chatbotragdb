@@ -1,4 +1,17 @@
 from typing import Dict, List, Optional, Tuple
+import logging
+
+# Cấu hình logging
+logging.basicConfig(
+    format='[Query Router] %(message)s',
+    level=logging.INFO
+)
+# Ghi đè hàm print để thêm prefix
+original_print = print
+def print(*args, **kwargs):
+    prefix = "[Query Router] "
+    original_print(prefix + " ".join(map(str, args)), **kwargs)
+logger = logging.getLogger(__name__)
 import os
 from dotenv import load_dotenv
 from src.llm import GeminiLLM

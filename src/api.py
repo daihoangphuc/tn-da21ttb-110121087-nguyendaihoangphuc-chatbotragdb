@@ -38,7 +38,7 @@ from dotenv import load_dotenv
 import supabase
 
 from src.rag import AdvancedDatabaseRAG
-from src.conversation_memory import ConversationManager
+from src.supabase.conversation_manager import SupabaseConversationManager
 
 # Load biến môi trường từ .env
 load_dotenv()
@@ -68,7 +68,18 @@ app.add_middleware(
 rag_system = AdvancedDatabaseRAG()
 
 # Khởi tạo quản lý hội thoại
-conversation_manager = ConversationManager()
+try:
+    conversation_manager = SupabaseConversationManager()
+    print(
+        "Khởi tạo SupabaseConversationManager thành công để lưu trữ hội thoại qua Supabase"
+    )
+except Exception as e:
+    print(f"Lỗi khi khởi tạo SupabaseConversationManager: {str(e)}")
+    print("Không thể sử dụng SupabaseConversationManager")
+    import traceback
+
+    print(f"Chi tiết lỗi: {traceback.format_exc()}")
+    raise
 
 # Đường dẫn lưu dữ liệu tạm thời
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "src/data")
@@ -243,19 +254,19 @@ class FileDeleteResponse(BaseModel):
 
 # Thêm model để quản lý phiên hội thoại
 class ConversationRequest(BaseModel):
-    session_id: str
+    conversation_id: str
 
 
 class CreateConversationResponse(BaseModel):
     status: str
     message: str
-    session_id: str
+    conversation_id: str
 
 
 class DeleteConversationResponse(BaseModel):
     status: str
     message: str
-    session_id: str
+    conversation_id: str
 
 
 # Models cho API xác thực
@@ -1685,48 +1696,26 @@ async def clear_conversation(
     current_user=Depends(get_current_user),
 ):
     """
-    Xóa lịch sử hội thoại cho một phiên cụ thể
-
-    - **session_id**: ID phiên hội thoại cần xóa
+    Xóa toàn bộ tin nhắn trong hội thoại nhưng giữ nguyên session
     """
     try:
-        session_id = request.session_id
         user_id = current_user.id
 
-        # Xóa lịch sử hội thoại
-        if hasattr(conversation_manager, "clear_memory"):
-            # Sử dụng phương thức clear_memory của cả hai loại manager
-            success = conversation_manager.clear_memory(session_id, user_id=user_id)
+        # Xóa tất cả tin nhắn trong hội thoại
+        success = conversation_manager.clear_memory(request.conversation_id)
 
-            if not success:
-                return JSONResponse(
-                    status_code=404,
-                    content={
-                        "status": "warning",
-                        "message": f"Không tìm thấy hoặc không thể xóa lịch sử hội thoại cho phiên {session_id}",
-                        "session_id": session_id,
-                    },
-                )
-        else:
-            # Fallback nếu không có phương thức clear_memory
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "status": "error",
-                    "message": "Phương thức xóa lịch sử hội thoại không được hỗ trợ",
-                    "session_id": session_id,
-                },
-            )
+        if not success:
+            return {
+                "status": "error",
+                "message": f"Không thể xóa tin nhắn trong hội thoại {request.conversation_id}",
+            }
 
         return {
             "status": "success",
-            "message": f"Đã xóa lịch sử hội thoại cho phiên {session_id}",
-            "session_id": session_id,
+            "message": f"Đã xóa tin nhắn trong hội thoại {request.conversation_id}",
         }
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Lỗi khi xóa lịch sử hội thoại: {str(e)}"
-        )
+        return {"status": "error", "message": f"Lỗi khi xóa tin nhắn: {str(e)}"}
 
 
 @app.get(f"{PREFIX}/conversations")
@@ -1743,9 +1732,12 @@ async def get_all_conversations(
     try:
         user_id = current_user.id
 
-        if hasattr(conversation_manager, "get_conversations"):
-            # Sử dụng phương thức get_conversations của SupabaseConversationManager
-            all_conversations = conversation_manager.get_conversations(user_id)
+        # Sử dụng SupabaseConversationManager để lấy danh sách hội thoại
+        all_conversations = conversation_manager.get_conversations(user_id)
+
+        # Thêm user_id vào từng hội thoại để client có thể lọc
+        for conv in all_conversations:
+            conv["user_id"] = user_id
 
             # Thực hiện phân trang
             total_items = len(all_conversations)
@@ -1759,90 +1751,7 @@ async def get_all_conversations(
             return {
                 "status": "success",
                 "message": f"Đã tìm thấy {total_items} hội thoại",
-                "conversations": conversations,
-                "pagination": {
-                    "page": page,
-                    "page_size": page_size,
-                    "total_items": total_items,
-                    "total_pages": total_pages,
-                },
-            }
-        else:
-            # Sử dụng lưu trữ cục bộ
-            history_dir = os.path.join(
-                "D:\\DATN\\V2", "src", "conversation_history", user_id
-            )
-            if not os.path.exists(history_dir):
-                os.makedirs(history_dir, exist_ok=True)
-                return {
-                    "status": "success",
-                    "message": "Không tìm thấy hội thoại nào",
-                    "conversations": [],
-                    "pagination": {
-                        "page": page,
-                        "page_size": page_size,
-                        "total_items": 0,
-                        "total_pages": 0,
-                    },
-                }
-
-            all_conversations = []
-
-            # Duyệt qua tất cả các file JSON trong thư mục hội thoại
-            for filename in os.listdir(history_dir):
-                if filename.endswith(".json"):
-                    file_path = os.path.join(history_dir, filename)
-                    try:
-                        with open(file_path, "r", encoding="utf-8") as f:
-                            data = json.load(f)
-
-                        # Trích xuất thông tin cơ bản
-                        session_id = data.get(
-                            "session_id", filename.replace(".json", "")
-                        )
-                        last_updated = data.get("last_updated", "Unknown")
-                        message_count = len(data.get("messages", []))
-
-                        # Lấy nội dung tin nhắn đầu tiên (nếu có)
-                        first_message = ""
-                        if message_count > 0:
-                            messages = data.get("messages", [])
-                            for msg in messages:
-                                if msg.get("role") == "user":
-                                    first_message = msg.get("content", "")
-                                    if len(first_message) > 100:
-                                        first_message = first_message[:100] + "..."
-                                    break
-
-                        all_conversations.append(
-                            {
-                                "session_id": session_id,
-                                "last_updated": last_updated,
-                                "message_count": message_count,
-                                "first_message": first_message,
-                            }
-                        )
-                    except Exception as e:
-                        print(f"Lỗi khi đọc file {filename}: {str(e)}")
-
-            # Sắp xếp theo thời gian cập nhật mới nhất
-            all_conversations.sort(
-                key=lambda x: x.get("last_updated", ""), reverse=True
-            )
-
-            # Thực hiện phân trang
-            total_items = len(all_conversations)
-            total_pages = (total_items + page_size - 1) // page_size
-
-            start_idx = (page - 1) * page_size
-            end_idx = min(start_idx + page_size, total_items)
-
-            conversations = all_conversations[start_idx:end_idx]
-
-            return {
-                "status": "success",
-                "message": f"Đã tìm thấy {total_items} hội thoại",
-                "conversations": conversations,
+                "data": conversations,
                 "pagination": {
                     "page": page,
                     "page_size": page_size,
@@ -1856,95 +1765,44 @@ async def get_all_conversations(
         )
 
 
-@app.get(f"{PREFIX}/conversations/{{session_id}}")
+@app.get(f"{PREFIX}/conversations/{{conversation_id}}")
 async def get_conversation_detail(
-    session_id: str = Path(..., description="ID phiên hội thoại cần lấy chi tiết"),
+    conversation_id: str = Path(..., description="ID phiên hội thoại cần lấy chi tiết"),
     current_user=Depends(get_current_user),
 ):
     """
     Lấy chi tiết hội thoại cho một phiên cụ thể
 
-    - **session_id**: ID phiên hội thoại cần lấy chi tiết
+    - **conversation_id**: ID phiên hội thoại cần lấy chi tiết
     """
     try:
         user_id = current_user.id
 
-        if hasattr(conversation_manager, "get_messages"):
-            # Sử dụng phương thức get_messages của SupabaseConversationManager
-            messages = conversation_manager.get_messages(session_id)
+        # Lấy tin nhắn từ Supabase
+        messages = conversation_manager.get_messages(conversation_id)
 
-            if not messages:
-                return JSONResponse(
-                    status_code=404,
-                    content={
-                        "status": "error",
-                        "message": f"Không tìm thấy hội thoại với ID {session_id}",
-                        "session_id": session_id,
-                    },
-                )
-
-            # Tạo dữ liệu trả về
-            conversation_data = {
-                "session_id": session_id,
-                "last_updated": datetime.now().isoformat(),
-                "messages": messages,
-            }
-
-            return {
-                "status": "success",
-                "message": f"Đã tìm thấy chi tiết hội thoại cho phiên {session_id}",
-                "data": conversation_data,
-            }
-        else:
-            # Sử dụng lưu trữ cục bộ
-            # Đường dẫn đến file lịch sử hội thoại
-            history_dir = os.path.join(
-                "D:\\DATN\\V2", "src", "conversation_history", user_id
+        if not messages:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "status": "error",
+                    "message": f"Không tìm thấy hội thoại với ID {conversation_id}",
+                    "conversation_id": conversation_id,
+                },
             )
-            file_path = os.path.join(history_dir, f"{session_id}.json")
 
-            # Nếu không tìm thấy trong thư mục người dùng, thử tìm trong thư mục gốc
-            if not os.path.exists(file_path):
-                root_path = os.path.join(
-                    "D:\\DATN\\V2", "src", "conversation_history", f"{session_id}.json"
-                )
-                if os.path.exists(root_path):
-                    file_path = root_path
-                else:
-                    return JSONResponse(
-                        status_code=404,
-                        content={
-                            "status": "error",
-                            "message": f"Không tìm thấy hội thoại với ID {session_id}",
-                            "session_id": session_id,
-                        },
-                    )
+        # Tạo dữ liệu trả về
+        conversation_data = {
+            "conversation_id": conversation_id,
+            "last_updated": datetime.now().isoformat(),
+            "messages": messages,
+        }
 
-            # Đọc nội dung file JSON
-            with open(file_path, "r", encoding="utf-8") as f:
-                conversation_data = json.load(f)
-
-            # Nếu file được tìm thấy trong thư mục gốc, di chuyển nó vào thư mục người dùng
-            if file_path == os.path.join(
-                "D:\\DATN\\V2", "src", "conversation_history", f"{session_id}.json"
-            ):
-                # Đảm bảo thư mục người dùng tồn tại
-                os.makedirs(history_dir, exist_ok=True)
-
-                # Lưu file vào thư mục người dùng
-                conversation_data["user_id"] = user_id
-                with open(
-                    os.path.join(history_dir, f"{session_id}.json"),
-                    "w",
-                    encoding="utf-8",
-                ) as f:
-                    json.dump(conversation_data, f, ensure_ascii=False, indent=2)
-
-            return {
-                "status": "success",
-                "message": f"Đã tìm thấy chi tiết hội thoại cho phiên {session_id}",
-                "data": conversation_data,
-            }
+        return {
+            "status": "success",
+            "message": f"Đã tìm thấy chi tiết hội thoại cho phiên {conversation_id}",
+            "data": conversation_data,
+        }
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Lỗi khi lấy chi tiết hội thoại: {str(e)}"
@@ -2353,118 +2211,169 @@ async def auth_callback(
 
 
 @app.post(f"{PREFIX}/conversations/create", response_model=CreateConversationResponse)
-async def create_conversation(current_user=Depends(get_current_user)):
+async def create_conversation_redirect(current_user=Depends(get_current_user)):
+    """
+    API này đã lỗi thời, vui lòng sử dụng POST /api/conversations thay thế
+    """
+    return await create_new_conversation(current_user)
+
+
+@app.post(f"{PREFIX}/conversations", response_model=CreateConversationResponse)
+async def create_new_conversation(current_user=Depends(get_current_user)):
     """
     Tạo một cuộc hội thoại mới
-
-    Trả về session_id của cuộc hội thoại mới tạo
     """
     try:
         user_id = current_user.id
 
-        # Kiểm tra xem conversation_manager có phải là SupabaseConversationManager không
+        # Tạo conversation_id mới bắt đầu bằng "conv_"
+        import uuid
+
+        conversation_id = f"conv_{uuid.uuid4().hex}"
+
+        # Tạo hội thoại mới sử dụng phương thức thích hợp
         if hasattr(conversation_manager, "create_conversation"):
-            # Sử dụng phương thức create_conversation của SupabaseConversationManager
-            session_id = conversation_manager.create_conversation(user_id)
-            if not session_id:
+            # Nếu conversation_manager có phương thức này, sử dụng nó với ID đã tạo
+            result_id = conversation_manager.create_conversation(
+                user_id, conversation_id
+            )
+            if not result_id:
                 raise HTTPException(
-                    status_code=500, detail="Không thể tạo cuộc hội thoại mới"
+                    status_code=500, detail="Không thể tạo hội thoại mới"
                 )
-
-            return {
-                "status": "success",
-                "message": "Đã tạo cuộc hội thoại mới",
-                "session_id": session_id,
-            }
+            conversation_id = result_id  # Sử dụng ID trả về nếu có
         else:
-            # Tạo session_id mới nếu không có phương thức create_conversation
-            import uuid
-
-            session_id = f"session_{uuid.uuid4().hex[:8]}"
-
+            # Không có phương thức create_conversation, tự xử lý
             # Khởi tạo bộ nhớ hội thoại cho session mới
-            conversation_manager.get_memory(session_id)
+            conversation_manager.get_memory(conversation_id)
 
             # Thêm tin nhắn chào mừng
             conversation_manager.add_ai_message(
-                session_id, "Bắt đầu cuộc hội thoại mới", user_id=user_id
+                conversation_id,
+                f"Chào mừng bạn! Tôi có thể giúp gì cho bạn?",
+                user_id=user_id,
             )
 
-            return {
-                "status": "success",
-                "message": "Đã tạo cuộc hội thoại mới",
-                "session_id": session_id,
-            }
+        # Thông báo tạo thành công
+        print(f"Đã tạo phiên hội thoại mới {conversation_id} cho người dùng {user_id}")
+        return {
+            "status": "success",
+            "message": "Đã tạo hội thoại mới thành công",
+            "conversation_id": conversation_id,
+        }
     except Exception as e:
+        print(f"Lỗi khi tạo hội thoại mới: {str(e)}")
         raise HTTPException(
-            status_code=500, detail=f"Lỗi khi tạo cuộc hội thoại mới: {str(e)}"
+            status_code=500, detail=f"Lỗi khi tạo hội thoại mới: {str(e)}"
         )
 
 
-@app.delete(
-    f"{PREFIX}/conversations/{{session_id}}", response_model=DeleteConversationResponse
-)
+@app.delete(f"{PREFIX}/conversations/{{conversation_id}}")
 async def delete_conversation(
-    session_id: str = Path(..., description="ID phiên hội thoại cần xóa"),
-    current_user=Depends(get_current_user),
+    conversation_id: str, current_user=Depends(get_current_user)
 ):
     """
-    Xóa một cuộc hội thoại hoàn toàn
+    Xóa một cuộc hội thoại và tất cả tin nhắn của nó
 
-    - **session_id**: ID phiên hội thoại cần xóa
+    - **conversation_id**: ID của cuộc hội thoại cần xóa
     """
     try:
         user_id = current_user.id
 
-        # Kiểm tra xem conversation_manager có phải là SupabaseConversationManager không
-        if hasattr(conversation_manager, "delete_conversation"):
-            # Sử dụng phương thức delete_conversation của SupabaseConversationManager
-            success = conversation_manager.delete_conversation(session_id, user_id)
-            if not success:
-                return JSONResponse(
-                    status_code=404,
-                    content={
-                        "status": "error",
-                        "message": f"Không tìm thấy hoặc không thể xóa hội thoại với ID {session_id}",
-                        "session_id": session_id,
-                    },
-                )
+        # Kiểm tra xem hội thoại có tồn tại và thuộc về người dùng hiện tại
+        result = conversation_manager.delete_conversation(conversation_id, user_id)
+
+        if result and result.get("success", False):
+            print(f"Đã xóa phiên hội thoại {conversation_id}")
+            return {
+                "success": True,
+                "message": f"Đã xóa phiên hội thoại {conversation_id}",
+                "conversation_id": conversation_id,
+            }
         else:
-            # Xóa bộ nhớ hội thoại
-            conversation_manager.clear_memory(session_id, user_id=user_id)
-
-            # Xóa file lưu trữ cục bộ nếu có
-            history_dir = os.path.join(
-                "D:\\DATN\\V2", "src", "conversation_history", user_id
+            error_msg = result.get(
+                "message", "Phiên hội thoại không tồn tại hoặc không thuộc về bạn"
             )
-            file_path = os.path.join(history_dir, f"{session_id}.json")
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "success": False,
+                    "message": error_msg,
+                    "conversation_id": conversation_id,
+                },
+            )
+    except Exception as e:
+        print(f"Lỗi khi xóa hội thoại: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi xóa hội thoại: {str(e)}")
 
-            if os.path.exists(file_path):
-                os.remove(file_path)
-            else:
-                # Kiểm tra trong thư mục gốc
-                root_path = os.path.join(
-                    "D:\\DATN\\V2", "src", "conversation_history", f"{session_id}.json"
-                )
-                if os.path.exists(root_path):
-                    os.remove(root_path)
-                else:
-                    return JSONResponse(
-                        status_code=404,
-                        content={
-                            "status": "error",
-                            "message": f"Không tìm thấy hội thoại với ID {session_id}",
-                            "session_id": session_id,
-                        },
-                    )
+
+@app.get(f"{PREFIX}/messages")
+async def get_conversation_messages(
+    conversation_id: str = Query(
+        None, description="ID phiên hội thoại cần lấy tin nhắn"
+    ),
+    session_id: str = Query(
+        None,
+        description="ID phiên hội thoại cần lấy tin nhắn (tương thích với code cũ)",
+    ),
+    current_user=Depends(get_current_user),
+):
+    """
+    Lấy danh sách tin nhắn của một phiên hội thoại cụ thể
+
+    - **conversation_id**: ID phiên hội thoại cần lấy tin nhắn
+    - **session_id**: ID phiên hội thoại dùng cho tương thích ngược (sẽ được ưu tiên nếu cung cấp cả hai)
+    """
+    try:
+        user_id = current_user.id
+
+        # Ưu tiên sử dụng session_id nếu được cung cấp (tương thích ngược)
+        final_id = session_id if session_id else conversation_id
+
+        if not final_id:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "Vui lòng cung cấp ID hội thoại (conversation_id hoặc session_id)",
+                },
+            )
+
+        # Lấy tin nhắn từ Supabase
+        messages = conversation_manager.get_messages(final_id)
+
+        if not messages:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "status": "error",
+                    "message": f"Không tìm thấy tin nhắn trong hội thoại với ID {final_id}",
+                    "conversation_id": final_id,
+                },
+            )
+
+        # Tạo dữ liệu trả về
+        conversation_data = {
+            "conversation_id": final_id,
+            "last_updated": datetime.now().isoformat(),
+            "messages": messages,
+        }
 
         return {
             "status": "success",
-            "message": f"Đã xóa hội thoại với ID {session_id}",
-            "session_id": session_id,
+            "message": f"Đã tìm thấy tin nhắn cho phiên {final_id}",
+            "data": conversation_data,
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi khi xóa hội thoại: {str(e)}")
+        print(f"Lỗi khi lấy tin nhắn hội thoại: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Lỗi khi lấy tin nhắn hội thoại: {str(e)}",
+                "data": {"conversation_id": final_id, "messages": []},
+            },
+        )
 
 
 if __name__ == "__main__":

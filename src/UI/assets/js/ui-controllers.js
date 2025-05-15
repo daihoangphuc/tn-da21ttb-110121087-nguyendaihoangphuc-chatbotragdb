@@ -1837,13 +1837,24 @@ class ChatHistoryController {
                     <p>Đang tải lịch sử chat...</p>
                 </div>`;
                 
-            // Gọi API để lấy lịch sử chat
+            // Lấy thông tin người dùng hiện tại
+            const currentUser = apiService.getUserInfo();
+            const userInfo = currentUser ? currentUser : { id: 'guest' };
+            
+            // Gọi API để lấy lịch sử chat cho user hiện tại
             // Sử dụng getConversations thay vì getChatHistory
             const response = await apiService.getConversations();
             
             // Kiểm tra response và khởi tạo historyItems
             if (response && response.status === 'success' && Array.isArray(response.data)) {
-                this.historyItems = response.data;
+                // Chỉ hiển thị hội thoại của người dùng hiện tại
+                if (userInfo && userInfo.id !== 'guest') {
+                    this.historyItems = response.data.filter(item => {
+                        return item.user_id === userInfo.id;
+                    });
+                } else {
+                    this.historyItems = response.data;
+                }
             } else {
                 console.warn('API trả về dữ liệu không đúng định dạng:', response);
                 this.historyItems = [];
@@ -1895,8 +1906,8 @@ class ChatHistoryController {
             const date = new Date(item.last_updated || item.timestamp || new Date());
             const formattedDate = this.formatDate(date);
             
-            // Lấy ID của item (có thể là item.id hoặc item.session_id)
-            const itemId = item.id || item.session_id || '';
+            // Lấy ID của item (có thể là item.id hoặc item.conversation_id)
+            const itemId = item.id || item.conversation_id || '';
             
             // Trích xuất tiêu đề hoặc tin nhắn đầu tiên
             let title = item.title || 'Cuộc trò chuyện mới';
@@ -1966,12 +1977,26 @@ class ChatHistoryController {
             // Gọi API để lấy dữ liệu của phiên chat
             const response = await apiService.getMessages(chatId);
             
-            if (!response || response.status === 'error' || !response.data) {
-                throw new Error('Không thể tải tin nhắn của cuộc trò chuyện');
+            if (!response || response.status === 'error') {
+                throw new Error(response?.message || 'Không thể tải tin nhắn của cuộc trò chuyện');
             }
             
-            // Lưu session_id hiện tại
-            apiService.setSessionId(chatId);
+            // Kiểm tra cấu trúc dữ liệu để tránh lỗi ForEach
+            if (!response.data || !response.data.messages) {
+                console.error('Cấu trúc dữ liệu không đúng:', response);
+                throw new Error('Cấu trúc dữ liệu tin nhắn không hợp lệ');
+            }
+            
+            const messages = response.data.messages;
+            
+            // Đảm bảo messages là một mảng
+            if (!Array.isArray(messages)) {
+                console.error('Dữ liệu messages không phải là mảng:', messages);
+                throw new Error('Dữ liệu messages không phải là mảng');
+            }
+            
+            // Lưu conversation_id hiện tại
+            apiService.setConversationId(chatId);
             
             // Chuyển đến panel conversation và hiển thị dữ liệu
             const mobileNavController = new MobileNavController();
@@ -1981,7 +2006,6 @@ class ChatHistoryController {
             window.conversationController.clearChat(false);
             
             // Hiển thị các tin nhắn
-            const messages = response.data;
             let userSources = [];
             
             messages.forEach((message, index) => {
@@ -2017,7 +2041,7 @@ class ChatHistoryController {
         } catch (error) {
             console.error('Lỗi khi tải phiên chat:', error);
             window.conversationController.removeLoadingMessage();
-            showNotification('Không thể tải phiên chat. Vui lòng thử lại.', 'error');
+            showNotification('Không thể tải nội dung hội thoại: ' + error.message, 'error');
         }
     }
     
@@ -2040,7 +2064,7 @@ class ChatHistoryController {
             
             // Xóa khỏi danh sách hiện tại
             this.historyItems = this.historyItems.filter(item => {
-                const itemId = item.id || item.session_id;
+                const itemId = item.id || item.conversation_id;
                 return itemId !== chatId;
             });
             
@@ -2075,8 +2099,8 @@ class ChatHistoryController {
             
             // Gọi API để xóa tất cả lịch sử 
             for (const item of this.historyItems) {
-                // Lấy id của item (có thể là item.id hoặc item.session_id)
-                const itemId = item.id || item.session_id;
+                // Lấy id của item (có thể là item.id hoặc item.conversation_id)
+                const itemId = item.id || item.conversation_id || item.session_id;
                 if (itemId) {
                     try {
                         await apiService.deleteConversation(itemId);
@@ -2094,9 +2118,19 @@ class ChatHistoryController {
             this.renderChatHistory();
             
             // Tạo một cuộc trò chuyện mới
+            console.log('Đang tạo hội thoại mới sau khi xóa tất cả...');
             const newConversation = await apiService.createConversation();
-            if (newConversation && newConversation.status === 'success' && newConversation.data) {
-                apiService.setSessionId(newConversation.data.session_id);
+            console.log('Kết quả tạo hội thoại mới:', newConversation);
+            
+            if (newConversation && newConversation.status === 'success' && newConversation.conversation_id) {
+                console.log('Đã tạo hội thoại mới thành công, ID mới:', newConversation.conversation_id);
+                apiService.setConversationId(newConversation.conversation_id);
+                
+                // Làm mới giao diện chat để bắt đầu cuộc trò chuyện mới
+                window.conversationController.clearChat(false);
+            } else {
+                console.error('Không thể tạo hội thoại mới:', newConversation?.message || 'Lỗi không xác định');
+                showNotification('Không thể tạo hội thoại mới. Vui lòng tải lại trang.', 'error');
             }
             
             // Hiển thị thông báo thành công

@@ -1,4 +1,20 @@
 import os
+import logging
+import subprocess
+import shutil
+
+# Cấu hình logging
+logging.basicConfig(format="[Document Processor] %(message)s", level=logging.INFO)
+# Ghi đè hàm print để thêm prefix
+original_print = print
+
+
+def print(*args, **kwargs):
+    prefix = "[Document Processor] "
+    original_print(prefix + " ".join(map(str, args)), **kwargs)
+
+
+logger = logging.getLogger(__name__)
 import re
 from langchain_community.document_loaders import TextLoader, PyPDFLoader, Docx2txtLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -137,6 +153,112 @@ class DocumentProcessor:
 
         # Áp dụng chunking cấu trúc mặc định
         self.use_structural_chunking = True
+
+        # Định nghĩa các định dạng tài liệu cần chuyển đổi sang PDF
+        self.convertible_formats = [
+            ".doc",
+            ".docx",
+            ".ppt",
+            ".pptx",
+            ".xls",
+            ".xlsx",
+            ".odt",
+            ".ods",
+            ".odp",
+        ]
+
+        # Đường dẫn đến LibreOffice
+        self.libreoffice_path = r"C:\Program Files\LibreOffice\program\soffice.exe"
+
+    def convert_to_pdf(self, input_path: str, remove_original: bool = True) -> str:
+        """
+        Chuyển đổi tài liệu sang định dạng PDF sử dụng LibreOffice
+
+        Args:
+            input_path: Đường dẫn đến tập tin cần chuyển đổi
+            remove_original: Có xóa tập tin gốc sau khi chuyển đổi thành công hay không
+
+        Returns:
+            Đường dẫn đến tập tin PDF đã chuyển đổi hoặc None nếu chuyển đổi thất bại
+        """
+        try:
+            # Kiểm tra phần mở rộng
+            file_ext = os.path.splitext(input_path)[1].lower()
+
+            # Nếu đã là PDF hoặc không phải định dạng cần chuyển đổi thì trả về đường dẫn gốc
+            if file_ext == ".pdf" or file_ext not in self.convertible_formats:
+                return input_path
+
+            # Lấy thư mục chứa tập tin
+            output_dir = os.path.dirname(input_path)
+
+            # Tên tập tin không có phần mở rộng
+            file_name = os.path.splitext(os.path.basename(input_path))[0]
+
+            # Đường dẫn đến tập tin PDF sau khi chuyển đổi
+            pdf_path = os.path.join(output_dir, f"{file_name}.pdf")
+
+            # Kiểm tra xem tập tin PDF đã tồn tại chưa
+            if os.path.exists(pdf_path):
+                print(f"Tập tin PDF đã tồn tại: {pdf_path}")
+
+                # Nếu PDF đã tồn tại và yêu cầu xóa file gốc
+                if (
+                    remove_original
+                    and os.path.exists(input_path)
+                    and input_path != pdf_path
+                ):
+                    try:
+                        os.remove(input_path)
+                        print(f"Đã xóa tập tin gốc: {input_path}")
+                    except Exception as e:
+                        print(f"Không thể xóa tập tin gốc {input_path}: {e}")
+
+                return pdf_path
+
+            print(f"Đang chuyển đổi {input_path} sang PDF...")
+
+            # Thực hiện chuyển đổi
+            subprocess.run(
+                [
+                    self.libreoffice_path,
+                    "--headless",
+                    "--convert-to",
+                    "pdf",
+                    input_path,
+                    "--outdir",
+                    output_dir,
+                ],
+                check=True,
+                stderr=subprocess.DEVNULL,
+            )
+
+            # Kiểm tra xem tập tin PDF đã được tạo chưa
+            if os.path.exists(pdf_path):
+                print(f"Chuyển đổi thành công: {input_path} -> {pdf_path}")
+
+                # Xóa tập tin gốc nếu được yêu cầu
+                if remove_original and os.path.exists(input_path):
+                    try:
+                        os.remove(input_path)
+                        print(f"Đã xóa tập tin gốc: {input_path}")
+                    except Exception as e:
+                        print(f"Không thể xóa tập tin gốc {input_path}: {e}")
+
+                return pdf_path
+            else:
+                print(f"Không tìm thấy tập tin PDF sau khi chuyển đổi: {pdf_path}")
+                return input_path
+
+        except subprocess.CalledProcessError as e:
+            print(f"Lỗi khi chuyển đổi bằng LibreOffice: {e}")
+            return input_path
+        except FileNotFoundError:
+            print("Không tìm thấy tệp 'soffice.exe'. Vui lòng kiểm tra đường dẫn.")
+            return input_path
+        except Exception as e:
+            print(f"Lỗi không xác định khi chuyển đổi tài liệu: {e}")
+            return input_path
 
     def _chunk_by_structure(self, text: str, metadata: Dict) -> List[Dict]:
         """Chia văn bản thành các đoạn theo cấu trúc"""
@@ -329,11 +451,16 @@ class DocumentProcessor:
         documents = []
         for file in os.listdir(data_dir):
             file_path = os.path.join(data_dir, file)
-            ext = os.path.splitext(file)[1].lower()
+
+            # Chuyển đổi tài liệu sang PDF nếu cần
+            converted_path = self.convert_to_pdf(file_path)
+
+            # Lấy phần mở rộng của tập tin đã chuyển đổi
+            ext = os.path.splitext(converted_path)[1].lower()
 
             if ext in self.loaders:
                 try:
-                    loader = self.loaders[ext](file_path)
+                    loader = self.loaders[ext](converted_path)
                     loaded_docs = loader.load()
 
                     # Thêm tên tập tin vào metadata nếu chưa có
@@ -341,9 +468,14 @@ class DocumentProcessor:
                         if "source" not in doc.metadata:
                             doc.metadata["source"] = file
 
+                        # Thêm thông tin về việc chuyển đổi
+                        if converted_path != file_path:
+                            doc.metadata["original_file"] = file
+                            doc.metadata["converted_from"] = os.path.splitext(file)[1]
+
                     documents.extend(loaded_docs)
                 except Exception as e:
-                    print(f"Error loading {file_path}: {str(e)}")
+                    print(f"Error loading {converted_path}: {str(e)}")
 
         return documents
 
@@ -487,14 +619,17 @@ class DocumentProcessor:
         self, file_path: str, category: str = None
     ) -> List[Dict]:
         """Tải một tài liệu với danh mục được chỉ định trước"""
-        ext = os.path.splitext(file_path)[1].lower()
+        # Chuyển đổi tài liệu sang PDF nếu cần
+        converted_path = self.convert_to_pdf(file_path)
+
+        ext = os.path.splitext(converted_path)[1].lower()
 
         if ext not in self.loaders:
             print(f"Định dạng {ext} không được hỗ trợ")
             return []
 
         try:
-            loader = self.loaders[ext](file_path)
+            loader = self.loaders[ext](converted_path)
             documents = loader.load()
 
             # Thêm metadata và category
@@ -505,6 +640,11 @@ class DocumentProcessor:
 
                 if "source" not in doc.metadata:
                     doc.metadata["source"] = os.path.basename(file_path)
+
+                # Thêm thông tin về việc chuyển đổi
+                if converted_path != file_path:
+                    doc.metadata["original_file"] = os.path.basename(file_path)
+                    doc.metadata["converted_from"] = os.path.splitext(file_path)[1]
 
                 # Gán category nếu được chỉ định, ngược lại tự động phân loại
                 if category:
@@ -517,5 +657,5 @@ class DocumentProcessor:
             return documents
 
         except Exception as e:
-            print(f"Lỗi khi tải tài liệu {file_path}: {str(e)}")
+            print(f"Lỗi khi tải tài liệu {converted_path}: {str(e)}")
             return []

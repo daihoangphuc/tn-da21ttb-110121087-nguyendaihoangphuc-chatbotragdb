@@ -17,3 +17,8 @@ python-multipart
 PyMuPDF
 python-dotenv
 pydantic[email]
+supabase
+
+# Cài đặt LibreOffice (để chuyển đổi các định dạng tài liệu về PDF)
+#!apt-get -q update
+#!apt-get install -y -q libreoffice

@@ -1,55 +1,24 @@
--- Tạo bảng conversation_history
-CREATE TABLE IF NOT EXISTS conversation_history (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    session_id TEXT NOT NULL,
-    user_id TEXT,
-    timestamp TIMESTAMPTZ DEFAULT NOW(),
-    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
-    content TEXT NOT NULL,
-    metadata JSONB
+-- Bảng lưu phiên làm việc chính
+CREATE TABLE conversations (
+  conversation_id    TEXT        PRIMARY KEY,                  -- Khóa chính duy nhất cho mỗi session
+  user_id       UUID        NOT NULL,                     -- ID người dùng (IdentityUser.Id)
+  last_updated  TIMESTAMP   NOT NULL DEFAULT now()        -- Thời gian cập nhật cuối cùng
 );
-        
--- Tạo indexes để tìm kiếm nhanh hơn
-CREATE INDEX IF NOT EXISTS idx_conversation_history_session_id ON conversation_history(session_id);
-CREATE INDEX IF NOT EXISTS idx_conversation_history_user_id ON conversation_history(user_id);
-CREATE INDEX IF NOT EXISTS idx_conversation_history_timestamp ON conversation_history(timestamp);
 
-
--- Tạo bảng user_feedback
-CREATE TABLE IF NOT EXISTS user_feedback (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    question_id TEXT NOT NULL,
-    rating INTEGER CHECK (rating >= 1 AND rating <= 5),
-    is_helpful BOOLEAN,
-    comment TEXT,
-    specific_feedback JSONB,
-    user_id TEXT,
-    timestamp TIMESTAMPTZ DEFAULT NOW()
+-- Bảng lưu chi tiết các tin nhắn cho mỗi phiên
+CREATE TABLE messages (
+  message_id    BIGSERIAL   PRIMARY KEY,                  -- Khóa tự tăng
+  conversation_id    TEXT        NOT NULL,                     -- Khóa ngoại liên kết về sessions.session_id
+  sequence      INT         NOT NULL,                     -- Thứ tự tin nhắn trong phiên
+  role          TEXT        NOT NULL CHECK (role IN ('user','assistant')), 
+                                                    -- Vai trò: user hoặc assistant
+  content       TEXT        NOT NULL,                     -- Nội dung tin nhắn
+  CONSTRAINT fk_messages_conversations
+    FOREIGN KEY (conversation_id)
+    REFERENCES conversations(conversation_id)
+    ON DELETE CASCADE
 );
-        
--- Tạo indexes để tìm kiếm nhanh hơn
-CREATE INDEX IF NOT EXISTS idx_user_feedback_question_id ON user_feedback(question_id);
-CREATE INDEX IF NOT EXISTS idx_user_feedback_user_id ON user_feedback(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_feedback_timestamp ON user_feedback(timestamp);
 
--- Tạo bảng document_metadata
-CREATE TABLE IF NOT EXISTS document_metadata (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    filename TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    file_type TEXT,
-    file_size INTEGER,
-    upload_date TIMESTAMPTZ DEFAULT NOW(),
-    user_id TEXT,
-    category TEXT,
-    title TEXT,
-    description TEXT,
-    is_indexed BOOLEAN DEFAULT FALSE,
-    last_indexed TIMESTAMPTZ,
-    metadata JSONB
-);
-        
--- Tạo indexes để tìm kiếm nhanh hơn
-CREATE INDEX IF NOT EXISTS idx_document_metadata_filename ON document_metadata(filename);
-CREATE INDEX IF NOT EXISTS idx_document_metadata_user_id ON document_metadata(user_id);
-CREATE INDEX IF NOT EXISTS idx_document_metadata_category ON document_metadata(category);
+-- Tạo index để truy vấn nhanh các tin nhắn theo session và thứ tự
+CREATE INDEX idx_messages_conversation_seq
+  ON messages(conversation_id, sequence);

@@ -494,10 +494,10 @@ h3 {
     justify-content: space-between;
     padding: 0.5rem;
     border-radius: var(--radius);
-    margin-bottom: 0.25rem;
+    transition: background-color 0.2s;
     cursor: pointer;
-    user-select: none;
-    transition: background-color 0.15s ease;
+    margin-bottom: 0.25rem;
+    border: 1px solid transparent;
 }
 
 .source-item:hover {
@@ -536,11 +536,12 @@ h3 {
 
 .source-info {
     flex: 1;
+    margin-left: 0.5rem;
     min-width: 0;
 }
 
 .source-info .source-name {
-    max-width: 100%;
+    max-width: 180px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -581,6 +582,8 @@ h3 {
     align-items: center;
     justify-content: center;
     border-radius: 0.25rem;
+    flex-shrink: 0;
+    margin-left: 8px;
 }
 
 .source-delete:hover {
@@ -1658,9 +1661,11 @@ h3 {
 .file-item {
     display: flex;
     align-items: center;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid var(--border);
-    position: relative;
+    padding: 0.5rem;
+    border-radius: var(--radius);
+    background-color: var(--secondary);
+    margin-bottom: 0.5rem;
+    justify-content: space-between;
 }
 
 .file-item:last-child {
@@ -1673,6 +1678,7 @@ h3 {
     color: #0078d4;
     width: 28px;
     text-align: center;
+    flex-shrink: 0;
 }
 
 .file-item .file-icon.pdf {
@@ -1689,15 +1695,35 @@ h3 {
 
 .file-item .file-details {
     flex: 1;
+    margin-left: 0.5rem;
     min-width: 0;
+    overflow: hidden;
+    margin-right: 0.5rem;
 }
 
 .file-item .file-name {
     font-weight: 500;
-    white-space: nowrap;
+    margin-bottom: 0.25rem;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
-    margin-bottom: 0.25rem;
+    white-space: nowrap;
+    position: relative;
+}
+
+.file-item .file-name:hover::after {
+    content: attr(title);
+    position: absolute;
+    left: 0;
+    top: 100%;
+    background-color: var(--tooltip-bg);
+    color: var(--tooltip-text);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    z-index: 100;
+    white-space: normal;
+    max-width: 300px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
 }
 
 .file-item .file-size {
@@ -1706,7 +1732,10 @@ h3 {
 }
 
 .file-item .file-actions {
-    margin-left: 0.75rem;
+    flex-shrink: 0;
+    margin-left: 8px;
+    display: flex;
+    align-items: center;
 }
 
 .file-remove {
