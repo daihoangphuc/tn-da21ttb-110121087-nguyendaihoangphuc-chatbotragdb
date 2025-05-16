@@ -302,8 +302,10 @@ class VectorStore:
 
         return search_results
 
-    def search_with_filter(self, query_vector, sources=None, user_id=None, limit=5):
-        """Tìm kiếm trong Qdrant với filter theo nguồn tài liệu"""
+    def search_with_filter(
+        self, query_vector, sources=None, file_id=None, user_id=None, limit=5
+    ):
+        """Tìm kiếm trong Qdrant với filter theo nguồn tài liệu hoặc file_id"""
         # Cập nhật collection_name nếu có user_id mới
         if user_id and user_id != self.user_id:
             self.collection_name = self.get_collection_name_for_user(user_id)
@@ -317,13 +319,17 @@ class VectorStore:
             print(f"Collection {self.collection_name} không tồn tại")
             return []
 
-        # Nếu không có danh sách nguồn, sử dụng search thông thường
-        if not sources:
+        # Nếu không có danh sách nguồn hoặc file_id, sử dụng search thông thường
+        if not sources and not file_id:
             return self.search(query_vector, limit, user_id)
 
-        # Xử lý danh sách nguồn để hỗ trợ so sánh với cả tên file đơn thuần và đường dẫn
-        normalized_sources = []
+        # Tạo các điều kiện lọc dựa vào tham số đầu vào
+        should_conditions = []
+
+        # Xử lý tìm kiếm theo sources nếu được cung cấp
         if sources:
+            # Xử lý danh sách nguồn để hỗ trợ so sánh với cả tên file đơn thuần và đường dẫn
+            normalized_sources = []
             for source in sources:
                 normalized_sources.append(source)  # Giữ nguyên source gốc
                 # Thêm tên file đơn thuần (nếu source chứa đường dẫn)
@@ -332,23 +338,29 @@ class VectorStore:
                     if filename and filename not in normalized_sources:
                         normalized_sources.append(filename)
 
-        print(
-            f"Tìm kiếm với sources={sources}, normalized_sources={normalized_sources}"
-        )
-
-        # Tạo filter để giới hạn kết quả theo source
-        should_conditions = []
-        for source in normalized_sources:
-            should_conditions.append({"key": "source", "match": {"value": source}})
-            should_conditions.append(
-                {"key": "metadata.source", "match": {"value": source}}
+            print(
+                f"Tìm kiếm với sources={sources}, normalized_sources={normalized_sources}"
             )
 
-            # Nếu source là đường dẫn đầy đủ, thêm điều kiện cho file_path
-            if os.path.sep in source:
+            # Tạo filter để giới hạn kết quả theo source
+            for source in normalized_sources:
+                should_conditions.append({"key": "source", "match": {"value": source}})
                 should_conditions.append(
-                    {"key": "file_path", "match": {"value": source}}
+                    {"key": "metadata.source", "match": {"value": source}}
                 )
+
+                # Nếu source là đường dẫn đầy đủ, thêm điều kiện cho file_path
+                if os.path.sep in source:
+                    should_conditions.append(
+                        {"key": "file_path", "match": {"value": source}}
+                    )
+
+        # Xử lý tìm kiếm theo file_id nếu được cung cấp
+        if file_id:
+            print(f"Tìm kiếm với file_id={file_id}")
+            # Thêm điều kiện lọc theo file_id
+            for fid in file_id:
+                should_conditions.append({"key": "file_id", "match": {"value": fid}})
 
         # Tạo filter phù hợp cho Qdrant
         search_filter = {"should": should_conditions}

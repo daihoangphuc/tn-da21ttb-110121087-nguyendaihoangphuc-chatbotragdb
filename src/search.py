@@ -2,15 +2,15 @@ from typing import List, Dict
 import logging
 
 # Cấu hình logging
-logging.basicConfig(
-    format='[Search] %(message)s',
-    level=logging.INFO
-)
+logging.basicConfig(format="[Search] %(message)s", level=logging.INFO)
 # Ghi đè hàm print để thêm prefix
 original_print = print
+
+
 def print(*args, **kwargs):
     prefix = "[Search] "
     original_print(prefix + " ".join(map(str, args)), **kwargs)
+
 
 logger = logging.getLogger(__name__)
 from rank_bm25 import BM25Okapi
@@ -214,16 +214,25 @@ class SearchManager:
             return False
 
     def semantic_search(
-        self, query: str, k: int = 5, sources: List[str] = None
+        self,
+        query: str,
+        k: int = 5,
+        sources: List[str] = None,
+        file_id: List[str] = None,
     ) -> List[Dict]:
         """Tìm kiếm ngữ nghĩa trên vector store"""
         query_vector = self.embedding_model.encode(query).tolist()
 
-        # Sử dụng search_with_filter nếu có danh sách nguồn
+        # Sử dụng search_with_filter nếu có danh sách nguồn hoặc file_id
         if sources:
             print(f"Semantic search với sources={sources}")
             results = self.vector_store.search_with_filter(
-                query_vector, sources, limit=k
+                query_vector, sources=sources, limit=k
+            )
+        elif file_id:
+            print(f"Semantic search với file_id={file_id}")
+            results = self.vector_store.search_with_filter(
+                query_vector, file_id=file_id, limit=k
             )
         else:
             results = self.vector_store.search(query_vector, limit=k)
@@ -231,14 +240,20 @@ class SearchManager:
         # In thông tin để debug
         if results and len(results) > 0:
             first_result = results[0]
+            result_file_id = first_result.get("file_id", "unknown")
             print(
-                f"Sample result: metadata.source={first_result.get('metadata', {}).get('source')}, direct source={first_result.get('source')}"
+                f"Sample result: metadata.source={first_result.get('metadata', {}).get('source')}, "
+                f"direct source={first_result.get('source')}, file_id={result_file_id}"
             )
 
         return results
 
     def keyword_search(
-        self, query: str, k: int = 5, sources: List[str] = None
+        self,
+        query: str,
+        k: int = 5,
+        sources: List[str] = None,
+        file_id: List[str] = None,
     ) -> List[Dict]:
         """Tìm kiếm từ khóa sử dụng BM25"""
         # Khởi tạo BM25 nếu chưa được khởi tạo
@@ -247,7 +262,9 @@ class SearchManager:
             if not initialized:
                 # Fallback to semantic search if BM25 initialization fails
                 print("Không thể khởi tạo BM25, quay lại tìm kiếm ngữ nghĩa")
-                return self.semantic_search(query, k=k, sources=sources)
+                return self.semantic_search(
+                    query, k=k, sources=sources, file_id=file_id
+                )
 
         # Tiền xử lý query tương tự như corpus
         query = query.lower()
@@ -278,8 +295,15 @@ class SearchManager:
         for idx in top_k_indices:
             if bm25_scores[idx] > 0:  # Chỉ lấy kết quả có điểm số dương
                 doc = self.doc_mappings[idx]
+
+                # Nếu có danh sách file_id, chỉ lấy tài liệu từ các file_id được chỉ định
+                if file_id:
+                    doc_file_id = doc.get("file_id", "unknown")
+                    if doc_file_id not in file_id:
+                        continue
+
                 # Nếu có danh sách nguồn, chỉ lấy tài liệu từ các nguồn được chỉ định
-                if sources:
+                elif sources:
                     doc_source = doc.get(
                         "source", doc["metadata"].get("source", "unknown")
                     )
@@ -302,6 +326,7 @@ class SearchManager:
                         "score": float(
                             bm25_scores[idx]
                         ),  # Chuyển numpy float sang Python float
+                        "file_id": doc.get("file_id", "unknown"),  # Thêm file_id
                     }
                 )
 
@@ -312,7 +337,7 @@ class SearchManager:
         # Nếu không tìm thấy kết quả nào, fallback sang semantic search
         if not results:
             print("Không tìm thấy kết quả với BM25, quay lại tìm kiếm ngữ nghĩa")
-            return self.semantic_search(query, k=k, sources=sources)
+            return self.semantic_search(query, k=k, sources=sources, file_id=file_id)
 
         return results
 
@@ -338,15 +363,20 @@ class SearchManager:
         return self._initialize_bm25()
 
     def hybrid_search(
-        self, query: str, k: int = 5, alpha: float = 0.7, sources: List[str] = None
+        self,
+        query: str,
+        k: int = 5,
+        alpha: float = 0.7,
+        sources: List[str] = None,
+        file_id: List[str] = None,
     ) -> List[Dict]:
         """Kết hợp tìm kiếm ngữ nghĩa và keyword"""
         print(f"=== Bắt đầu hybrid search với alpha={alpha} ===")
 
-        semantic = self.semantic_search(query, k=k, sources=sources)
+        semantic = self.semantic_search(query, k=k, sources=sources, file_id=file_id)
         print(f"Đã tìm được {len(semantic)} kết quả từ semantic search")
 
-        keyword = self.keyword_search(query, k=k, sources=sources)
+        keyword = self.keyword_search(query, k=k, sources=sources, file_id=file_id)
         print(f"Đã tìm được {len(keyword)} kết quả từ keyword search")
 
         combined = {}

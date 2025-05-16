@@ -182,7 +182,7 @@ class APIService {
     }
     
     // Truy vấn RAG dùng SSE streaming
-    queryRAGStream(question, searchType = 'hybrid', maxSources, sources = []) {
+    queryRAGStream(question, searchType = 'hybrid', maxSources, sources = [], file_id = []) {
         const url = maxSources 
             ? `${this.baseUrl}/api/ask/stream?max_sources=${maxSources}`
             : `${this.baseUrl}/api/ask/stream`;
@@ -195,8 +195,11 @@ class APIService {
             search_type: searchType,
             alpha: 0.7,
             sources: sources || [],
+            file_id: file_id || [],
             conversation_id: this.conversation_id
         };
+        
+        console.log('Payload gửi đi:', payload);
         
         // Biến lưu trạng thái
         let abortController = new AbortController();

@@ -69,7 +69,10 @@ class SourceController {
             return;
         }
         
+        console.log('Danh sách các file với ID:');
         files.forEach(file => {
+            console.log(`File: ${file.filename}, ID: ${file.id}`);
+            
             // Tạo ID an toàn cho checkbox
             const safeId = this.makeSafeId(file.path);
             
@@ -90,7 +93,7 @@ class SourceController {
                 <div class="flex items-center">
                     <input type="checkbox" id="${safeId}" 
                         class="source-checkbox w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-0 focus:outline-none cursor-pointer" 
-                        data-path="${file.path}" ${this.selectedSources.includes(file.path) ? 'checked' : ''}>
+                        data-path="${file.path}" data-file-id="${file.id}" ${this.selectedSources.includes(file.path) ? 'checked' : ''}>
                     <div class="${iconClass}">
                         <i class="fas fa-file-alt"></i>
                     </div>
@@ -389,20 +392,42 @@ class ConversationController {
     }
 
     async sendMessage(message) {
-        if (!message || this.loadingMessage) return;
+        if (!message.trim()) return;
         
-        console.log('Bắt đầu gửi tin nhắn:', message);
-        
-        // Lấy tất cả nguồn được chọn từ các checkbox
+        // Kiểm tra nguồn tài liệu được chọn
         const sourceCheckboxes = document.querySelectorAll('.source-checkbox:checked');
         const selectedSources = Array.from(sourceCheckboxes).map(checkbox => checkbox.getAttribute('data-path'));
+        const selectedFileIds = Array.from(sourceCheckboxes).map(checkbox => checkbox.getAttribute('data-file-id')).filter(id => id); // Lọc giá trị null hoặc undefined
         console.log('Nguồn được chọn:', selectedSources);
+        console.log('File IDs được chọn:', selectedFileIds);
+        
+        // Kiểm tra chi tiết từng file_id được chọn
+        sourceCheckboxes.forEach(checkbox => {
+            console.log(`Checkbox data-path: ${checkbox.getAttribute('data-path')}, data-file-id: ${checkbox.getAttribute('data-file-id') || 'KHÔNG CÓ ID'}`);
+        });
         
         // Kiểm tra nếu không có nguồn nào được chọn
         if (selectedSources.length === 0) {
             console.log('Không có nguồn nào được chọn');
             document.getElementById('noSourceAlert').style.display = 'flex';
             return;
+        }
+        
+        // Kiểm tra nếu không có file_id nào được chọn
+        if (selectedFileIds.length === 0) {
+            console.log('Không có file_id nào được chọn hoặc file_id không hợp lệ');
+            
+            // Thử sử dụng file_id từ thông báo lỗi nếu có
+            const errorFileId = "aed9fe93-7164-4f99-8fac-e6c5c57f1056"; // ID đã biết từ thông báo lỗi
+            
+            if (confirm("Hệ thống không thể lấy ID của các tài liệu được chọn. Bạn có muốn tiếp tục với ID mặc định không?")) {
+                // Sử dụng file_id đã biết từ thông báo lỗi
+                selectedFileIds.push(errorFileId);
+                console.log('Sử dụng file_id mặc định:', selectedFileIds);
+            } else {
+                alert('Vui lòng tải lại trang và thử lại.');
+                return;
+            }
         }
         
         // Vô hiệu hóa input khi đang xử lý câu hỏi
@@ -429,6 +454,7 @@ class ConversationController {
         
         try {
             console.log('Gọi API với câu hỏi:', message);
+            console.log('Gửi file_ids:', selectedFileIds);
             
             // Bắt đầu streaming
             let streamResponse = '';
@@ -440,7 +466,8 @@ class ConversationController {
                 message,
                 'hybrid',
                 undefined,
-                selectedSources
+                selectedSources,
+                selectedFileIds
             );
             
             // Xử lý khi nhận được sources

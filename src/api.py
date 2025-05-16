@@ -105,6 +105,7 @@ class QuestionRequest(BaseModel):
     search_type: Optional[str] = "hybrid"  # "semantic", "keyword", "hybrid"
     alpha: Optional[float] = 0.7  # Hệ số kết hợp giữa semantic và keyword search
     sources: Optional[List[str]] = None  # Danh sách các file nguồn cần tìm kiếm
+    file_id: Optional[List[str]] = None  # Danh sách các file_id cần tìm kiếm
     session_id: Optional[str] = None  # ID phiên hội thoại, tự động tạo nếu không có
 
 
@@ -239,6 +240,7 @@ class FileInfo(BaseModel):
     upload_date: Optional[str] = None
     extension: str
     category: Optional[str] = None
+    id: Optional[str] = None  # Thêm trường id để lưu file_id
 
 
 class FileListResponse(BaseModel):
@@ -593,7 +595,7 @@ async def ask_question_stream(
     - **question**: Câu hỏi cần trả lời
     - **search_type**: Loại tìm kiếm ("semantic", "keyword", "hybrid")
     - **alpha**: Hệ số kết hợp giữa semantic và keyword search (0.7 = 70% semantic + 30% keyword)
-    - **sources**: Danh sách các file nguồn cần tìm kiếm
+    - **file_id**: Danh sách các file_id của tài liệu cần tìm kiếm (thay thế sources)
     - **current_conversation_id**: ID phiên hội thoại để duy trì ngữ cảnh cuộc hội thoại
     - **max_sources**: Số lượng nguồn tham khảo tối đa trả về (query parameter)
     """
@@ -605,35 +607,47 @@ async def ask_question_stream(
         # Đặt collection_name cho vector store
         rag_system.vector_store.collection_name = "user_" + str(user_id)
 
-        # Kiểm tra xem người dùng đã chọn nguồn hay chưa
-        if not request.sources or len(request.sources) == 0:
-            # Lấy danh sách các nguồn có sẵn
-            all_docs = rag_system.vector_store.get_all_documents(limit=1000)
-            available_sources = set()
-            available_filenames = set()  # Tập hợp tên file không có đường dẫn
+        # Kiểm tra xem người dùng đã chọn file_id hay chưa
+        if (
+            not hasattr(request, "file_id")
+            or not request.file_id
+            or len(request.file_id) == 0
+        ):
+            # Lấy danh sách các file_id có sẵn từ bảng document_files
+            try:
+                from src.supabase.files_manager import FilesManager
+                from src.supabase.client import SupabaseClient
 
-            for doc in all_docs:
-                source = doc.get("metadata", {}).get(
-                    "source", doc.get("source", "unknown")
+                client = SupabaseClient().get_client()
+                files_manager = FilesManager(client)
+
+                # Lấy danh sách file của người dùng
+                files = files_manager.get_files_by_user(
+                    current_user.id, include_deleted=False
                 )
-                if source != "unknown":
-                    available_sources.add(source)
-                    # Thêm tên file đơn thuần
-                    if os.path.sep in source:
-                        available_filenames.add(os.path.basename(source))
-                    else:
-                        available_filenames.add(source)
+                available_file_ids = [file.get("file_id") for file in files]
+                available_filenames = [
+                    (file.get("filename"), file.get("file_id")) for file in files
+                ]
 
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "status": "error",
-                    "message": "Vui lòng chọn ít nhất một nguồn tài liệu để tìm kiếm.",
-                    "available_sources": sorted(list(available_sources)),
-                    "available_filenames": sorted(list(available_filenames)),
-                    "note": "Bạn có thể dùng tên file đơn thuần hoặc đường dẫn đầy đủ",
-                },
-            )
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "status": "error",
+                        "message": "Vui lòng chọn ít nhất một file_id để tìm kiếm.",
+                        "available_file_ids": available_file_ids,
+                        "available_files": available_filenames,
+                    },
+                )
+            except Exception as e:
+                print(f"Lỗi khi lấy danh sách file_id: {str(e)}")
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "status": "error",
+                        "message": "Vui lòng chọn ít nhất một file_id để tìm kiếm.",
+                    },
+                )
 
         # Tạo ID cho câu hỏi
         question_id = f"q_{uuid4().hex[:8]}"
@@ -661,12 +675,12 @@ async def ask_question_stream(
         # Hàm generator để cung cấp dữ liệu cho SSE
         async def generate_response_stream():
             try:
-                # Gọi RAG để lấy kết quả dạng stream
+                # Gọi RAG để lấy kết quả dạng stream với file_id thay vì sources
                 stream_generator = rag_system.query_with_sources_streaming(
                     request.question,
                     search_type=request.search_type,
                     alpha=request.alpha,
-                    sources=request.sources,
+                    file_id=request.file_id,  # Sử dụng file_id thay cho sources
                     conversation_history=conversation_history,
                 )
 
@@ -741,7 +755,7 @@ async def ask_question_stream(
                                 chunk["data"]["related_questions"] = [
                                     "Bạn muốn tìm hiểu thêm điều gì về chủ đề này?",
                                     "Bạn có thắc mắc nào khác liên quan đến nội dung này không?",
-                                    "Bạn có muốn biết thêm thông tin về ứng dụng thực tế không?",
+                                    "Bạn có muốn biết thêm thông tin về ứng dụng thực tế của kiến thức này không?",
                                 ]
 
                             # Lưu vào lịch sử
@@ -749,7 +763,7 @@ async def ask_question_stream(
                                 "question": request.question,
                                 "search_type": request.search_type,
                                 "alpha": request.alpha,
-                                "sources": request.sources,
+                                "file_id": request.file_id,  # Lưu file_id thay vì sources
                                 "timestamp": datetime.now().isoformat(),
                                 "answer": full_answer,
                                 "processing_time": chunk["data"].get(
@@ -1306,6 +1320,7 @@ async def get_uploaded_files(current_user=Depends(get_current_user)):
                         upload_date=upload_time,
                         extension=extension,
                         category=category,
+                        id=file_record.get("file_id"),
                     )
                 )
         else:
@@ -1340,6 +1355,7 @@ async def get_uploaded_files(current_user=Depends(get_current_user)):
                             upload_date=created_time,
                             extension=extension,
                             category=None,
+                            id=None,
                         )
                     )
 

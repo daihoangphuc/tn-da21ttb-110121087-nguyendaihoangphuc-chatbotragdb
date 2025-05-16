@@ -300,14 +300,23 @@ class AdvancedDatabaseRAG:
         )
 
     def semantic_search(
-        self, query: str, k: int = 5, sources: List[str] = None
+        self,
+        query: str,
+        k: int = 5,
+        sources: List[str] = None,
+        file_id: List[str] = None,
     ) -> List[Dict]:
         """Tìm kiếm ngữ nghĩa"""
         # Loại bỏ hoàn toàn chức năng mở rộng truy vấn
-        return self.search_manager.semantic_search(query, k, sources)
+        return self.search_manager.semantic_search(query, k, sources, file_id)
 
     def hybrid_search(
-        self, query: str, k: int = 15, alpha: float = None, sources: List[str] = None
+        self,
+        query: str,
+        k: int = 15,
+        alpha: float = None,
+        sources: List[str] = None,
+        file_id: List[str] = None,
     ) -> List[Dict]:
         """Tìm kiếm kết hợp ngữ nghĩa và keyword (ưu tiên ngữ nghĩa nhiều hơn với alpha=0.7)"""
         # Sử dụng alpha mặc định từ biến môi trường nếu không được chỉ định
@@ -356,12 +365,12 @@ class AdvancedDatabaseRAG:
         initial_k = k * 3  # Lấy gấp 3 lần số kết quả cần thiết
 
         semantic = self.search_manager.semantic_search(
-            query, k=initial_k, sources=sources
+            query, k=initial_k, sources=sources, file_id=file_id
         )
         print(f"Đã tìm được {len(semantic)} kết quả từ semantic search")
 
         keyword = self.search_manager.keyword_search(
-            query, k=initial_k, sources=sources
+            query, k=initial_k, sources=sources, file_id=file_id
         )
         print(f"Đã tìm được {len(keyword)} kết quả từ keyword search")
 
@@ -799,6 +808,7 @@ class AdvancedDatabaseRAG:
         alpha: float = None,
         k: int = 10,
         sources: List[str] = None,
+        file_id: List[str] = None,
         conversation_history: str = None,
     ) -> AsyncGenerator[Dict, None]:
         """
@@ -809,7 +819,8 @@ class AdvancedDatabaseRAG:
             search_type: Loại tìm kiếm ("semantic", "keyword", "hybrid")
             alpha: Hệ số kết hợp giữa semantic và keyword search
             k: Số lượng kết quả trả về
-            sources: Danh sách các file nguồn cần tìm kiếm
+            sources: Danh sách các file nguồn cần tìm kiếm (cách cũ, sử dụng file_id thay thế)
+            file_id: Danh sách các file_id cần tìm kiếm (cách mới)
             conversation_history: Lịch sử hội thoại
 
         Returns:
@@ -818,6 +829,7 @@ class AdvancedDatabaseRAG:
         print(f"Đang xử lý câu hỏi (stream): '{query}'")
         print(f"Phương pháp tìm kiếm: {search_type}")
         print(f"Alpha: {alpha if alpha is not None else self.default_alpha}")
+        print(f"Tìm kiếm với file_id: {file_id}")
 
         # Bắt đầu đo thời gian xử lý
         start_time = time.time()
@@ -847,7 +859,7 @@ class AdvancedDatabaseRAG:
                     "query_type": query_type,
                     "search_type": search_type,
                     "alpha": alpha if alpha is not None else self.default_alpha,
-                    "sources": sources,
+                    "file_id": file_id,
                 },
             }
 
@@ -856,7 +868,8 @@ class AdvancedDatabaseRAG:
                 "type": "sources",
                 "data": {
                     "sources": [],
-                    "filtered_sources": sources if sources else [],
+                    "filtered_sources": [],
+                    "filtered_file_id": file_id if file_id else [],
                 },
             }
 
@@ -884,7 +897,7 @@ class AdvancedDatabaseRAG:
                     "query_type": query_type,
                     "search_type": search_type,
                     "alpha": alpha if alpha is not None else self.default_alpha,
-                    "sources": sources,
+                    "file_id": file_id,
                 },
             }
 
@@ -893,7 +906,8 @@ class AdvancedDatabaseRAG:
                 "type": "sources",
                 "data": {
                     "sources": [],
-                    "filtered_sources": sources if sources else [],
+                    "filtered_sources": [],
+                    "filtered_file_id": file_id if file_id else [],
                 },
             }
 
@@ -914,10 +928,12 @@ class AdvancedDatabaseRAG:
 
         # Tìm kiếm dựa trên loại tìm kiếm được chỉ định
         if search_type == "semantic":
-            search_results = self.semantic_search(query_to_use, k=k, sources=sources)
+            search_results = self.semantic_search(
+                query_to_use, k=k, sources=sources, file_id=file_id
+            )
         elif search_type == "keyword":
             search_results = self.search_manager.keyword_search(
-                query_to_use, k=k, sources=sources
+                query_to_use, k=k, sources=sources, file_id=file_id
             )
         else:  # hybrid
             search_results = self.hybrid_search(
@@ -925,6 +941,7 @@ class AdvancedDatabaseRAG:
                 k=k,
                 alpha=alpha if alpha is not None else self.default_alpha,
                 sources=sources,
+                file_id=file_id,
             )
 
         # Nếu không có kết quả tìm kiếm, trả về thông báo không tìm thấy
@@ -936,7 +953,7 @@ class AdvancedDatabaseRAG:
                     "query_type": "no_results",
                     "search_type": search_type,
                     "alpha": alpha if alpha is not None else self.default_alpha,
-                    "sources": sources,
+                    "file_id": file_id,
                 },
             }
 
@@ -945,7 +962,8 @@ class AdvancedDatabaseRAG:
                 "type": "sources",
                 "data": {
                     "sources": [],
-                    "filtered_sources": sources if sources else [],
+                    "filtered_sources": [],
+                    "filtered_file_id": file_id if file_id else [],
                 },
             }
 
@@ -1003,6 +1021,7 @@ class AdvancedDatabaseRAG:
             source = metadata.get("source", "unknown")
             page = metadata.get("page", "N/A")
             section = metadata.get("section", "N/A")
+            result_file_id = doc.get("file_id", "unknown")  # Lấy file_id từ kết quả
 
             # Tạo snippet từ nội dung
             content = doc["text"]
@@ -1016,6 +1035,7 @@ class AdvancedDatabaseRAG:
                     "section": section,
                     "score": doc.get("score", 0.0),
                     "content_snippet": snippet,
+                    "file_id": result_file_id,  # Thêm file_id vào kết quả
                 }
             )
 
@@ -1026,7 +1046,7 @@ class AdvancedDatabaseRAG:
                 "query_type": query_type,
                 "search_type": search_type,
                 "alpha": alpha if alpha is not None else self.default_alpha,
-                "sources": sources,
+                "file_id": file_id,
                 "total_results": len(search_results),
                 "total_reranked": total_reranked,
             },
@@ -1037,7 +1057,8 @@ class AdvancedDatabaseRAG:
             "type": "sources",
             "data": {
                 "sources": sources_list,
-                "filtered_sources": sources if sources else [],
+                "filtered_sources": [],  # Giữ trường này để tương thích với code cũ
+                "filtered_file_id": file_id if file_id else [],
             },
         }
 
