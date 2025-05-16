@@ -55,7 +55,13 @@ document.addEventListener('DOMContentLoaded', async function() {
         userDropdownTrigger.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            userDropdownContent.classList.toggle('display-none');
+            
+            // Toggle display giữa block và none
+            if (userDropdownContent.style.display === 'block') {
+                userDropdownContent.style.display = 'none';
+            } else {
+                userDropdownContent.style.display = 'block';
+            }
         });
         
         // Ngăn sự kiện click từ dropdown content lan ra ngoài
@@ -66,9 +72,12 @@ document.addEventListener('DOMContentLoaded', async function() {
         // Đóng dropdown khi click bên ngoài
         document.addEventListener('click', function(e) {
             if (!userDropdownTrigger.contains(e.target)) {
-                userDropdownContent.classList.add('display-none');
+                userDropdownContent.style.display = 'none';
             }
         });
+        
+        // Mặc định ẩn dropdown khi tải trang
+        userDropdownContent.style.display = 'none';
         
         // Lắng nghe sự kiện thay đổi theme
         document.addEventListener('themeChange', function(e) {

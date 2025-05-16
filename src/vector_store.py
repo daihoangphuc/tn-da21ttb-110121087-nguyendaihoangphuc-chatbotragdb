@@ -1,3 +1,4 @@
+from sqlalchemy import null
 from qdrant_client import QdrantClient, models
 import logging
 import numpy as np
@@ -114,7 +115,7 @@ class VectorStore:
             print(f"Collection {self.collection_name} đã tồn tại")
             return True
 
-    def index_documents(self, chunks, embeddings, user_id):
+    def index_documents(self, chunks, embeddings, user_id, file_id):
         """Index dữ liệu lên Qdrant"""
         start_time = time.time()
 
@@ -154,6 +155,15 @@ class VectorStore:
             self.ensure_collection_exists(vector_size)
 
         points = []
+        # Kiểm tra self.file_id nếu null thì thông báo
+        if not file_id:
+            if file_id:
+                file_id = file_id
+                print(f"[INDEX] Sử dụng file_id được cung cấp: {file_id}")
+            else:
+                print(
+                    "[INDEX] Cảnh báo: file_id không được thiết lập và không có file_id được cung cấp"
+                )
         for idx, chunk in enumerate(chunks):
             # Tạo ID ngẫu nhiên cho mỗi điểm để tránh ghi đè
             point_id = str(uuid.uuid4())
@@ -166,9 +176,12 @@ class VectorStore:
                 chunk["metadata"] = {}
 
             # Đảm bảo source cũng có trong metadata
-            chunk["metadata"]["source"] = source
-            # Thêm timestamp để theo dõi
-            chunk["metadata"]["indexed_at"] = int(time.time())
+            if source and "source" not in chunk["metadata"]:
+                chunk["metadata"]["source"] = source
+
+            # Thêm timestamp để theo dõi nếu chưa có
+            if "indexed_at" not in chunk["metadata"]:
+                chunk["metadata"]["indexed_at"] = int(time.time())
 
             # In thông tin để debug nếu là chunk đầu tiên hoặc mỗi 50 chunks
             if idx == 0 or idx % 50 == 0 or idx == len(chunks) - 1:
@@ -181,16 +194,28 @@ class VectorStore:
             if isinstance(current_embedding, np.ndarray):
                 current_embedding = current_embedding.tolist()
 
+            # Tạo payload theo cấu trúc mới
+            payload = {
+                "text": chunk["text"],
+                "metadata": chunk["metadata"],
+                "source": source,
+                "file_id": file_id,
+                "indexed_at": int(time.time()),
+            }
+
+            # Thêm các trường file_id nếu có trong chunk để hỗ trợ xóa chính xác
+            if "file_id" in chunk:
+                payload["file_id"] = chunk["file_id"]
+
+            # Thêm file_path đầy đủ nếu có
+            if "file_path" in chunk:
+                payload["file_path"] = chunk["file_path"]
+
             points.append(
                 PointStruct(
-                    id=point_id,  # Sử dụng ID ngẫu nhiên
+                    id=point_id,
                     vector=current_embedding,
-                    payload={
-                        "text": chunk["text"],
-                        "metadata": chunk["metadata"],
-                        "source": source,  # Lưu source trực tiếp trong payload
-                        "indexed_at": int(time.time()),  # Thêm timestamp
-                    },
+                    payload=payload,
                 )
             )
 
@@ -255,14 +280,27 @@ class VectorStore:
             with_payload=True,
         )
 
-        return [
-            {
+        # Chuyển đổi kết quả thành định dạng chuẩn
+        search_results = []
+        for hit in results:
+            result = {
                 "text": hit.payload["text"],
                 "metadata": hit.payload["metadata"],
                 "score": hit.score,
             }
-            for hit in results
-        ]
+
+            # Thêm source từ payload trực tiếp nếu có
+            if "source" in hit.payload:
+                result["source"] = hit.payload["source"]
+
+            # Thêm các trường khác nếu có
+            for field in ["file_id", "file_path", "indexed_at"]:
+                if field in hit.payload:
+                    result[field] = hit.payload[field]
+
+            search_results.append(result)
+
+        return search_results
 
     def search_with_filter(self, query_vector, sources=None, user_id=None, limit=5):
         """Tìm kiếm trong Qdrant với filter theo nguồn tài liệu"""
@@ -298,43 +336,53 @@ class VectorStore:
             f"Tìm kiếm với sources={sources}, normalized_sources={normalized_sources}"
         )
 
-        # Lấy nhiều kết quả hơn để đảm bảo đủ sau khi lọc
-        results = self.search(query_vector, limit=limit * 3, user_id=user_id)
-
-        # Lọc kết quả theo nguồn
-        filtered_results = []
-        for result in results:
-            # Kiểm tra source trong cả metadata và trực tiếp trong kết quả
-            meta_source = result.get("metadata", {}).get("source", "unknown")
-            direct_source = result.get("source", "unknown")
-
-            # Extract filename từ source nếu có đường dẫn
-            meta_filename = (
-                os.path.basename(meta_source) if meta_source != "unknown" else "unknown"
-            )
-            direct_filename = (
-                os.path.basename(direct_source)
-                if direct_source != "unknown"
-                else "unknown"
+        # Tạo filter để giới hạn kết quả theo source
+        should_conditions = []
+        for source in normalized_sources:
+            should_conditions.append({"key": "source", "match": {"value": source}})
+            should_conditions.append(
+                {"key": "metadata.source", "match": {"value": source}}
             )
 
-            # Kiểm tra điều kiện source
-            source_match = (
-                meta_source in normalized_sources
-                or direct_source in normalized_sources
-                or meta_filename in normalized_sources
-                or direct_filename in normalized_sources
-            )
+            # Nếu source là đường dẫn đầy đủ, thêm điều kiện cho file_path
+            if os.path.sep in source:
+                should_conditions.append(
+                    {"key": "file_path", "match": {"value": source}}
+                )
 
-            # Nếu thỏa mãn điều kiện
-            if source_match:
-                filtered_results.append(result)
+        # Tạo filter phù hợp cho Qdrant
+        search_filter = {"should": should_conditions}
 
-                # Nếu đã đủ số kết quả cần thiết, dừng lại
-                if len(filtered_results) >= limit:
-                    break
+        # Thực hiện tìm kiếm với filter
+        results = self.client.search(
+            collection_name=self.collection_name,
+            query_vector=query_vector,
+            limit=limit,
+            with_payload=True,
+            query_filter=models.Filter(**search_filter),
+        )
 
-        return filtered_results
+        # Chuyển đổi kết quả thành định dạng chuẩn
+        search_results = []
+        for hit in results:
+            result = {
+                "text": hit.payload["text"],
+                "metadata": hit.payload["metadata"],
+                "score": hit.score,
+            }
+
+            # Thêm source từ payload trực tiếp nếu có
+            if "source" in hit.payload:
+                result["source"] = hit.payload["source"]
+
+            # Thêm các trường khác nếu có
+            for field in ["file_id", "file_path", "indexed_at"]:
+                if field in hit.payload:
+                    result[field] = hit.payload[field]
+
+            search_results.append(result)
+
+        return search_results
 
     def get_all_documents(self, limit=1000, user_id=None):
         """Lấy tất cả tài liệu từ collection"""
@@ -590,3 +638,301 @@ class VectorStore:
             traceback_str = traceback.format_exc()
             print(f"[VECTOR_STORE] Traceback: {traceback_str}")
             return False, f"Lỗi khi xóa điểm theo filter: {str(e)}"
+
+    def delete_by_file_path(self, file_path, user_id=None):
+        """
+        Xóa tất cả các điểm của một file theo đường dẫn chính xác
+
+        Args:
+            file_path (str): Đường dẫn đầy đủ của file cần xóa
+            user_id (str): ID của người dùng
+
+        Returns:
+            tuple: (success: bool, message: str) - Kết quả xóa và thông báo
+        """
+        # Cập nhật collection_name nếu có user_id mới
+        if user_id and user_id != self.user_id:
+            self.collection_name = self.get_collection_name_for_user(user_id)
+
+        if not self.collection_name:
+            raise ValueError(
+                "collection_name không được để trống. Cần user_id để xác định collection."
+            )
+
+        try:
+            print(f"[VECTOR_STORE] Bắt đầu xóa các điểm của file: {file_path}")
+
+            if not self.client.collection_exists(self.collection_name):
+                print(
+                    f"[VECTOR_STORE] Lỗi: Collection {self.collection_name} không tồn tại"
+                )
+                return False, "Collection không tồn tại"
+
+            # Xác định filter chính xác theo file_path
+            # Ưu tiên dùng file_path chính xác nếu có
+            filter_condition = {
+                "filter": {
+                    "must": [{"key": "file_path", "match": {"value": file_path}}]
+                }
+            }
+
+            # Đếm số điểm khớp với filter theo file_path
+            try:
+                count_results = self.client.count(
+                    collection_name=self.collection_name,
+                    count_filter=models.Filter(**filter_condition["filter"]),
+                )
+                file_path_points = count_results.count
+                print(
+                    f"[VECTOR_STORE] Số điểm khớp với file_path chính xác: {file_path_points}"
+                )
+
+                # Nếu không tìm thấy theo file_path, thử tìm theo source
+                if file_path_points == 0:
+                    source_filter = {
+                        "filter": {
+                            "must": [{"key": "source", "match": {"value": file_path}}]
+                        }
+                    }
+
+                    count_results = self.client.count(
+                        collection_name=self.collection_name,
+                        count_filter=models.Filter(**source_filter["filter"]),
+                    )
+                    source_points = count_results.count
+                    print(f"[VECTOR_STORE] Số điểm khớp với source: {source_points}")
+
+                    if source_points > 0:
+                        filter_condition = source_filter
+            except Exception as count_e:
+                print(f"[VECTOR_STORE] Lỗi khi đếm số điểm: {str(count_e)}")
+
+            # Lấy thông tin collection trước khi xóa
+            info_before = self.client.get_collection(self.collection_name)
+            points_before = info_before.points_count
+
+            # Xóa điểm từ collection theo filter
+            print(f"[VECTOR_STORE] Thực hiện xóa điểm theo filter: {filter_condition}")
+            result = self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=models.FilterSelector(
+                    filter=filter_condition["filter"]
+                ),
+            )
+
+            # Sau khi xóa, kiểm tra số lượng điểm còn lại
+            info_after = self.client.get_collection(self.collection_name)
+            points_after = info_after.points_count
+            points_deleted = points_before - points_after
+
+            print(f"[VECTOR_STORE] Kết quả xóa điểm: {result}")
+            print(f"[VECTOR_STORE] Số điểm trước khi xóa: {points_before}")
+            print(f"[VECTOR_STORE] Số điểm sau khi xóa: {points_after}")
+            print(f"[VECTOR_STORE] Số điểm đã xóa: {points_deleted}")
+
+            if points_deleted > 0:
+                return True, f"Đã xóa {points_deleted} điểm từ file {file_path}"
+            else:
+                return False, f"Không tìm thấy điểm nào thuộc file {file_path}"
+
+        except Exception as e:
+            print(f"[VECTOR_STORE] Lỗi khi xóa điểm theo file_path: {str(e)}")
+            import traceback
+
+            traceback_str = traceback.format_exc()
+            print(f"[VECTOR_STORE] Traceback: {traceback_str}")
+            return False, f"Lỗi khi xóa điểm theo file_path: {str(e)}"
+
+    def delete_by_file_id(self, file_id, user_id=None):
+        """
+        Xóa tất cả các điểm của một file theo file_id
+
+        Args:
+            file_id (str): ID của file cần xóa (đặc biệt hữu ích khi có nhiều file cùng tên)
+            user_id (str): ID của người dùng
+
+        Returns:
+            tuple: (success: bool, message: str) - Kết quả xóa và thông báo
+        """
+        # Cập nhật collection_name nếu có user_id mới
+        if user_id and user_id != self.user_id:
+            self.collection_name = self.get_collection_name_for_user(user_id)
+
+        if not self.collection_name:
+            raise ValueError(
+                "collection_name không được để trống. Cần user_id để xác định collection."
+            )
+
+        try:
+            print(f"[VECTOR_STORE] Bắt đầu xóa các điểm của file có ID: {file_id}")
+
+            if not self.client.collection_exists(self.collection_name):
+                print(
+                    f"[VECTOR_STORE] Lỗi: Collection {self.collection_name} không tồn tại"
+                )
+                return False, "Collection không tồn tại"
+
+            # Tạo filter theo file_id
+            filter_condition = {
+                "filter": {"must": [{"key": "file_id", "match": {"value": file_id}}]}
+            }
+
+            # Đếm số điểm khớp với filter theo file_id
+            try:
+                count_results = self.client.count(
+                    collection_name=self.collection_name,
+                    count_filter=models.Filter(**filter_condition["filter"]),
+                )
+                file_id_points = count_results.count
+                print(f"[VECTOR_STORE] Số điểm khớp với file_id: {file_id_points}")
+
+                if file_id_points == 0:
+                    return False, f"Không tìm thấy điểm nào thuộc file ID {file_id}"
+            except Exception as count_e:
+                print(f"[VECTOR_STORE] Lỗi khi đếm số điểm: {str(count_e)}")
+
+            # Lấy thông tin collection trước khi xóa
+            info_before = self.client.get_collection(self.collection_name)
+            points_before = info_before.points_count
+
+            # Xóa điểm từ collection theo filter
+            print(f"[VECTOR_STORE] Thực hiện xóa điểm theo filter: {filter_condition}")
+            result = self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=models.FilterSelector(
+                    filter=filter_condition["filter"]
+                ),
+            )
+
+            # Sau khi xóa, kiểm tra số lượng điểm còn lại
+            info_after = self.client.get_collection(self.collection_name)
+            points_after = info_after.points_count
+            points_deleted = points_before - points_after
+
+            print(f"[VECTOR_STORE] Kết quả xóa điểm: {result}")
+            print(f"[VECTOR_STORE] Số điểm đã xóa: {points_deleted}")
+
+            return True, f"Đã xóa {points_deleted} điểm thuộc file ID {file_id}"
+
+        except Exception as e:
+            print(f"[VECTOR_STORE] Lỗi khi xóa điểm theo file_id: {str(e)}")
+            import traceback
+
+            traceback_str = traceback.format_exc()
+            print(f"[VECTOR_STORE] Traceback: {traceback_str}")
+            return False, f"Lỗi khi xóa điểm theo file_id: {str(e)}"
+
+    def delete_by_file_uuid(self, file_uuid, user_id=None):
+        """
+        Xóa tất cả các điểm của một file theo UUID trong đường dẫn
+        Điều này hữu ích khi đường dẫn file có chứa UUID như trong ví dụ:
+        src/data/73faa408-c331-4b44-a9d7-062464ac4144/Ten_file.pdf
+
+        Args:
+            file_uuid (str): UUID của file cần xóa (nằm trong đường dẫn)
+            user_id (str): ID của người dùng
+
+        Returns:
+            tuple: (success: bool, message: str) - Kết quả xóa và thông báo
+        """
+        # Cập nhật collection_name nếu có user_id mới
+        if user_id and user_id != self.user_id:
+            self.collection_name = self.get_collection_name_for_user(user_id)
+
+        if not self.collection_name:
+            raise ValueError(
+                "collection_name không được để trống. Cần user_id để xác định collection."
+            )
+
+        try:
+            print(
+                f"[VECTOR_STORE] Bắt đầu xóa các điểm của file có UUID: {file_uuid} trong đường dẫn"
+            )
+
+            if not self.client.collection_exists(self.collection_name):
+                print(
+                    f"[VECTOR_STORE] Lỗi: Collection {self.collection_name} không tồn tại"
+                )
+                return False, "Collection không tồn tại"
+
+            # Tạo filter cho source chứa UUID
+            filter_condition = {
+                "filter": {"must": [{"key": "source", "match": {"text": file_uuid}}]}
+            }
+
+            # Thử lọc theo file_path nếu có
+            alternate_filter = {
+                "filter": {"must": [{"key": "file_path", "match": {"text": file_uuid}}]}
+            }
+
+            # Kiểm tra số lượng điểm khớp với filter
+            try:
+                # Đếm theo source trước
+                count_results = self.client.count(
+                    collection_name=self.collection_name,
+                    count_filter=models.Filter(**filter_condition["filter"]),
+                )
+                source_points = count_results.count
+                print(
+                    f"[VECTOR_STORE] Số điểm khớp với UUID trong source: {source_points}"
+                )
+
+                # Nếu không tìm thấy, thử đếm theo file_path
+                if source_points == 0:
+                    count_results = self.client.count(
+                        collection_name=self.collection_name,
+                        count_filter=models.Filter(**alternate_filter["filter"]),
+                    )
+                    path_points = count_results.count
+                    print(
+                        f"[VECTOR_STORE] Số điểm khớp với UUID trong file_path: {path_points}"
+                    )
+
+                    if path_points > 0:
+                        filter_condition = alternate_filter
+                        source_points = path_points
+
+                # Nếu không tìm thấy theo cả hai cách
+                if source_points == 0:
+                    return (
+                        False,
+                        f"Không tìm thấy điểm nào thuộc file có UUID {file_uuid}",
+                    )
+
+            except Exception as count_e:
+                print(f"[VECTOR_STORE] Lỗi khi đếm số điểm: {str(count_e)}")
+
+            # Lấy thông tin collection trước khi xóa
+            info_before = self.client.get_collection(self.collection_name)
+            points_before = info_before.points_count
+
+            # Xóa điểm từ collection theo filter
+            print(
+                f"[VECTOR_STORE] Thực hiện xóa điểm theo filter UUID: {filter_condition}"
+            )
+            result = self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=models.FilterSelector(
+                    filter=filter_condition["filter"]
+                ),
+            )
+
+            # Sau khi xóa, kiểm tra số lượng điểm còn lại
+            info_after = self.client.get_collection(self.collection_name)
+            points_after = info_after.points_count
+            points_deleted = points_before - points_after
+
+            print(f"[VECTOR_STORE] Kết quả xóa điểm: {result}")
+            print(f"[VECTOR_STORE] Số điểm trước khi xóa: {points_before}")
+            print(f"[VECTOR_STORE] Số điểm sau khi xóa: {points_after}")
+            print(f"[VECTOR_STORE] Số điểm đã xóa: {points_deleted}")
+
+            return True, f"Đã xóa {points_deleted} điểm thuộc file có UUID {file_uuid}"
+
+        except Exception as e:
+            print(f"[VECTOR_STORE] Lỗi khi xóa điểm theo UUID: {str(e)}")
+            import traceback
+
+            traceback_str = traceback.format_exc()
+            print(f"[VECTOR_STORE] Traceback: {traceback_str}")
+            return False, f"Lỗi khi xóa điểm theo UUID: {str(e)}"

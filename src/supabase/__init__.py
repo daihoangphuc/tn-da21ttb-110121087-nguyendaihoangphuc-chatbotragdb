@@ -7,3 +7,4 @@ from .client import SupabaseClient
 from .auth import SupabaseAuth
 from .database import SupabaseDatabase
 from .conversation_manager import SupabaseConversationManager
+from .files_manager import FilesManager

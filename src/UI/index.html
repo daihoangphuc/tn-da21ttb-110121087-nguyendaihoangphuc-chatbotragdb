@@ -364,6 +364,27 @@
                     breaks: true
                 });
             }
+            
+            // Xử lý dropdown avatar
+            const userDropdownTrigger = document.querySelector('.user-dropdown-trigger');
+            const userDropdownContent = document.querySelector('.user-dropdown-content');
+            
+            if (userDropdownTrigger && userDropdownContent) {
+                // Hàm xử lý click để mở/đóng dropdown
+                userDropdownTrigger.addEventListener('click', function(e) {
+                    e.stopPropagation(); // Ngăn sự kiện lan ra document
+                    userDropdownContent.classList.toggle('display-none');
+                    userDropdownContent.classList.toggle('block');
+                });
+                
+                // Đóng dropdown khi click ra ngoài
+                document.addEventListener('click', function(e) {
+                    if (!userDropdownTrigger.contains(e.target) && !userDropdownContent.contains(e.target)) {
+                        userDropdownContent.classList.add('display-none');
+                        userDropdownContent.classList.remove('block');
+                    }
+                });
+            }
         });
     </script>
     <!-- Đã load api-service.js ở đầu trang -->
@@ -616,6 +637,26 @@
             background-color: #374151;
             border-color: #3b82f6;
             color: white;
+        }
+        
+        /* CSS cho dropdown menu */
+        .display-none {
+            display: none !important;
+        }
+        
+        .block {
+            display: block !important;
+        }
+        
+        .user-dropdown-content {
+            display: none;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            transition: all 0.2s ease;
+            z-index: 100;
+        }
+        
+        .user-dropdown-trigger {
+            cursor: pointer;
         }
     </style>
 </body>

@@ -235,11 +235,7 @@ h3 {
     margin-top: 0.5rem;
     z-index: 50;
     color: #0f172a;
-    display: block;
-}
-
-.display-none {
-    display: none !important;
+    display: none;
 }
 
 .user-dropdown-content.dark-dropdown {

@@ -18,6 +18,7 @@ load_dotenv(verbose=True)
 try:
     from src.supabase.database import SupabaseDatabase
     from src.supabase.client import SupabaseClient
+    from src.supabase.files_manager import FilesManager
 
     print("Đã import các module thành công")
 except Exception as e:
@@ -43,26 +44,31 @@ def init_database():
         print("Đã khởi tạo database")
 
         # Tạo bảng conversations và messages
-        print("\n[1/3] Tạo bảng conversations và messages...")
+        print("\n[1/4] Tạo bảng conversations và messages...")
         convo_result = db.create_conversation_history_table()
         print(f"Kết quả: {convo_result}")
 
         # Tạo bảng user_feedback
-        print("\n[2/3] Tạo bảng user_feedback...")
+        print("\n[2/4] Tạo bảng user_feedback...")
         feedback_result = db.create_feedback_table()
         print(f"Kết quả: {feedback_result}")
 
         # Tạo bảng document_metadata
-        print("\n[3/3] Tạo bảng document_metadata...")
+        print("\n[3/4] Tạo bảng document_metadata...")
         doc_result = db.create_document_metadata_table()
         print(f"Kết quả: {doc_result}")
 
+        # Tạo bảng document_files
+        print("\n[4/4] Tạo bảng document_files...")
+        files_manager = FilesManager(client)
+        files_result = files_manager.create_document_files_table()
+        print(f"Kết quả: {files_result}")
+
         print("\n=== HOÀN THÀNH KHỞI TẠO CƠ SỞ DỮ LIỆU ===")
     except Exception as e:
-        print(f"\n!!! LỖI KHI KHỞI TẠO CƠ SỞ DỮ LIỆU: {str(e)}")
-        print("\nChi tiết lỗi:")
+        print("Lỗi khi khởi tạo cơ sở dữ liệu:")
         traceback.print_exc()
-        print("\nHãy kiểm tra lại kết nối và quyền truy cập Supabase.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

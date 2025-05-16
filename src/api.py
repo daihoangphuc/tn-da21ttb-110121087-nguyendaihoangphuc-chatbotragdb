@@ -31,6 +31,7 @@ import uvicorn
 import shutil
 from uuid import uuid4
 import time
+import uuid
 import json
 from datetime import datetime
 from os import path
@@ -346,22 +347,25 @@ async def get_current_user(
         )
 
     try:
-        # Thử lấy thông tin người dùng hiện tại bằng token
+        # Thử lấy thông tin người dùng hiện tại bằng token từ request
         try:
-            # Lấy phiên từ access token
-            user_response = supabase_client.auth.get_user()
+            # Lấy access token từ request
+            token = credentials.credentials
+            # Sử dụng token để xác thực
+            response = supabase_client.auth.get_user(jwt=token)
+            user_response = response
+
+            if not user_response or not user_response.user:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Phiên đăng nhập không hợp lệ hoặc đã hết hạn",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
         except Exception as e:
             print(f"Lỗi khi lấy thông tin người dùng từ token: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token không hợp lệ hoặc đã hết hạn",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        if not user_response or not user_response.user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Phiên đăng nhập không hợp lệ hoặc đã hết hạn",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
@@ -866,9 +870,46 @@ async def upload_document(
             print(
                 f"[UPLOAD] Đang index {len(processed_chunks)} chunks với user_id='{current_user.id}'"
             )
+            file_id = str(uuid.uuid4())
             rag_system.vector_store.index_documents(
-                processed_chunks, embeddings, user_id=current_user.id
+                processed_chunks,
+                embeddings,
+                user_id=current_user.id,
+                file_id=file_id,
             )
+
+            # Lưu thông tin file vào bảng document_files
+            try:
+                from src.supabase.files_manager import FilesManager
+                from src.supabase.client import SupabaseClient
+
+                client = SupabaseClient().get_client()
+                files_manager = FilesManager(client)
+
+                # Lấy kích thước file
+                file_stats = os.stat(file_location)
+
+                # Lưu metadata
+                file_metadata = {
+                    "category": category,
+                    "chunks_count": len(processed_chunks),
+                    "file_size": file_stats.st_size,  # Đưa kích thước file vào metadata thay vì trường riêng
+                }
+
+                # Lưu thông tin file vào database
+                files_manager.save_file_metadata(
+                    file_id=file_id,
+                    filename=file.filename,
+                    file_path=file_location,
+                    user_id=current_user.id,
+                    file_type=ext,
+                    metadata=file_metadata,
+                )
+                print(
+                    f"[UPLOAD] Đã lưu thông tin file {file.filename} vào bảng document_files"
+                )
+            except Exception as e:
+                print(f"[UPLOAD] Lỗi khi lưu thông tin file vào database: {str(e)}")
 
             return {
                 "filename": file.filename,
@@ -876,6 +917,7 @@ async def upload_document(
                 "message": f"Đã tải lên và index thành công {len(processed_chunks)} chunks từ tài liệu",
                 "chunks_count": len(processed_chunks),
                 "category": category,
+                "file_id": file_id,
             }
         else:
             return {
@@ -1225,47 +1267,93 @@ async def get_uploaded_files(current_user=Depends(get_current_user)):
     Lấy danh sách các file đã được upload vào hệ thống
     """
     try:
+        from src.supabase.files_manager import FilesManager
+        from src.supabase.client import SupabaseClient
+
+        # Sử dụng FilesManager để lấy danh sách file từ database
+        client = SupabaseClient().get_client()
+        files_manager = FilesManager(client)
+
+        # Lấy danh sách file của người dùng hiện tại từ bảng document_files
+        db_files = files_manager.get_files_by_user(
+            current_user.id, include_deleted=False
+        )
+        print(
+            f"[FILES] Tìm thấy {len(db_files)} file của user {current_user.id} trong database"
+        )
+
         files = []
-        # Lấy thư mục upload của user
-        user_upload_dir = get_user_upload_dir(current_user.id)
 
-        for filename in os.listdir(user_upload_dir):
-            file_path = os.path.join(user_upload_dir, filename)
+        if db_files:
+            for file_record in db_files:
+                # Convert từ dữ liệu database sang model FileInfo
+                file_path = file_record.get("file_path", "")
+                filename = file_record.get("filename", "")
+                extension = os.path.splitext(filename)[1].lower() if filename else ""
+                upload_time = file_record.get("upload_time", "")
 
-            # Bỏ qua các thư mục
-            if os.path.isdir(file_path):
-                continue
+                # Lấy metadata
+                metadata = file_record.get("metadata", {}) or {}
+                category = metadata.get("category", None)
+                # Lấy kích thước file từ metadata hoặc mặc định là 0
+                file_size = metadata.get("file_size", 0)
 
-            # Lấy thông tin file
-            file_stats = os.stat(file_path)
-            extension = os.path.splitext(filename)[1].lower()
-
-            # Lấy thời gian tạo file
-            created_time = datetime.fromtimestamp(file_stats.st_ctime).isoformat()
-
-            # Thêm vào danh sách
-            files.append(
-                FileInfo(
-                    filename=filename,
-                    path=file_path,
-                    size=file_stats.st_size,
-                    upload_date=created_time,
-                    extension=extension,
-                    category=None,  # Có thể cần truy vấn metadata từ vector store
+                files.append(
+                    FileInfo(
+                        filename=filename,
+                        path=file_path,
+                        size=file_size,
+                        upload_date=upload_time,
+                        extension=extension,
+                        category=category,
+                    )
                 )
-            )
+        else:
+            # Fallback: Nếu không có dữ liệu trong database, đọc từ filesystem
+            print(f"[FILES] Không tìm thấy dữ liệu trong database, đọc từ filesystem")
+            user_upload_dir = get_user_upload_dir(current_user.id)
+
+            # Kiểm tra thư mục có tồn tại không
+            if os.path.exists(user_upload_dir):
+                for filename in os.listdir(user_upload_dir):
+                    file_path = os.path.join(user_upload_dir, filename)
+
+                    # Bỏ qua các thư mục
+                    if os.path.isdir(file_path):
+                        continue
+
+                    # Lấy thông tin file
+                    file_stats = os.stat(file_path)
+                    extension = os.path.splitext(filename)[1].lower()
+
+                    # Lấy thời gian tạo file
+                    created_time = datetime.fromtimestamp(
+                        file_stats.st_ctime
+                    ).isoformat()
+
+                    # Thêm vào danh sách
+                    files.append(
+                        FileInfo(
+                            filename=filename,
+                            path=file_path,
+                            size=file_stats.st_size,
+                            upload_date=created_time,
+                            extension=extension,
+                            category=None,
+                        )
+                    )
 
         # Sắp xếp theo thời gian tạo mới nhất
         files.sort(key=lambda x: x.upload_date, reverse=True)
 
         return {"total_files": len(files), "files": files}
     except Exception as e:
+        print(f"[FILES] Lỗi khi lấy danh sách file: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Lỗi khi lấy danh sách file: {str(e)}"
         )
 
 
-# Thêm API endpoint xóa file và index liên quan
 @app.delete(f"{PREFIX}/files/{{filename}}", response_model=FileDeleteResponse)
 async def delete_file(filename: str, current_user=Depends(get_current_user)):
     """
@@ -1284,14 +1372,10 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
                 status_code=404, detail=f"File {filename} không tồn tại"
             )
 
-        print(f"[DELETE] Đang tìm kiếm các điểm dữ liệu liên quan đến file: {filename}")
-        # Đếm số lượng điểm trong vector store liên quan đến file này trước khi xóa
-        all_docs = rag_system.vector_store.get_all_documents()
-        print(f"[DELETE] Tổng số documents trong vector store: {len(all_docs)}")
+        print(f"[DELETE] Đang xóa các điểm dữ liệu liên quan đến file: {filename}")
 
-        # Tạo danh sách các biến thể của tên file để tìm kiếm
-        file_path_variants = [
-            filename,  # Tên file đơn thuần
+        # Tạo danh sách các biến thể của đường dẫn file để thử xóa
+        file_paths = [
             file_path,  # Đường dẫn đầy đủ
             file_path.replace("\\", "/"),  # Đường dẫn với dấu /
             os.path.join(user_upload_dir, filename).replace(
@@ -1301,96 +1385,174 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
             f"src/data\\{current_user.id}\\{filename}",  # Thêm tiền tố src/data\user_id\ với backslash
         ]
 
-        print(f"[DELETE] Tìm kiếm với các biến thể: {file_path_variants}")
+        # Khởi tạo biến để lưu số lượng điểm đã xóa
+        deleted_points_count = 0
+        deletion_success = False
 
-        # Tìm tất cả tài liệu khớp với bất kỳ biến thể nào của tên file
-        related_docs = []
-        for doc in all_docs:
-            # Kiểm tra trong metadata.source
-            meta_source = doc.get("metadata", {}).get("source", "unknown")
-            # Kiểm tra trong source trực tiếp
-            direct_source = doc.get("source", "unknown")
-
-            # So sánh với các biến thể
-            for variant in file_path_variants:
-                if meta_source == variant or direct_source == variant:
-                    related_docs.append(doc)
-                    print(
-                        f"[DELETE] Tìm thấy document với source={meta_source if meta_source != 'unknown' else direct_source}"
-                    )
-                    break
-
-        points_count = len(related_docs)
-        print(f"[DELETE] Số lượng điểm dữ liệu liên quan đến file: {points_count}")
-
-        # Xóa các index liên quan đến file này trong vector store
-        if points_count > 0:
-            print(f"[DELETE] Bắt đầu xóa {points_count} điểm dữ liệu liên quan")
-            point_ids = [
-                doc.get("id") for doc in related_docs if doc.get("id") is not None
-            ]
-            if point_ids:
-                delete_result = rag_system.vector_store.delete_points(point_ids)
-                print(f"[DELETE] Kết quả xóa điểm dữ liệu: {delete_result}")
-            else:
-                print(
-                    f"[DELETE] Không thể xóa vì không tìm thấy ID cho các điểm dữ liệu"
+        # Thử xóa với từng đường dẫn
+        for path in file_paths:
+            print(f"[DELETE] Thử xóa với đường dẫn: {path}")
+            try:
+                # Sử dụng phương thức delete_by_file_path mới
+                success, message = rag_system.vector_store.delete_by_file_path(
+                    path, user_id=current_user.id
                 )
 
-            # Thêm xóa theo filter dựa trên tên file
+                if success:
+                    # Phân tích số lượng điểm đã xóa từ message
+                    import re
+
+                    match = re.search(r"Đã xóa (\d+) điểm", message)
+                    if match:
+                        deleted_points_count = int(match.group(1))
+                    print(f"[DELETE] Xóa thành công với đường dẫn {path}: {message}")
+                    deletion_success = True
+                    break
+            except Exception as e:
+                print(f"[DELETE] Lỗi khi xóa với đường dẫn {path}: {str(e)}")
+                continue
+
+        # Nếu không thành công với tất cả các đường dẫn, thử xóa bằng filename
+        if not deletion_success:
+            print(f"[DELETE] Thử xóa với tên file: {filename}")
             try:
-                print(f"[DELETE] Thử xóa theo filter với tên file...")
-                for variant in file_path_variants:
-                    filter_request = {
-                        "filter": {
-                            "must": [
-                                {"key": "source", "match": {"value": variant}},
-                                {"key": "user_id", "match": {"value": current_user.id}},
-                            ]
-                        }
-                    }
-                    print(f"[DELETE] Xóa filter với variant: {variant}")
-                    success, message = rag_system.vector_store.delete_points_by_filter(
-                        filter_request
+                # Sử dụng phương thức delete_by_file_path với tên file
+                success, message = rag_system.vector_store.delete_by_file_path(
+                    filename, user_id=current_user.id
+                )
+
+                if success:
+                    # Phân tích số lượng điểm đã xóa từ message
+                    import re
+
+                    match = re.search(r"Đã xóa (\d+) điểm", message)
+                    if match:
+                        deleted_points_count = int(match.group(1))
+                    print(f"[DELETE] Xóa thành công với tên file: {message}")
+                    deletion_success = True
+            except Exception as e:
+                print(f"[DELETE] Lỗi khi xóa với tên file: {str(e)}")
+
+        # Nếu vẫn không thành công, thử xóa bằng phương thức cũ
+        if not deletion_success:
+            print(f"[DELETE] Thử xóa bằng phương thức cũ...")
+
+            # Tìm tất cả tài liệu khớp với đường dẫn hoặc tên file
+            all_docs = rag_system.vector_store.get_all_documents(
+                user_id=current_user.id
+            )
+            related_docs = []
+
+            for doc in all_docs:
+                # Kiểm tra trong metadata.source và source trực tiếp
+                meta_source = doc.get("metadata", {}).get("source", "unknown")
+                direct_source = doc.get("source", "unknown")
+
+                # So sánh với tất cả các biến thể của đường dẫn
+                for path in file_paths:
+                    if meta_source == path or direct_source == path:
+                        related_docs.append(doc)
+                        break
+
+                # So sánh với tên file
+                if meta_source == filename or direct_source == filename:
+                    related_docs.append(doc)
+
+            # Nếu tìm thấy tài liệu liên quan, xóa chúng
+            if related_docs:
+                print(f"[DELETE] Tìm thấy {len(related_docs)} tài liệu liên quan")
+
+                # Thử xóa bằng filter
+                filter_conditions = []
+
+                # Thêm điều kiện cho source
+                for path in file_paths:
+                    filter_conditions.append(
+                        {"key": "source", "match": {"value": path}}
                     )
-                    print(
-                        f"[DELETE] Kết quả xóa theo filter (source={variant}): {success}, {message}"
+                    filter_conditions.append(
+                        {"key": "metadata.source", "match": {"value": path}}
                     )
 
-                    # Thử xóa theo metadata.source
-                    filter_request = {
-                        "filter": {
-                            "must": [
-                                {"key": "metadata.source", "match": {"value": variant}},
-                                {
-                                    "key": "metadata.user_id",
-                                    "match": {"value": current_user.id},
-                                },
-                            ]
-                        }
-                    }
-                    print(f"[DELETE] Xóa filter với metadata.source={variant}")
+                # Thêm điều kiện cho filename
+                filter_conditions.append(
+                    {"key": "source", "match": {"value": filename}}
+                )
+                filter_conditions.append(
+                    {"key": "metadata.source", "match": {"value": filename}}
+                )
+
+                filter_request = {"filter": {"should": filter_conditions}}
+
+                try:
                     success, message = rag_system.vector_store.delete_points_by_filter(
-                        filter_request
+                        filter_request, user_id=current_user.id
                     )
-                    print(
-                        f"[DELETE] Kết quả xóa theo filter (metadata.source={variant}): {success}, {message}"
-                    )
-            except Exception as e:
-                print(f"[DELETE] Lỗi khi xóa theo filter: {str(e)}")
-        else:
-            print(f"[DELETE] Không có điểm dữ liệu nào liên quan đến file {filename}")
+
+                    if success:
+                        # Phân tích số lượng điểm đã xóa từ message
+                        import re
+
+                        match = re.search(r"Đã xóa (\d+) điểm", message)
+                        if match:
+                            deleted_points_count = int(match.group(1))
+                        print(f"[DELETE] Xóa thành công bằng filter: {message}")
+                        deletion_success = True
+                except Exception as e:
+                    print(f"[DELETE] Lỗi khi xóa bằng filter: {str(e)}")
+
+                    # Nếu không thành công với filter, thử xóa bằng ID
+                    try:
+                        point_ids = [
+                            doc.get("id")
+                            for doc in related_docs
+                            if doc.get("id") is not None
+                        ]
+                        if point_ids:
+                            delete_result = rag_system.vector_store.delete_points(
+                                point_ids, user_id=current_user.id
+                            )
+                            if delete_result:
+                                deleted_points_count = len(point_ids)
+                                print(
+                                    f"[DELETE] Đã xóa {deleted_points_count} điểm dữ liệu bằng ID"
+                                )
+                                deletion_success = True
+                    except Exception as e2:
+                        print(f"[DELETE] Lỗi khi xóa bằng ID: {str(e2)}")
 
         # Xóa file vật lý
         print(f"[DELETE] Đang xóa file vật lý: {file_path}")
         os.remove(file_path)
         print(f"[DELETE] Đã xóa file vật lý thành công")
 
+        # Đánh dấu file đã xóa trong bảng document_files
+        try:
+            from src.supabase.files_manager import FilesManager
+            from src.supabase.client import SupabaseClient
+
+            client = SupabaseClient().get_client()
+            files_manager = FilesManager(client)
+
+            # Tìm file trong database theo tên và user_id
+            files = files_manager.get_file_by_name_and_user(filename, current_user.id)
+            if files and len(files) > 0:
+                # Lấy file_id từ kết quả tìm kiếm
+                file_id = files[0].get("file_id")
+                if file_id:
+                    # Đánh dấu file đã xóa
+                    files_manager.mark_file_as_deleted(file_id)
+                    print(
+                        f"[DELETE] Đã đánh dấu file {filename} (ID: {file_id}) là đã xóa trong database"
+                    )
+        except Exception as e:
+            print(f"[DELETE] Lỗi khi đánh dấu file đã xóa trong database: {str(e)}")
+
         return {
             "filename": filename,
             "status": "success",
-            "message": f"Đã xóa file {filename} và {points_count} index liên quan",
-            "removed_points": points_count,
+            "message": f"Đã xóa file {filename} và {deleted_points_count} index liên quan",
+            "removed_points": deleted_points_count,
         }
     except HTTPException as e:
         print(f"[DELETE] HTTP Exception: {str(e)}")
