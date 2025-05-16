@@ -446,7 +446,49 @@
             }
         });
     </script>
-
+<script>
+    // Thêm vào phần kiểm tra đăng nhập sau khi xác định người dùng đã đăng nhập
+    document.addEventListener('DOMContentLoaded', async function() {
+        checkLoginStatus();
+        
+        // Cập nhật thông tin người dùng trên giao diện
+        try {
+            const userInfoString = sessionStorage.getItem('user_info');
+            if (userInfoString) {
+                const userInfo = JSON.parse(userInfoString);
+                updateUserInfo(userInfo);
+                
+                // Kiểm tra xem đã có conversation_id trong sessionStorage chưa
+                const existingConversationId = sessionStorage.getItem('conversation_id');
+                
+                // Chỉ tạo conversation mới nếu chưa có
+                if (!existingConversationId) {
+                    try {
+                        const response = await apiService.fetchApi('/api/conversations/create', {
+                            method: 'POST'
+                        });
+                        
+                        if (response && response.status === 'success') {
+                            console.log('Đã tạo conversation mới khi tải trang:', response.conversation_id);
+                            apiService.setConversationId(response.conversation_id);
+                            // Lưu conversation_id vào sessionStorage để đánh dấu đã tạo
+                            sessionStorage.setItem('conversation_id', response.conversation_id);
+                        } else {
+                            console.error('Không thể tạo conversation mới khi tải trang:', response);
+                        }
+                    } catch (error) {
+                        console.error('Lỗi khi khởi tạo conversation:', error);
+                    }
+                } else {
+                    console.log('Đã có sẵn conversation_id:', existingConversationId);
+                    apiService.setConversationId(existingConversationId);
+                }
+            }
+        } catch (e) {
+            console.error('Lỗi khi cập nhật thông tin người dùng:', e);
+        }
+    });
+</script>
     <style>
         /* CSS cho phần câu hỏi liên quan */
         .related-questions {

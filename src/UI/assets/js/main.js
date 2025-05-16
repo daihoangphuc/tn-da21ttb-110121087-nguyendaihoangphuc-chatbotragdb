@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
     // Khởi tạo các controllers
     const themeController = new ThemeController();
     const sourceController = new SourceController();
@@ -16,7 +16,30 @@ document.addEventListener('DOMContentLoaded', function() {
     initFlowbiteComponents();
 
     // Kiểm tra trạng thái API khi khởi động
-    checkApiConnection();
+    const apiConnected = await checkApiConnection();
+    
+    // Nếu API đã kết nối, tạo conversation mới nếu cần
+    if (apiConnected) {
+        try {
+            // Kiểm tra xem đã có conversation_id trong localStorage chưa
+            const currentConvId = apiService.getConversationId();
+            
+            // Nếu chưa có conversation_id hoặc conversation_id không hợp lệ, tạo mới
+            if (!currentConvId || currentConvId === 'undefined' || currentConvId === 'null') {
+                console.log('Không tìm thấy conversation_id hợp lệ, đang tạo mới...');
+                const result = await apiService.createConversation();
+                if (result.status === 'success') {
+                    console.log('Tạo conversation mới thành công:', result.conversation_id);
+                } else {
+                    console.error('Không thể tạo conversation mới:', result);
+                }
+            } else {
+                console.log('Sử dụng conversation_id hiện có:', currentConvId);
+            }
+        } catch (error) {
+            console.error('Lỗi khi kiểm tra/tạo conversation:', error);
+        }
+    }
 
     // Toggle theme
     document.getElementById('themeToggle').addEventListener('click', function() {

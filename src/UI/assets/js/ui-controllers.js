@@ -1740,54 +1740,82 @@ class UploadController {
 class ChatHistoryController {
     constructor() {
         this.historyItems = [];
-        this.loadChatHistory();
-        
-        // Lắng nghe sự kiện đổi tab
         this.setupTabListeners();
-        
-        // Lắng nghe sự kiện tạo mới và xóa tất cả
         this.setupActionButtons();
         
-        // Đảm bảo tab sources được chọn mặc định khi tải trang
-        this.switchTab('sources');
+        // Tự động tải lịch sử khi controller được khởi tạo
+        setTimeout(() => {
+            this.loadChatHistory();
+        }, 200);
     }
     
     setupTabListeners() {
         const sourcesTabBtn = document.getElementById('sourcesTabBtn');
         const historyTabBtn = document.getElementById('historyTabBtn');
-        const sourcesTabContent = document.getElementById('sourcesTabContent');
-        const historyTabContent = document.getElementById('historyTabContent');
         
         if (sourcesTabBtn && historyTabBtn) {
-            sourcesTabBtn.addEventListener('click', () => {
-                this.switchTab('sources');
-            });
-            
+            sourcesTabBtn.addEventListener('click', () => this.switchTab('sources'));
             historyTabBtn.addEventListener('click', () => {
                 this.switchTab('history');
+                // Tải lại lịch sử chat mỗi khi tab được mở
+                this.loadChatHistory();
             });
         }
     }
     
     setupActionButtons() {
-        const createNewBtn = document.getElementById('createNewChatBtn');
-        const clearAllBtn = document.getElementById('clearAllHistoryBtn');
-        
-        if (createNewBtn) {
-            createNewBtn.addEventListener('click', () => {
-                // Tạo một cuộc trò chuyện mới và chuyển sang tab conversation
-                window.conversationController.clearChat(false);
-                const mobileNavController = new MobileNavController();
-                mobileNavController.switchPanel('conversation');
-            });
+        // Nút tạo chat mới
+        const createNewChatBtn = document.getElementById('createNewChatBtn');
+        if (createNewChatBtn) {
+            createNewChatBtn.addEventListener('click', () => this.createNewChat());
         }
         
-        if (clearAllBtn) {
-            clearAllBtn.addEventListener('click', () => {
-                if (confirm('Bạn có chắc chắn muốn xóa tất cả lịch sử chat? Thao tác này không thể hoàn tác.')) {
+        // Nút xóa tất cả lịch sử
+        const clearAllHistoryBtn = document.getElementById('clearAllHistoryBtn');
+        if (clearAllHistoryBtn) {
+            clearAllHistoryBtn.addEventListener('click', () => {
+                if (confirm('Bạn có chắc chắn muốn xóa tất cả lịch sử chat? Hành động này không thể hoàn tác.')) {
                     this.clearAllHistory();
                 }
             });
+        }
+    }
+    
+    async createNewChat() {
+        try {
+            // Hiển thị loading
+            document.getElementById('historyList').innerHTML = `
+                <div class="loading-message" style="text-align: center; padding: 2rem;">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <p>Đang tạo cuộc trò chuyện mới...</p>
+                </div>`;
+            
+            // Gọi API để tạo conversation mới
+            const result = await apiService.createConversation();
+            
+            if (result.status === 'success') {
+                console.log('Đã tạo conversation mới thành công:', result.conversation_id);
+                
+                // Làm mới giao diện chat để bắt đầu cuộc trò chuyện mới
+                window.conversationController.clearChat(false);
+                
+                // Tải lại lịch sử chat để hiển thị conversation mới
+                await this.loadChatHistory();
+                
+                // Chuyển về giao diện tin nhắn
+                const mobileNavController = new MobileNavController();
+                mobileNavController.switchPanel('conversation');
+                
+                showNotification('Đã tạo cuộc trò chuyện mới', 'success');
+            } else {
+                console.error('Không thể tạo conversation mới:', result);
+                showNotification('Không thể tạo cuộc trò chuyện mới. Vui lòng thử lại sau.', 'error');
+                this.loadChatHistory(); // Tải lại lịch sử nếu có lỗi
+            }
+        } catch (error) {
+            console.error('Lỗi khi tạo chat mới:', error);
+            showNotification('Không thể tạo cuộc trò chuyện mới. Vui lòng thử lại sau.', 'error');
+            this.loadChatHistory(); // Tải lại lịch sử nếu có lỗi
         }
     }
     
@@ -1842,19 +1870,13 @@ class ChatHistoryController {
             const userInfo = currentUser ? currentUser : { id: 'guest' };
             
             // Gọi API để lấy lịch sử chat cho user hiện tại
-            // Sử dụng getConversations thay vì getChatHistory
             const response = await apiService.getConversations();
             
+            console.log('Kết quả lấy danh sách hội thoại:', response);
+            
             // Kiểm tra response và khởi tạo historyItems
-            if (response && response.status === 'success' && Array.isArray(response.data)) {
-                // Chỉ hiển thị hội thoại của người dùng hiện tại
-                if (userInfo && userInfo.id !== 'guest') {
-                    this.historyItems = response.data.filter(item => {
-                        return item.user_id === userInfo.id;
-                    });
-                } else {
-                    this.historyItems = response.data;
-                }
+            if (response && response.status === 'success' && response.data && Array.isArray(response.data)) {
+                this.historyItems = response.data;
             } else {
                 console.warn('API trả về dữ liệu không đúng định dạng:', response);
                 this.historyItems = [];
@@ -1885,9 +1907,12 @@ class ChatHistoryController {
         
         if (this.historyItems.length === 0) {
             historyList.innerHTML = `
-                <div class="empty-history-message">
-                    <i class="fas fa-history"></i>
-                    <p>Chưa có cuộc trò chuyện nào</p>
+                <div class="empty-history-message flex flex-col items-center justify-center h-full py-12">
+                    <div class="bg-gray-100 rounded-full p-4 mb-4">
+                        <i class="fas fa-history text-3xl text-gray-400"></i>
+                    </div>
+                    <p class="text-gray-500 text-center">Chưa có cuộc trò chuyện nào</p>
+                    <p class="text-gray-400 text-sm text-center mt-2">Bắt đầu cuộc trò chuyện mới bằng cách nhấp vào "Tạo mới"</p>
                 </div>`;
             return;
         }
@@ -1906,12 +1931,12 @@ class ChatHistoryController {
             const date = new Date(item.last_updated || item.timestamp || new Date());
             const formattedDate = this.formatDate(date);
             
-            // Lấy ID của item (có thể là item.id hoặc item.conversation_id)
-            const itemId = item.id || item.conversation_id || '';
+            // Lấy ID của item (có thể là session_id hoặc conversation_id)
+            const itemId = item.session_id || item.conversation_id || '';
             
             // Trích xuất tiêu đề hoặc tin nhắn đầu tiên
-            let title = item.title || 'Cuộc trò chuyện mới';
-            if (!item.title && item.first_message) {
+            let title = 'Cuộc trò chuyện mới';
+            if (item.first_message) {
                 title = item.first_message;
                 if (title.length > 60) {
                     title = title.substring(0, 60) + '...';
@@ -1974,6 +1999,9 @@ class ChatHistoryController {
             // Hiển thị loading
             window.conversationController.showLoadingMessage();
             
+            // Lưu conversation_id hiện tại
+            apiService.setConversationId(chatId);
+            
             // Gọi API để lấy dữ liệu của phiên chat
             const response = await apiService.getMessages(chatId);
             
@@ -1995,9 +2023,6 @@ class ChatHistoryController {
                 throw new Error('Dữ liệu messages không phải là mảng');
             }
             
-            // Lưu conversation_id hiện tại
-            apiService.setConversationId(chatId);
-            
             // Chuyển đến panel conversation và hiển thị dữ liệu
             const mobileNavController = new MobileNavController();
             mobileNavController.switchPanel('conversation');
@@ -2006,27 +2031,14 @@ class ChatHistoryController {
             window.conversationController.clearChat(false);
             
             // Hiển thị các tin nhắn
-            let userSources = [];
-            
-            messages.forEach((message, index) => {
+            messages.forEach((message) => {
                 if (message.role === 'user') {
-                    // Nếu là tin nhắn cuối cùng của người dùng, lưu lại sources của nó
-                    // để hiển thị với tin nhắn AI tiếp theo
-                    if (index < messages.length - 1 && messages[index + 1].role === 'assistant') {
-                        if (message.metadata && message.metadata.sources) {
-                            userSources = message.metadata.sources;
-                        }
-                    }
-                    
                     window.conversationController.addMessage(message.content, 'user');
                 } else if (message.role === 'assistant') {
-                    // Lấy sources từ metadata hoặc từ tin nhắn người dùng trước đó
+                    // Lấy sources từ metadata nếu có
                     let sources = [];
                     if (message.metadata && message.metadata.sources) {
                         sources = message.metadata.sources;
-                    } else if (userSources.length > 0) {
-                        sources = userSources;
-                        userSources = []; // Reset sau khi sử dụng
                     }
                     
                     window.conversationController.addMessage(message.content, 'assistant', sources);
@@ -2059,20 +2071,41 @@ class ChatHistoryController {
                 deleteBtn.disabled = true;
             }
             
-            // Gọi API để xóa chat session - sử dụng deleteConversation thay vì deleteChatSession
-            await apiService.deleteConversation(chatId);
+            // Gọi API để xóa conversation
+            const result = await apiService.deleteConversation(chatId);
             
-            // Xóa khỏi danh sách hiện tại
-            this.historyItems = this.historyItems.filter(item => {
-                const itemId = item.id || item.conversation_id;
-                return itemId !== chatId;
-            });
-            
-            // Cập nhật lại giao diện
-            this.renderChatHistory();
-            
-            // Hiển thị thông báo thành công
-            showNotification('Đã xóa cuộc trò chuyện thành công', 'success');
+            if (result.status === 'success') {
+                // Xóa khỏi danh sách hiện tại
+                this.historyItems = this.historyItems.filter(item => {
+                    const itemId = item.session_id || item.conversation_id;
+                    return itemId !== chatId;
+                });
+                
+                // Cập nhật lại giao diện
+                this.renderChatHistory();
+                
+                // Nếu đang hiển thị conversation này, tạo conversation mới
+                if (apiService.getConversationId() === chatId) {
+                    // Tạo conversation mới
+                    const newResult = await apiService.createConversation();
+                    if (newResult.status === 'success') {
+                        // Xóa tin nhắn cũ trong giao diện và bắt đầu lại
+                        window.conversationController.clearChat(false);
+                    }
+                }
+                
+                // Hiển thị thông báo thành công
+                showNotification('Đã xóa cuộc trò chuyện thành công', 'success');
+            } else {
+                // Khôi phục nút xóa nếu có lỗi
+                if (deleteBtn) {
+                    deleteBtn.innerHTML = '<i class="fas fa-trash"></i>';
+                    deleteBtn.disabled = false;
+                }
+                
+                console.error('Lỗi khi xóa conversation:', result.message);
+                showNotification('Không thể xóa cuộc trò chuyện. Vui lòng thử lại sau.', 'error');
+            }
         } catch (error) {
             console.error('Lỗi khi xóa phiên chat:', error);
             
@@ -2097,16 +2130,27 @@ class ChatHistoryController {
                     <p>Đang xóa tất cả lịch sử...</p>
                 </div>`;
             
-            // Gọi API để xóa tất cả lịch sử 
+            // Lưu số lượng conversation trước khi xóa
+            const totalCount = this.historyItems.length;
+            let successCount = 0;
+            let errorCount = 0;
+            
+            // Gọi API để xóa từng conversation một
             for (const item of this.historyItems) {
-                // Lấy id của item (có thể là item.id hoặc item.conversation_id)
-                const itemId = item.id || item.conversation_id || item.session_id;
+                // Lấy id của item (có thể là session_id hoặc conversation_id)
+                const itemId = item.session_id || item.conversation_id;
                 if (itemId) {
                     try {
-                        await apiService.deleteConversation(itemId);
-                        console.log(`Đã xóa cuộc trò chuyện ${itemId}`);
+                        const result = await apiService.deleteConversation(itemId);
+                        if (result.status === 'success') {
+                            successCount++;
+                        } else {
+                            errorCount++;
+                            console.error(`Không thể xóa cuộc trò chuyện ${itemId}:`, result.message);
+                        }
                     } catch (err) {
-                        console.error(`Không thể xóa cuộc trò chuyện ${itemId}:`, err);
+                        errorCount++;
+                        console.error(`Lỗi khi xóa cuộc trò chuyện ${itemId}:`, err);
                     }
                 }
             }
@@ -2117,24 +2161,26 @@ class ChatHistoryController {
             // Cập nhật giao diện
             this.renderChatHistory();
             
-            // Tạo một cuộc trò chuyện mới
+            // Tạo conversation mới
             console.log('Đang tạo hội thoại mới sau khi xóa tất cả...');
             const newConversation = await apiService.createConversation();
-            console.log('Kết quả tạo hội thoại mới:', newConversation);
             
-            if (newConversation && newConversation.status === 'success' && newConversation.conversation_id) {
+            if (newConversation.status === 'success') {
                 console.log('Đã tạo hội thoại mới thành công, ID mới:', newConversation.conversation_id);
-                apiService.setConversationId(newConversation.conversation_id);
                 
                 // Làm mới giao diện chat để bắt đầu cuộc trò chuyện mới
                 window.conversationController.clearChat(false);
+                
+                // Thông báo kết quả
+                if (errorCount > 0) {
+                    showNotification(`Đã xóa ${successCount}/${totalCount} cuộc trò chuyện. ${errorCount} cuộc trò chuyện không thể xóa.`, 'warning');
+                } else {
+                    showNotification('Đã xóa toàn bộ lịch sử chat', 'success');
+                }
             } else {
                 console.error('Không thể tạo hội thoại mới:', newConversation?.message || 'Lỗi không xác định');
-                showNotification('Không thể tạo hội thoại mới. Vui lòng tải lại trang.', 'error');
+                showNotification('Đã xóa lịch sử nhưng không thể tạo hội thoại mới. Vui lòng tải lại trang.', 'warning');
             }
-            
-            // Hiển thị thông báo thành công
-            showNotification('Đã xóa toàn bộ lịch sử chat', 'success');
         } catch (error) {
             console.error('Lỗi khi xóa tất cả lịch sử:', error);
             this.loadChatHistory(); // Tải lại danh sách nếu có lỗi

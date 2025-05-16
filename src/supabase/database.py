@@ -160,7 +160,7 @@ class SupabaseDatabase:
 
     def save_conversation_message(
         self,
-        session_id: str,
+        current_conversation_id: str,
         role: str,
         content: str,
         user_id: Optional[str] = None,
@@ -170,7 +170,7 @@ class SupabaseDatabase:
         Lưu tin nhắn vào cơ sở dữ liệu với cấu trúc bảng mới
 
         Args:
-            session_id: ID phiên hội thoại
+            current_conversation_id: ID phiên hội thoại
             role: Vai trò ('user' hoặc 'assistant')
             content: Nội dung tin nhắn
             user_id: ID người dùng (nếu có)
@@ -180,7 +180,7 @@ class SupabaseDatabase:
             Bản ghi đã tạo
         """
         print(
-            f"Lưu tin nhắn: session_id={session_id}, role={role}, content={content[:30]}..."
+            f"Lưu tin nhắn: current_conversation_id={current_conversation_id}, role={role}, content={content[:30]}..."
         )
 
         # Đảm bảo dữ liệu đúng định dạng
@@ -189,11 +189,11 @@ class SupabaseDatabase:
             role = "user"
 
         # Kiểm tra session_id không được để trống
-        if not session_id:
-            print("Warning: session_id rỗng, đang tạo ID ngẫu nhiên")
+        if not current_conversation_id:
+            print("Warning: current_conversation_id rỗng, đang tạo ID ngẫu nhiên")
             import uuid
 
-            session_id = f"session_{uuid.uuid4().hex[:8]}"
+            current_conversation_id = f"conv_{uuid.uuid4().hex}"
 
         # Kiểm tra content không được để trống
         if not content:
@@ -204,22 +204,24 @@ class SupabaseDatabase:
             conv_table = self.from_table("conversations")
             conv_result = (
                 conv_table.select("conversation_id")
-                .eq("conversation_id", session_id)
+                .eq("conversation_id", current_conversation_id)
                 .execute()
             )
 
             if hasattr(conv_result, "data") and len(conv_result.data) > 0:
                 # Session đã tồn tại
                 conversation_id = conv_result.data[0]["conversation_id"]
-                print(f"Session đã tồn tại với id: {conversation_id}")
+                print(f"Conversation đã tồn tại với id: {conversation_id}")
 
                 # Cập nhật last_updated
                 conv_table.update({"last_updated": "NOW()"}).eq(
-                    "conversation_id", conversation_id
+                    "conversation_id", current_conversation_id
                 ).execute()
             else:
                 # Tạo session mới
-                print(f"Session không tồn tại, tạo mới với id: {session_id}")
+                print(
+                    f"Conversation không tồn tại, tạo mới với id: {current_conversation_id}"
+                )
                 import uuid
 
                 # Nếu không có user_id, tạo một UUID mới
@@ -227,7 +229,7 @@ class SupabaseDatabase:
                     user_id = str(uuid.uuid4())
 
                 session_data = {
-                    "conversation_id": session_id,
+                    "conversation_id": current_conversation_id,
                     "user_id": user_id,
                     "last_updated": "NOW()",
                 }
@@ -236,13 +238,13 @@ class SupabaseDatabase:
                 if hasattr(conv_result, "data") and len(conv_result.data) > 0:
                     conversation_id = conv_result.data[0]["conversation_id"]
                 else:
-                    conversation_id = session_id
+                    conversation_id = current_conversation_id
 
             # Bước 2: Xác định sequence cho tin nhắn mới
             sequence_result = (
                 self.client.table("messages")
                 .select("sequence")
-                .eq("conversation_id", conversation_id)
+                .eq("conversation_id", current_conversation_id)
                 .order("sequence", desc=True)
                 .limit(1)
                 .execute()
@@ -257,7 +259,7 @@ class SupabaseDatabase:
 
             # Bước 4: Lưu tin nhắn
             message_data = {
-                "conversation_id": conversation_id,
+                "conversation_id": current_conversation_id,
                 "sequence": sequence,
                 "role": role,
                 "content": content,
@@ -285,12 +287,14 @@ class SupabaseDatabase:
             print(f"Chi tiết: {traceback.format_exc()}")
             return {"error": str(e)}
 
-    def get_conversation_history(self, session_id: str, limit: int = 100) -> List[Dict]:
+    def get_conversation_history(
+        self, current_conversation_id: str, limit: int = 100
+    ) -> List[Dict]:
         """
         Lấy lịch sử hội thoại cho một phiên cụ thể với cấu trúc bảng mới
 
         Args:
-            session_id: ID phiên hội thoại
+            current_conversation_id: ID phiên hội thoại
             limit: Số lượng tin nhắn tối đa cần lấy
 
         Returns:
@@ -301,12 +305,14 @@ class SupabaseDatabase:
             conv_result = (
                 self.from_table("conversations")
                 .select("conversation_id")
-                .eq("conversation_id", session_id)
+                .eq("conversation_id", current_conversation_id)
                 .execute()
             )
 
             if not hasattr(conv_result, "data") or not conv_result.data:
-                print(f"Không tìm thấy session với conversation_id: {session_id}")
+                print(
+                    f"Không tìm thấy conversation với conversation_id: {current_conversation_id}"
+                )
                 return []
 
             conversation_id = conv_result.data[0]["conversation_id"]
@@ -315,7 +321,7 @@ class SupabaseDatabase:
             msg_result = (
                 self.from_table("messages")
                 .select("*")
-                .eq("conversation_id", conversation_id)
+                .eq("conversation_id", current_conversation_id)
                 .order("sequence")
                 .limit(limit)
                 .execute()
@@ -349,12 +355,14 @@ class SupabaseDatabase:
             print(f"Chi tiết lỗi: {traceback.format_exc()}")
             return []
 
-    def clear_conversation_history(self, session_id: str, user_id: str = None) -> Dict:
+    def clear_conversation_history(
+        self, current_conversation_id: str, user_id: str = None
+    ) -> Dict:
         """
         Xóa tất cả tin nhắn trong một phiên hội thoại nhưng giữ lại phiên
 
         Args:
-            session_id: ID phiên hội thoại
+            current_conversation_id: ID phiên hội thoại
             user_id: ID người dùng sở hữu (tùy chọn)
 
         Returns:
@@ -365,7 +373,7 @@ class SupabaseDatabase:
             query = (
                 self.from_table("conversations")
                 .select("conversation_id")
-                .eq("conversation_id", session_id)
+                .eq("conversation_id", current_conversation_id)
             )
 
             # Thêm điều kiện user_id nếu được cung cấp
@@ -376,7 +384,7 @@ class SupabaseDatabase:
 
             if not hasattr(conv_result, "data") or not conv_result.data:
                 print(
-                    f"Không tìm thấy session với conversation_id: {session_id}"
+                    f"Không tìm thấy conversation với conversation_id: {current_conversation_id}"
                     + (f" và user_id: {user_id}" if user_id else "")
                 )
                 return {"error": "Không tìm thấy phiên hội thoại"}
@@ -388,13 +396,13 @@ class SupabaseDatabase:
             result = (
                 self.from_table("messages")
                 .delete()
-                .eq("conversation_id", conversation_id)
+                .eq("conversation_id", current_conversation_id)
                 .execute()
             )
 
             # Bước 3: Cập nhật last_updated cho session
             self.from_table("conversations").update({"last_updated": "NOW()"}).eq(
-                "conversation_id", conversation_id
+                "conversation_id", current_conversation_id
             ).execute()
 
             return result

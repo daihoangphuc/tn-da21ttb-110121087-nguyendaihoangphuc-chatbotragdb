@@ -55,24 +55,29 @@ class SupabaseConversationManager:
             print(traceback.format_exc())
             raise e
 
+    cur_conversation_id = None
+
+    def get_current_conversation_id(self) -> str:
+        return self.cur_conversation_id
+
     def add_user_message(
-        self, session_id: str, message: str, user_id: Optional[str] = None
+        self, current_conversation_id: str, message: str, user_id: Optional[str] = None
     ) -> None:
         """
         Thêm tin nhắn người dùng vào bộ nhớ
 
         Args:
-            session_id: ID của phiên hội thoại
+            current_conversation_id: ID của phiên hội thoại
             message: Nội dung tin nhắn
             user_id: ID của người dùng (tùy chọn)
         """
         try:
             # Lấy sequence mới nhất
-            sequence = self._get_next_sequence(session_id)
+            sequence = self._get_next_sequence(current_conversation_id)
 
             # Lưu tin nhắn với role = user
             self.db.save_conversation_message(
-                session_id=session_id,
+                current_conversation_id=self.get_current_conversation_id(),
                 role="user",
                 content=message,
                 user_id=user_id,
@@ -83,7 +88,7 @@ class SupabaseConversationManager:
 
     def add_ai_message(
         self,
-        session_id: str,
+        current_conversation_id: str,
         message: str,
         metadata: Optional[Dict] = None,
         user_id: Optional[str] = None,
@@ -92,18 +97,18 @@ class SupabaseConversationManager:
         Thêm tin nhắn AI vào bộ nhớ
 
         Args:
-            session_id: ID của phiên hội thoại
+            current_conversation_id: ID của phiên hội thoại
             message: Nội dung tin nhắn
             metadata: Metadata bổ sung (tùy chọn)
             user_id: ID của người dùng (tùy chọn)
         """
         try:
             # Lấy sequence mới nhất
-            sequence = self._get_next_sequence(session_id)
+            sequence = self._get_next_sequence(current_conversation_id)
 
             # Lưu tin nhắn với role = assistant
             self.db.save_conversation_message(
-                session_id=session_id,
+                current_conversation_id=self.get_current_conversation_id(),
                 role="assistant",
                 content=message,
                 user_id=user_id,
@@ -240,33 +245,29 @@ class SupabaseConversationManager:
             print(f"Lỗi khi xóa bộ nhớ hội thoại: {str(e)}")
             return False
 
-    def format_for_prompt(self, session_id: str) -> str:
+    def format_for_prompt(self, current_conversation_id: str) -> str:
         """
         Định dạng lịch sử hội thoại để sử dụng trong prompt
 
         Args:
-            session_id: ID phiên hội thoại
+            current_conversation_id: ID phiên hội thoại
 
         Returns:
             Chuỗi định dạng lịch sử hội thoại
         """
         try:
-            # Nếu session_id bắt đầu bằng "conversation_", chuyển đổi sang "session_"
-            if session_id.startswith("conversation_"):
-                session_id = "session_" + session_id[13:]
-                print(
-                    f"Chuyển đổi conversation_id thành session_id trong format_for_prompt: {session_id}"
-                )
 
             # Lấy tin nhắn từ database
-            messages = self.get_messages(session_id)
+            messages = self.get_messages(current_conversation_id)
             if not messages:
-                print(f"Không tìm thấy tin nhắn cho session {session_id}")
+                print(f"Không tìm thấy tin nhắn cho session {current_conversation_id}")
                 return ""
 
             # Sắp xếp tin nhắn theo sequence để đảm bảo đúng thứ tự
             messages.sort(key=lambda x: x.get("sequence", 0))
-            print(f"Đã tìm thấy {len(messages)} tin nhắn cho session {session_id}")
+            print(
+                f"Đã tìm thấy {len(messages)} tin nhắn cho session {current_conversation_id}"
+            )
 
             formatted_history = []
             for msg in messages:
@@ -444,6 +445,7 @@ class SupabaseConversationManager:
             print(
                 f"Đã tạo phiên hội thoại mới {conversation_id} cho người dùng {user_id}"
             )
+            self.cur_conversation_id = conversation_id
             return conversation_id
 
         except Exception as e:

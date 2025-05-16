@@ -316,6 +316,9 @@ supabase_url = os.getenv("SUPABASE_URL")
 supabase_key = os.getenv("SUPABASE_KEY")
 supabase_client = None
 
+# Khởi tạo biến current_conversation_id
+current_conversation_id = None
+
 if supabase_url and supabase_key:
     try:
         supabase_client = supabase.create_client(supabase_url, supabase_key)
@@ -587,52 +590,16 @@ async def ask_question_stream(
     - **search_type**: Loại tìm kiếm ("semantic", "keyword", "hybrid")
     - **alpha**: Hệ số kết hợp giữa semantic và keyword search (0.7 = 70% semantic + 30% keyword)
     - **sources**: Danh sách các file nguồn cần tìm kiếm
-    - **session_id**: ID phiên hội thoại để duy trì ngữ cảnh cuộc hội thoại
+    - **current_conversation_id**: ID phiên hội thoại để duy trì ngữ cảnh cuộc hội thoại
     - **max_sources**: Số lượng nguồn tham khảo tối đa trả về (query parameter)
     """
     try:
         # Lấy hoặc tạo ID phiên hội thoại
-        session_id = request.session_id
+
         user_id = current_user.id
 
         # Đặt collection_name cho vector store
         rag_system.vector_store.collection_name = "user_" + str(user_id)
-
-        # Xử lý session_id
-        if not session_id:
-            # Nếu không có session_id, tạo mới
-            session_id = f"session_{uuid4().hex[:8]}"
-            print(f"Tạo session_id mới: {session_id}")
-        else:
-            print(f"Kiểm tra session_id hiện có: {session_id}")
-            # Kiểm tra xem session có tồn tại và thuộc về user hiện tại không
-            try:
-                # Nếu session_id bắt đầu bằng "conversation_", chuyển đổi sang "session_"
-                if session_id.startswith("conversation_"):
-                    new_session_id = (
-                        "session_" + session_id[13:]
-                    )  # Bỏ "conversation_" prefix
-                    print(
-                        f"Chuyển đổi conversation_id thành session_id: {session_id} -> {new_session_id}"
-                    )
-                    session_id = new_session_id
-
-                existing_messages = conversation_manager.get_messages(session_id)
-                if not existing_messages:
-                    # Nếu không tìm thấy tin nhắn nào, tạo session mới
-                    print(
-                        f"Session {session_id} không tồn tại hoặc không có tin nhắn nào"
-                    )
-                    session_id = f"session_{uuid4().hex[:8]}"
-                    print(f"Tạo session_id mới: {session_id}")
-                else:
-                    print(
-                        f"Sử dụng session hiện có: {session_id} ({len(existing_messages)} tin nhắn)"
-                    )
-            except Exception as e:
-                print(f"Lỗi khi kiểm tra session: {str(e)}")
-                session_id = f"session_{uuid4().hex[:8]}"
-                print(f"Tạo session_id mới do lỗi: {session_id}")
 
         # Kiểm tra xem người dùng đã chọn nguồn hay chưa
         if not request.sources or len(request.sources) == 0:
@@ -669,12 +636,18 @@ async def ask_question_stream(
 
         # Thêm tin nhắn người dùng vào bộ nhớ hội thoại
         conversation_manager.add_user_message(
-            session_id, request.question, user_id=user_id
+            conversation_manager.get_current_conversation_id(),
+            request.question,
+            user_id=user_id,
         )
 
         # Lấy lịch sử hội thoại để sử dụng trong prompt
-        conversation_history = conversation_manager.format_for_prompt(session_id)
-        print(f"Lịch sử hội thoại cho session {session_id}:")
+        conversation_history = conversation_manager.format_for_prompt(
+            conversation_manager.get_current_conversation_id()
+        )
+        print(
+            f"Lịch sử hội thoại cho conversation {conversation_manager.get_current_conversation_id()}:"
+        )
         print(
             conversation_history[:200] + "..."
             if len(conversation_history) > 200
@@ -702,7 +675,9 @@ async def ask_question_stream(
                     if chunk["type"] == "start":
                         # Truyền thông tin bắt đầu
                         chunk["data"]["question_id"] = question_id
-                        chunk["data"]["session_id"] = session_id
+                        chunk["data"][
+                            "session_id"
+                        ] = conversation_manager.get_current_conversation_id()
                         yield f"event: start\ndata: {json.dumps(chunk['data'])}\n\n"
 
                     elif chunk["type"] == "sources":
@@ -718,7 +693,9 @@ async def ask_question_stream(
 
                         # Thêm question_id và session_id vào kết quả
                         chunk["data"]["question_id"] = question_id
-                        chunk["data"]["session_id"] = session_id
+                        chunk["data"][
+                            "session_id"
+                        ] = conversation_manager.get_current_conversation_id()
 
                         # Trả về nguồn dưới dạng SSE
                         yield f"event: sources\ndata: {json.dumps(chunk['data'])}\n\n"
@@ -733,12 +710,16 @@ async def ask_question_stream(
                     elif chunk["type"] == "end":
                         # Khi kết thúc, thêm thông tin bổ sung
                         chunk["data"]["question_id"] = question_id
-                        chunk["data"]["session_id"] = session_id
+                        chunk["data"][
+                            "session_id"
+                        ] = conversation_manager.get_current_conversation_id()
 
                         # Thêm câu trả lời của AI vào bộ nhớ hội thoại
                         if full_answer:
                             conversation_manager.add_ai_message(
-                                session_id, full_answer, user_id=user_id
+                                conversation_manager.get_current_conversation_id(),
+                                full_answer,
+                                user_id=user_id,
                             )
 
                             # Tạo các câu hỏi liên quan sau khi có kết quả đầy đủ
@@ -770,7 +751,7 @@ async def ask_question_stream(
                                 "processing_time": chunk["data"].get(
                                     "processing_time", 0
                                 ),
-                                "session_id": session_id,
+                                "session_id": conversation_manager.get_current_conversation_id(),
                                 "related_questions": chunk["data"].get(
                                     "related_questions", []
                                 ),
@@ -785,7 +766,7 @@ async def ask_question_stream(
                     "error": True,
                     "message": str(e),
                     "question_id": question_id,
-                    "session_id": session_id,
+                    "session_id": conversation_manager.get_current_conversation_id(),
                 }
                 yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
                 print(f"Lỗi khi xử lý stream: {str(e)}")
@@ -1564,7 +1545,9 @@ async def get_conversation_detail(
         user_id = current_user.id
 
         # Lấy tin nhắn từ Supabase
-        messages = conversation_manager.get_messages(conversation_id)
+        messages = conversation_manager.get_messages(
+            conversation_manager.get_current_conversation_id()
+        )
 
         if not messages:
             return JSONResponse(
@@ -2006,15 +1989,14 @@ async def create_conversation(current_user=Depends(get_current_user)):
     try:
         user_id = current_user.id
         # Tạo conversation mới trong database
-        conversation_id = conversation_manager.create_conversation(user_id)
-
-        if not conversation_id:
+        current_conversation_id = conversation_manager.create_conversation(user_id)
+        if not current_conversation_id:
             raise HTTPException(status_code=500, detail="Không thể tạo hội thoại mới")
 
         return {
             "status": "success",
             "message": "Đã tạo hội thoại mới thành công",
-            "conversation_id": conversation_id,
+            "conversation_id": current_conversation_id,
         }
     except Exception as e:
         print(f"Lỗi khi tạo hội thoại mới: {str(e)}")
@@ -2159,7 +2141,7 @@ async def delete_conversation(
                 status_code=500,
                 detail="Không thể xóa hội thoại",
             )
-
+        print(f"Đã xóa hội thoại {conversation_id}")
         return {
             "status": "success",
             "message": f"Đã xóa hội thoại {conversation_id}",
