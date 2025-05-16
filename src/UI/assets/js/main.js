@@ -54,13 +54,19 @@ document.addEventListener('DOMContentLoaded', async function() {
         // Mở/đóng dropdown khi click
         userDropdownTrigger.addEventListener('click', function(e) {
             e.preventDefault();
-            userDropdownContent.classList.toggle('hidden');
+            e.stopPropagation();
+            userDropdownContent.classList.toggle('display-none');
+        });
+        
+        // Ngăn sự kiện click từ dropdown content lan ra ngoài
+        userDropdownContent.addEventListener('click', function(e) {
+            e.stopPropagation();
         });
         
         // Đóng dropdown khi click bên ngoài
         document.addEventListener('click', function(e) {
-            if (!userDropdownTrigger.contains(e.target) && !userDropdownContent.contains(e.target)) {
-                userDropdownContent.classList.add('hidden');
+            if (!userDropdownTrigger.contains(e.target)) {
+                userDropdownContent.classList.add('display-none');
             }
         });
         

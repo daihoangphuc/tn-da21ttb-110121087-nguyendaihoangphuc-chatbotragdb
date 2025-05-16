@@ -1908,11 +1908,11 @@ class ChatHistoryController {
         if (this.historyItems.length === 0) {
             historyList.innerHTML = `
                 <div class="empty-history-message flex flex-col items-center justify-center h-full py-12">
-                    <div class="bg-gray-100 rounded-full p-4 mb-4">
-                        <i class="fas fa-history text-3xl text-gray-400"></i>
+                    <div class="bg-gray-100 dark:bg-gray-800 rounded-full p-4 mb-4">
+                        <i class="fas fa-history text-3xl text-gray-400 dark:text-gray-500"></i>
                     </div>
-                    <p class="text-gray-500 text-center">Chưa có cuộc trò chuyện nào</p>
-                    <p class="text-gray-400 text-sm text-center mt-2">Bắt đầu cuộc trò chuyện mới bằng cách nhấp vào "Tạo mới"</p>
+                    <p class="text-gray-500 dark:text-gray-400 text-center">Chưa có cuộc trò chuyện nào</p>
+                    <p class="text-gray-400 dark:text-gray-500 text-sm text-center mt-2">Bắt đầu cuộc trò chuyện mới bằng cách nhấp vào "Tạo mới"</p>
                 </div>`;
             return;
         }
@@ -1943,28 +1943,43 @@ class ChatHistoryController {
                 }
             }
             
-            // Hiển thị số lượng tin nhắn nếu có
-            const messageCount = item.message_count 
-                ? `<span class="text-xs text-gray-500 ml-2">${item.message_count} tin nhắn</span>` 
-                : '';
+            // Hiển thị số lượng tin nhắn
+            const messageCountText = `${item.message_count || 0} tin nhắn`;
             
-            historyHTML += `
-                <div class="history-item" data-id="${itemId}">
-                    <div class="history-item-content">
-                        <div class="history-item-title">${title}</div>
-                        <div class="history-item-date">${formattedDate} ${messageCount}</div>
+            // Xác định xem item có đang active không
+            const isActive = itemId === (window.conversationController ? window.conversationController.currentChatId : null);
+            
+            const itemHTML = `
+                <div data-chat-id="${itemId}" class="history-item flex flex-col p-3 rounded-lg cursor-pointer transition-all duration-200 ${
+                    isActive 
+                    ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-500' 
+                    : 'hover:bg-gray-100 dark:hover:bg-gray-800 border-l-4 border-transparent'
+                } group">
+                    <div class="history-item-content flex justify-between items-start gap-2">
+                        <div class="flex-grow min-w-0">
+                            <h4 class="history-item-title font-medium text-sm truncate text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white">
+                                ${this.escapeHtml(title)}
+                            </h4>
+                            <div class="history-item-meta flex items-center text-xs text-gray-500 dark:text-gray-400 mt-1 space-x-1">
+                                <span class="history-item-date whitespace-nowrap">${formattedDate}</span>
+                                <span class="mx-1">&middot;</span>
+                                <span class="history-item-message-count whitespace-nowrap">${messageCountText}</span>
+                            </div>
+                        </div>
+                        <button class="history-item-delete flex-shrink-0 text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 opacity-0 group-hover:opacity-100 transition-all duration-200 p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700" title="Xóa cuộc trò chuyện">
+                            <i class="fas fa-trash-alt text-xs"></i>
+                        </button>
                     </div>
-                    <button class="history-item-delete" data-id="${itemId}" title="Xóa cuộc trò chuyện này">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </div>`;
+                </div>
+            `;
+            historyHTML += itemHTML;
         });
         
         historyList.innerHTML = historyHTML;
         
         // Thêm event listener cho các mục lịch sử
         document.querySelectorAll('.history-item').forEach(item => {
-            const chatId = item.getAttribute('data-id');
+            const chatId = item.getAttribute('data-chat-id');
             
             // Click vào mục để tải phiên chat
             item.addEventListener('click', (e) => {
@@ -1989,10 +2004,18 @@ class ChatHistoryController {
         try {
             // Thêm class active cho mục được chọn
             document.querySelectorAll('.history-item').forEach(item => {
-                if (item.getAttribute('data-id') === chatId) {
+                if (item.getAttribute('data-chat-id') === chatId) {
                     item.classList.add('active');
+                    item.classList.add('bg-blue-50');
+                    item.classList.add('dark:bg-blue-900/50');
+                    item.classList.add('border-l-4');
+                    item.classList.add('border-blue-500');
                 } else {
                     item.classList.remove('active');
+                    item.classList.remove('bg-blue-50');
+                    item.classList.remove('dark:bg-blue-900/50');
+                    item.classList.remove('border-l-4');
+                    item.classList.remove('border-blue-500');
                 }
             });
             
@@ -2064,7 +2087,9 @@ class ChatHistoryController {
         
         try {
             // Thay đổi trạng thái nút xóa để hiển thị đang tải
-            const deleteBtn = document.querySelector(`.history-item-delete[data-id="${chatId}"]`);
+            const historyItem = document.querySelector(`.history-item[data-chat-id="${chatId}"]`);
+            const deleteBtn = historyItem ? historyItem.querySelector('.history-item-delete') : null;
+            
             if (deleteBtn) {
                 const originalHTML = deleteBtn.innerHTML;
                 deleteBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
@@ -2110,9 +2135,11 @@ class ChatHistoryController {
             console.error('Lỗi khi xóa phiên chat:', error);
             
             // Khôi phục nút xóa nếu có lỗi
-            const deleteBtn = document.querySelector(`.history-item-delete[data-id="${chatId}"]`);
+            const historyItem = document.querySelector(`.history-item[data-chat-id="${chatId}"]`);
+            const deleteBtn = historyItem ? historyItem.querySelector('.history-item-delete') : null;
+            
             if (deleteBtn) {
-                deleteBtn.innerHTML = '<i class="fas fa-trash"></i>';
+                deleteBtn.innerHTML = '<i class="fas fa-trash-alt text-xs"></i>';
                 deleteBtn.disabled = false;
             }
             
@@ -2260,20 +2287,29 @@ class ChatHistoryController {
         });
     }
     
-    formatDate(date) {
-        const now = new Date();
-        const yesterday = new Date(now);
-        yesterday.setDate(now.getDate() - 1);
-        
-        const isToday = date.toDateString() === now.toDateString();
-        const isYesterday = date.toDateString() === yesterday.toDateString();
-        
-        if (isToday) {
-            return `${date.getDate()}/${(date.getMonth() + 1)}/${date.getFullYear()}, ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-        } else if (isYesterday) {
-            return `${date.getDate()}/${(date.getMonth() + 1)}/${date.getFullYear()}, ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-        } else {
-            return `${date.getDate()}/${(date.getMonth() + 1)}/${date.getFullYear()}, ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-        }
+    formatDate(dateInput) {
+        if (!dateInput) return '';
+        const d = new Date(dateInput);
+        if (isNaN(d.getTime())) return 'Ngày không hợp lệ';
+
+        const hours = d.getHours().toString().padStart(2, '0');
+        const minutes = d.getMinutes().toString().padStart(2, '0');
+        const day = d.getDate().toString().padStart(2, '0');
+        const month = (d.getMonth() + 1).toString().padStart(2, '0'); // Tháng bắt đầu từ 0
+        const year = d.getFullYear();
+
+        return `${hours}:${minutes} ${day}/${month}/${year}`;
+    }
+    
+    // Thêm hàm escapeHtml nếu chưa tồn tại
+    escapeHtml(unsafe) {
+        if (unsafe === null || unsafe === undefined) return '';
+        return unsafe
+             .toString()
+             .replace(/&/g, "&amp;")
+             .replace(/</g, "&lt;")
+             .replace(/>/g, "&gt;")
+             .replace(/"/g, "&quot;")
+             .replace(/'/g, "&#039;");
     }
 } 

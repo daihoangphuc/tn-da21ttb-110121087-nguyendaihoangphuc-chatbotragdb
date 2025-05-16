@@ -234,18 +234,18 @@ h3 {
     padding: 0.5rem;
     margin-top: 0.5rem;
     z-index: 50;
-    display: none;
     color: #0f172a;
+    display: block;
+}
+
+.display-none {
+    display: none !important;
 }
 
 .user-dropdown-content.dark-dropdown {
     background-color: #0f172a;
     border-color: #1e293b;
     color: #f8fafc;
-}
-
-.user-dropdown:hover .user-dropdown-content {
-    display: block;
 }
 
 .user-info {
@@ -1832,7 +1832,6 @@ h3 {
     min-height: 24px;
     transition: opacity 0.3s ease;
     will-change: contents;
-    contain: content;
 }
 
 .assistant-typing-content::after {
@@ -2123,30 +2122,33 @@ h3 {
 
 /* History list styling */
 .history-list {
-    flex: 1;
-    overflow-y: auto;
-    padding: 0;
+    /* max-height: calc(100% - 50px); Chiều cao header của history tab */
+    /* overflow-y: auto; */
+    /* display: flex; */
+    /* flex-direction: column; */
+    /* gap: 0.5rem; */ /* Khoảng cách giữa các item */
 }
 
 .history-item {
-    display: flex;
-    align-items: center;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid var(--border);
-    cursor: pointer;
-    transition: all 0.2s ease;
-    position: relative;
-    margin: 0.25rem 0;
-    border-radius: var(--radius);
+    /* display: flex; */
+    /* justify-content: space-between; */
+    /* align-items: center; */
+    /* padding: 0.75rem 1rem; */ /* Xóa padding này để Tailwind kiểm soát */
+    /* border-radius: var(--radius); */
+    /* background-color: var(--card); */
+    /* border: 1px solid var(--border); */
+    /* cursor: pointer; */
+    /* transition: background-color 0.2s ease; */
 }
 
 .history-item:hover {
-    background-color: var(--accent);
+    /* background-color: var(--muted); */ /* Ưu tiên Tailwind cho hover background */
 }
 
 .history-item.active {
-    background-color: rgba(26, 115, 232, 0.05);
-    border-left: 3px solid #1a73e8;
+    /* background-color: var(--primary); */ /* JS/Tailwind sẽ kiểm soát background */
+    color: var(--primary-foreground); /* Giữ lại nếu cần cho màu chữ */
+    /* border-color: var(--primary); */ /* JS/Tailwind sẽ kiểm soát border */
 }
 
 .history-item-content {
@@ -2155,13 +2157,11 @@ h3 {
 }
 
 .history-item-title {
-    font-weight: 500;
-    font-size: 0.875rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    margin-bottom: 0.25rem;
-    color: var(--foreground);
+    /* font-weight: 500; */
+    /* white-space: nowrap; */ /* Đã được xử lý bởi class 'truncate' của Tailwind */
+    /* overflow: hidden; */ /* Đã được xử lý bởi class 'truncate' của Tailwind */
+    /* text-overflow: ellipsis; */ /* Đã được xử lý bởi class 'truncate' của Tailwind */
+    /* color: inherit; */ /* Để kế thừa màu từ .history-item.active */
 }
 
 .history-item-date {
@@ -2170,27 +2170,21 @@ h3 {
 }
 
 .history-item-delete {
-    color: #e53935;
-    background: transparent;
-    border: none;
-    border-radius: 50%;
-    width: 2rem;
-    height: 2rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    visibility: hidden;
-    opacity: 0;
-    transition: all 0.2s ease;
+    /* background: none; */
+    /* border: none; */
+    /* color: var(--muted-foreground); */
+    /* cursor: pointer; */
+    /* padding: 0.25rem; */
+    /* margin-left: 0.5rem; */
+    /* display: none; */ /* Xóa display: none, dựa vào opacity của Tailwind */
 }
 
 .history-item:hover .history-item-delete {
-    visibility: visible;
-    opacity: 1;
+    /* display: block; */ /* Xóa, dựa vào opacity của Tailwind */
 }
 
 .history-item-delete:hover {
-    background-color: rgba(229, 57, 53, 0.1);
+    /* background-color: rgba(229, 57, 53, 0.1); */
 }
 
 .empty-history-message {
