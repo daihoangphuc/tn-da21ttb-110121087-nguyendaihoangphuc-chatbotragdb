@@ -57,6 +57,11 @@ class SupabaseConversationManager:
 
     cur_conversation_id = None
 
+    def set_current_conversation_id(self, conversation_id: str) -> None:
+        """Đặt conversation_id hiện tại để sử dụng trong các thao tác tiếp theo"""
+        self.cur_conversation_id = conversation_id
+        print(f"Đã đặt conversation_id hiện tại: {conversation_id}")
+
     def get_current_conversation_id(self) -> str:
         return self.cur_conversation_id
 
@@ -77,7 +82,7 @@ class SupabaseConversationManager:
 
             # Lưu tin nhắn với role = user
             self.db.save_conversation_message(
-                current_conversation_id=self.get_current_conversation_id(),
+                current_conversation_id=current_conversation_id,
                 role="user",
                 content=message,
                 user_id=user_id,
@@ -108,7 +113,7 @@ class SupabaseConversationManager:
 
             # Lưu tin nhắn với role = assistant
             self.db.save_conversation_message(
-                current_conversation_id=self.get_current_conversation_id(),
+                current_conversation_id=current_conversation_id,
                 role="assistant",
                 content=message,
                 user_id=user_id,

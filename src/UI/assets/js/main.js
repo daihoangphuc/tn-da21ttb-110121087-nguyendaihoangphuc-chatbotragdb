@@ -18,7 +18,9 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Kiểm tra trạng thái API khi khởi động
     const apiConnected = await checkApiConnection();
     
-    // Nếu API đã kết nối, tạo conversation mới nếu cần
+    // Việc tạo conversation mới đã được xử lý trong index.html
+    // Bỏ đoạn code dưới đây để tránh tạo nhiều conversation
+    /*
     if (apiConnected) {
         try {
             // Kiểm tra xem đã có conversation_id trong localStorage chưa
@@ -40,6 +42,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             console.error('Lỗi khi kiểm tra/tạo conversation:', error);
         }
     }
+    */
 
     // Toggle theme
     document.getElementById('themeToggle').addEventListener('click', function() {

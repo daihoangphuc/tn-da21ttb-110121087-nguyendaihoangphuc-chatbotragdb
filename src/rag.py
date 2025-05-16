@@ -601,7 +601,7 @@ class AdvancedDatabaseRAG:
             print(f"Đã mở rộng câu hỏi: '{original_query}' -> '{query}'")
 
         # Phân loại câu hỏi bằng QueryRouter
-        query_type = self.query_router._classify_with_llm(query)
+        query_type = self.query_router.classify_query(query)
         print(f"Phân loại ban đầu: '{query_type}'")
 
         # Nếu là other_question, trả về ngay
@@ -630,17 +630,14 @@ class AdvancedDatabaseRAG:
                 query, k=search_k, alpha=alpha, sources=sources
             )
 
-        # Phân loại lại câu hỏi dựa trên kết quả tìm kiếm
-        vector_store_has_results = len(retrieved) > 0
-        final_query_type = self.query_router.classify_query(
-            query, vector_store_has_results=vector_store_has_results
-        )
+        # Phân loại lại câu hỏi
+        final_query_type = self.query_router.classify_query(query)
         print(f"Phân loại cuối cùng: '{final_query_type}'")
 
         # Nếu là realtime_question, trả về ngay
         if final_query_type == "realtime_question":
             return {
-                "answer": "Đây là câu hỏi thời gian thực mình không đủ kiến thức đề trả lời cho bạn hiện tại.",
+                "answer": self.query_router.prepare_realtime_response(query),
                 "sources": [],
                 "question": original_query,
                 "search_method": search_type,

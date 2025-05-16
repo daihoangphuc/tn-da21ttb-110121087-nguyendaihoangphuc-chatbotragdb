@@ -353,6 +353,12 @@ async def get_current_user(
         try:
             # Lấy access token từ request
             token = credentials.credentials
+
+            # Xử lý trường hợp token bị lặp lại "Bearer"
+            if token.lower().startswith("bearer "):
+                token = token[7:]  # Cắt bỏ "Bearer " từ đầu token
+                print(f"Đã phát hiện và xử lý token có prefix 'Bearer' trùng lặp")
+
             # Sử dụng token để xác thực
             response = supabase_client.auth.get_user(jwt=token)
             user_response = response
@@ -945,299 +951,6 @@ async def upload_document(
         raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý tài liệu: {str(e)}")
 
 
-# @app.post(f"{PREFIX}/index")
-# async def index_documents(background_tasks: BackgroundTasks):
-#     """
-#     Index các tài liệu đã tải lên và chuẩn bị hệ thống để tìm kiếm/trả lời
-#     """
-#     if indexing_status["is_running"]:
-#         return {
-#             "status": "running",
-#             "message": "Đang trong quá trình indexing, vui lòng đợi",
-#         }
-
-#     background_tasks.add_task(indexing_documents)
-
-#     return {"status": "started", "message": "Đã bắt đầu quá trình indexing"}
-
-
-# @app.get(f"{PREFIX}/index/status", response_model=IndexingStatusResponse)
-# async def get_indexing_status():
-#     """
-#     Kiểm tra trạng thái của quá trình indexing
-#     """
-#     return {
-#         "status": indexing_status["status"],
-#         "message": indexing_status["message"],
-#         "processed_files": indexing_status["processed_files"],
-#     }
-
-
-# @app.get(f"{PREFIX}/collection/info")
-# async def get_collection_info():
-#     """
-#     Lấy thông tin về collection trong vector store
-#     """
-#     try:
-#         info = rag_system.get_collection_info()
-#         return info
-#     except Exception as e:
-#         raise HTTPException(
-#             status_code=500, detail=f"Lỗi khi lấy thông tin collection: {str(e)}"
-#         )
-
-
-@app.post(f"{PREFIX}/feedback")
-async def submit_feedback(feedback: FeedbackRequest):
-    """
-    Nhận phản hồi của người dùng về câu trả lời
-    """
-    try:
-        # Kiểm tra question_id có tồn tại không
-        if feedback.question_id not in questions_history:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Không tìm thấy câu hỏi với ID {feedback.question_id}",
-            )
-
-        # Chuẩn bị dữ liệu feedback
-        feedback_data = {
-            "question_id": feedback.question_id,
-            "question": questions_history[feedback.question_id]["question"],
-            "answer": questions_history[feedback.question_id]["answer"],
-            "rating": feedback.rating,
-            "is_helpful": feedback.is_helpful,
-            "comment": feedback.comment,
-            "specific_feedback": feedback.specific_feedback,
-        }
-
-        # Lưu phản hồi
-        save_success = save_feedback(feedback_data)
-
-        if save_success:
-            return {"status": "success", "message": "Đã lưu phản hồi của bạn. Cảm ơn!"}
-        else:
-            return {
-                "status": "warning",
-                "message": "Đã ghi nhận phản hồi nhưng có lỗi khi lưu",
-            }
-
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý phản hồi: {str(e)}")
-
-
-# @app.post(f"{PREFIX}/analyze/sql", response_model=SQLAnalysisResponse)
-# async def analyze_sql_query(request: SQLAnalysisRequest):
-#     """
-#     Phân tích và đề xuất cải tiến cho truy vấn SQL
-#     """
-#     try:
-#         # Tìm kiếm tài liệu liên quan đến SQL và mô hình dữ liệu
-#         search_query = "SQL query optimization performance index"
-#         context_docs = rag_system.hybrid_search(search_query)
-
-#         # Tạo prompt cho phân tích SQL
-#         sql_prompt = rag_system.prompt_manager.templates["sql_analysis"].format(
-#             context="\n\n".join([doc["text"] for doc in context_docs[:3]]),
-#             query=request.sql_query,
-#         )
-
-#         # Phân tích SQL
-#         analysis_result = rag_system.llm.invoke(sql_prompt)
-
-#         # Xử lý kết quả
-#         analysis_text = analysis_result.content
-
-#         # Tìm các đề xuất trong kết quả
-#         suggestions = []
-#         for line in analysis_text.split("\n"):
-#             if line.strip().startswith("- "):
-#                 suggestions.append(line.strip()[2:])
-
-#         # Tìm truy vấn đã tối ưu (nếu có)
-#         optimized_query = rag_system.prompt_manager.extract_sql_query(analysis_text)
-
-#         return {
-#             "query": request.sql_query,
-#             "analysis": analysis_text,
-#             "suggestions": suggestions[:5],  # Giới hạn số lượng đề xuất
-#             "optimized_query": optimized_query if optimized_query else None,
-#         }
-
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Lỗi khi phân tích SQL: {str(e)}")
-
-
-# @app.get(f"{PREFIX}/categories", response_model=CategoryStatsResponse)
-# async def get_categories_stats():
-#     """
-#     Lấy thống kê về các danh mục tài liệu
-#     """
-#     try:
-#         # Lấy tất cả tài liệu
-#         all_docs = rag_system.vector_store.get_all_documents()
-
-#         if not all_docs:
-#             return {"total_documents": 0, "documents_by_category": {}, "categories": []}
-
-#         # Thống kê theo danh mục
-#         categories = {}
-#         for doc in all_docs:
-#             category = doc["metadata"].get("category", "general")
-#             if category in categories:
-#                 categories[category] += 1
-#             else:
-#                 categories[category] = 1
-
-#         return {
-#             "total_documents": len(all_docs),
-#             "documents_by_category": categories,
-#             "categories": list(categories.keys()),
-#         }
-
-#     except Exception as e:
-#         raise HTTPException(
-#             status_code=500, detail=f"Lỗi khi lấy thống kê danh mục: {str(e)}"
-#         )
-
-
-@app.post(f"{PREFIX}/search/semantic")
-async def semantic_search(
-    request: QuestionRequest, k: int = Query(5, description="Số lượng kết quả trả về")
-):
-    """
-    Tìm kiếm ngữ nghĩa theo câu truy vấn
-    """
-    try:
-        # Kiểm tra xem sources có tồn tại không nếu đã chỉ định
-        if request.sources and len(request.sources) > 0:
-            # Lấy danh sách các nguồn có sẵn
-            all_docs = rag_system.vector_store.get_all_documents(limit=1000)
-            available_sources = set()
-            available_filenames = (
-                set()
-            )  # Thêm tập hợp để lưu tên file không có đường dẫn
-
-            for doc in all_docs:
-                source = doc.get("metadata", {}).get(
-                    "source", doc.get("source", "unknown")
-                )
-                if source != "unknown":
-                    available_sources.add(source)
-                    # Thêm tên file đơn thuần
-                    if os.path.sep in source:
-                        available_filenames.add(os.path.basename(source))
-                    else:
-                        available_filenames.add(source)
-
-            # Kiểm tra xem các nguồn được yêu cầu có tồn tại không (tính cả tên file đơn thuần)
-            missing_sources = []
-            for s in request.sources:
-                # Kiểm tra cả đường dẫn đầy đủ và tên file đơn thuần
-                filename = os.path.basename(s) if os.path.sep in s else s
-                if s not in available_sources and filename not in available_filenames:
-                    missing_sources.append(s)
-
-            if missing_sources:
-                return JSONResponse(
-                    status_code=404,
-                    content={
-                        "status": "error",
-                        "message": f"Không tìm thấy các nguồn: {', '.join(missing_sources)}",
-                        "available_sources": sorted(list(available_sources)),
-                        "available_filenames": sorted(list(available_filenames)),
-                        "note": "Bạn có thể dùng tên file đơn thuần hoặc đường dẫn đầy đủ",
-                    },
-                )
-
-        results = rag_system.semantic_search(
-            request.question, k=k, sources=request.sources
-        )
-        return {
-            "query": request.question,
-            "results": results,
-            "filtered_sources": request.sources if request.sources else [],
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Lỗi khi tìm kiếm ngữ nghĩa: {str(e)}"
-        )
-
-
-@app.post(f"{PREFIX}/search/hybrid")
-async def hybrid_search(
-    request: QuestionRequest,
-    k: int = Query(5, description="Số lượng kết quả trả về"),
-    alpha: float = Query(
-        0.7, description="Hệ số kết hợp (0.7 = 70% semantic + 30% keyword)"
-    ),
-):
-    """
-    Thực hiện tìm kiếm kết hợp (hybrid search) vừa ngữ nghĩa vừa keyword
-    """
-    try:
-        # Kiểm tra xem sources có tồn tại không nếu đã chỉ định
-        if request.sources and len(request.sources) > 0:
-            # Lấy danh sách các nguồn có sẵn
-            all_docs = rag_system.vector_store.get_all_documents(limit=1000)
-            available_sources = set()
-            available_filenames = (
-                set()
-            )  # Thêm tập hợp để lưu tên file không có đường dẫn
-
-            for doc in all_docs:
-                source = doc.get("metadata", {}).get(
-                    "source", doc.get("source", "unknown")
-                )
-                if source != "unknown":
-                    available_sources.add(source)
-                    # Thêm tên file đơn thuần
-                    if os.path.sep in source:
-                        available_filenames.add(os.path.basename(source))
-                    else:
-                        available_filenames.add(source)
-
-            # Kiểm tra xem các nguồn được yêu cầu có tồn tại không (tính cả tên file đơn thuần)
-            missing_sources = []
-            for s in request.sources:
-                # Kiểm tra cả đường dẫn đầy đủ và tên file đơn thuần
-                filename = os.path.basename(s) if os.path.sep in s else s
-                if s not in available_sources and filename not in available_filenames:
-                    missing_sources.append(s)
-
-            if missing_sources:
-                return JSONResponse(
-                    status_code=404,
-                    content={
-                        "status": "error",
-                        "message": f"Không tìm thấy các nguồn: {', '.join(missing_sources)}",
-                        "available_sources": sorted(list(available_sources)),
-                        "available_filenames": sorted(list(available_filenames)),
-                        "note": "Bạn có thể dùng tên file đơn thuần hoặc đường dẫn đầy đủ",
-                    },
-                )
-
-        # Cập nhật alpha từ request nếu được cung cấp
-        if hasattr(request, "alpha") and request.alpha is not None:
-            alpha = request.alpha
-
-        results = rag_system.hybrid_search(
-            request.question, k=k, alpha=alpha, sources=request.sources
-        )
-
-        return {
-            "results": results,
-            "count": len(results),
-            "filtered_sources": request.sources if request.sources else [],
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Lỗi khi thực hiện hybrid search: {str(e)}"
-        )
-
-
 @app.delete(f"{PREFIX}/collection/reset")
 async def reset_collection():
     """
@@ -1723,10 +1436,8 @@ async def get_conversation_detail(
         user_id = current_user.id
 
         # Lấy tin nhắn từ Supabase
-        messages = conversation_manager.get_messages(
-            conversation_manager.get_current_conversation_id()
-        )
-
+        messages = conversation_manager.get_messages(conversation_id)
+        conversation_manager.set_current_conversation_id(conversation_id)
         if not messages:
             return JSONResponse(
                 status_code=404,
@@ -2170,7 +1881,7 @@ async def create_conversation(current_user=Depends(get_current_user)):
         current_conversation_id = conversation_manager.create_conversation(user_id)
         if not current_conversation_id:
             raise HTTPException(status_code=500, detail="Không thể tạo hội thoại mới")
-
+        conversation_manager.set_current_conversation_id(current_conversation_id)
         return {
             "status": "success",
             "message": "Đã tạo hội thoại mới thành công",

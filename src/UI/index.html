@@ -502,6 +502,7 @@
                 // Chỉ tạo conversation mới nếu chưa có
                 if (!existingConversationId) {
                     try {
+                        console.log("Tạo conversation mới khi load trang lần đầu");
                         const response = await apiService.fetchApi('/api/conversations/create', {
                             method: 'POST'
                         });
