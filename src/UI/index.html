@@ -410,6 +410,19 @@
             }
         }
         
+        // Hàm xóa toàn bộ dữ liệu trong localStorage và sessionStorage
+        function clearAllStorageData() {
+            console.log('Đang xóa toàn bộ dữ liệu lưu trữ...');
+            
+            // Xóa toàn bộ sessionStorage
+            sessionStorage.clear();
+            
+            // Xóa toàn bộ localStorage
+            localStorage.clear();
+            
+            console.log('Đã xóa toàn bộ dữ liệu lưu trữ');
+        }
+        
         document.addEventListener('DOMContentLoaded', function() {
             // Kiểm tra và hiển thị thông tin người dùng nếu đã đăng nhập
             const userInfoString = sessionStorage.getItem('user_info');
@@ -434,12 +447,16 @@
                     // Gọi API đăng xuất
                     apiService.logout()
                         .then(() => {
+                            // Xóa toàn bộ dữ liệu trong localStorage và sessionStorage
+                            clearAllStorageData();
+                            
                             // Chuyển hướng đến trang đăng nhập
                             window.location.href = 'login.html';
                         })
                         .catch(error => {
                             console.error('Lỗi khi đăng xuất:', error);
-                            // Vẫn chuyển hướng đến trang đăng nhập nếu có lỗi
+                            // Vẫn xóa dữ liệu và chuyển hướng đến trang đăng nhập nếu có lỗi
+                            clearAllStorageData();
                             window.location.href = 'login.html';
                         });
                 });
