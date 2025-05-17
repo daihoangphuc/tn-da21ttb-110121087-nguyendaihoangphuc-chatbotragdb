@@ -7,6 +7,14 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.1/styles/github-dark.min.css">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {}
+            }
+        }
+    </script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/flowbite/2.2.1/flowbite.min.css" rel="stylesheet" />
     <link rel="stylesheet" href="assets/css/styles.css">
 </head>
@@ -484,50 +492,66 @@
             }
         });
     </script>
-<script>
-    // Thêm vào phần kiểm tra đăng nhập sau khi xác định người dùng đã đăng nhập
-    document.addEventListener('DOMContentLoaded', async function() {
-        checkLoginStatus();
-        
-        // Cập nhật thông tin người dùng trên giao diện
-        try {
-            const userInfoString = sessionStorage.getItem('user_info');
-            if (userInfoString) {
-                const userInfo = JSON.parse(userInfoString);
-                updateUserInfo(userInfo);
-                
-                // Kiểm tra xem đã có conversation_id trong sessionStorage chưa
-                const existingConversationId = sessionStorage.getItem('conversation_id');
-                
-                // Chỉ tạo conversation mới nếu chưa có
-                if (!existingConversationId) {
-                    try {
-                        console.log("Tạo conversation mới khi load trang lần đầu");
-                        const response = await apiService.fetchApi('/api/conversations/create', {
-                            method: 'POST'
-                        });
-                        
-                        if (response && response.status === 'success') {
-                            console.log('Đã tạo conversation mới khi tải trang:', response.conversation_id);
-                            apiService.setConversationId(response.conversation_id);
-                            // Lưu conversation_id vào sessionStorage để đánh dấu đã tạo
-                            sessionStorage.setItem('conversation_id', response.conversation_id);
-                        } else {
-                            console.error('Không thể tạo conversation mới khi tải trang:', response);
+    <script>
+        // Thêm vào phần kiểm tra đăng nhập sau khi xác định người dùng đã đăng nhập
+        document.addEventListener('DOMContentLoaded', async function() {
+            checkLoginStatus();
+            
+            // Cập nhật thông tin người dùng trên giao diện
+            try {
+                const userInfoString = sessionStorage.getItem('user_info');
+                if (userInfoString) {
+                    const userInfo = JSON.parse(userInfoString);
+                    updateUserInfo(userInfo);
+                    
+                    // Kiểm tra xem đã có conversation_id trong sessionStorage chưa
+                    const existingConversationId = sessionStorage.getItem('conversation_id');
+                    
+                    // Kiểm tra xem có đang tạo conversation không
+                    const isCreatingConversation = sessionStorage.getItem('creating_conversation') === 'true';
+                    
+                    // Chỉ tạo conversation mới nếu chưa có, chưa đang tạo và đang ở tab chat
+                    if (!existingConversationId && !isCreatingConversation && !document.getElementById('historyTabContent').classList.contains('active')) {
+                        try {
+                            console.log("Tạo conversation mới khi load trang lần đầu");
+                            
+                            // Đánh dấu đang tạo conversation
+                            sessionStorage.setItem('creating_conversation', 'true');
+                            
+                            const response = await apiService.fetchApi('/api/conversations/create', {
+                                method: 'POST'
+                            });
+                            
+                            if (response && response.status === 'success') {
+                                console.log('Đã tạo conversation mới khi tải trang:', response.conversation_id);
+                                apiService.setConversationId(response.conversation_id);
+                                // Lưu conversation_id vào sessionStorage để đánh dấu đã tạo
+                                sessionStorage.setItem('conversation_id', response.conversation_id);
+                            } else {
+                                console.error('Không thể tạo conversation mới khi tải trang:', response);
+                            }
+                            
+                            // Đánh dấu đã xong quá trình tạo conversation
+                            sessionStorage.removeItem('creating_conversation');
+                        } catch (error) {
+                            console.error('Lỗi khi khởi tạo conversation:', error);
+                            // Đảm bảo xóa trạng thái đang tạo khi có lỗi
+                            sessionStorage.removeItem('creating_conversation');
                         }
-                    } catch (error) {
-                        console.error('Lỗi khi khởi tạo conversation:', error);
+                    } else {
+                        console.log('Đã có sẵn conversation_id:', existingConversationId);
+                        if (existingConversationId) {
+                            apiService.setConversationId(existingConversationId);
+                        }
                     }
-                } else {
-                    console.log('Đã có sẵn conversation_id:', existingConversationId);
-                    apiService.setConversationId(existingConversationId);
                 }
+            } catch (e) {
+                console.error('Lỗi khi cập nhật thông tin người dùng:', e);
+                // Đảm bảo xóa trạng thái đang tạo khi có lỗi
+                sessionStorage.removeItem('creating_conversation');
             }
-        } catch (e) {
-            console.error('Lỗi khi cập nhật thông tin người dùng:', e);
-        }
-    });
-</script>
+        });
+    </script>
     <style>
         /* CSS cho phần câu hỏi liên quan */
         .related-questions {

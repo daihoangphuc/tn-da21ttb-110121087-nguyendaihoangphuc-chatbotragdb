@@ -15,9 +15,11 @@ class ThemeController {
 
     applyTheme() {
         if (this.darkMode) {
+            document.documentElement.classList.add('dark');
             document.body.classList.add('dark-theme');
             document.getElementById('themeToggle').innerHTML = '<i class="fas fa-sun"></i>';
         } else {
+            document.documentElement.classList.remove('dark');
             document.body.classList.remove('dark-theme');
             document.getElementById('themeToggle').innerHTML = '<i class="fas fa-moon"></i>';
         }
@@ -99,7 +101,6 @@ class SourceController {
                     </div>
                     <div class="source-info">
                         <span class="source-name" title="${file.filename}">${file.filename}</span>
-                        <div class="source-date">${this.getTimeAgo(file.upload_date)}</div>
                     </div>
                 </div>
                 <button class="source-delete" data-filename="${file.filename}">
@@ -1967,12 +1968,9 @@ class ChatHistoryController {
         if (this.historyItems.length === 0) {
             console.log('Không có cuộc hội thoại nào, hiển thị thông báo trống');
             historyList.innerHTML = `
-                <div class="empty-history-message flex flex-col items-center justify-center h-full py-12">
-                    <div class="bg-gray-100 dark:bg-gray-800 rounded-full p-4 mb-4">
-                        <i class="fas fa-history text-3xl text-gray-400 dark:text-gray-500"></i>
-                    </div>
-                    <p class="text-gray-500 dark:text-gray-400 text-center">Chưa có cuộc trò chuyện nào</p>
-                    <p class="text-gray-400 dark:text-gray-500 text-sm text-center mt-2">Bắt đầu cuộc trò chuyện mới bằng cách nhấp vào "Tạo mới"</p>
+                <div class="text-center py-8 text-gray-500 dark:text-gray-400">
+                    <i class="fas fa-history text-4xl mb-3"></i>
+                    <p>Chưa có cuộc trò chuyện nào. Hãy tạo cuộc trò chuyện mới để bắt đầu.</p>
                 </div>`;
             return;
         }
@@ -1988,18 +1986,25 @@ class ChatHistoryController {
         
         let historyHTML = '';
         
+        // Lấy conversation_id hiện tại
+        const currentChatId = apiService.getConversationId();
+        console.log('Current conversation ID:', currentChatId);
+        
         sortedItems.forEach(item => {
             // Lấy ngày từ last_updated hoặc timestamp
             const date = new Date(item.last_updated || item.timestamp || new Date());
             const formattedDate = this.formatDate(date);
             
             // Lấy ID của item (có thể là session_id hoặc conversation_id)
-            const itemId = item.session_id || item.conversation_id || '';
+            const itemId = item.session_id || item.conversation_id || item.id || '';
+            
+            // Kiểm tra xem item này có phải là item đang active không
+            const isActive = itemId === currentChatId;
             
             // Trích xuất tiêu đề hoặc tin nhắn đầu tiên
             let title = 'Cuộc trò chuyện mới';
-            if (item.first_message) {
-                title = item.first_message;
+            if (item.first_message || item.title) {
+                title = item.first_message || item.title;
                 if (title.length > 60) {
                     title = title.substring(0, 60) + '...';
                 }
@@ -2008,30 +2013,23 @@ class ChatHistoryController {
             // Hiển thị số lượng tin nhắn
             const messageCountText = `${item.message_count || 0} tin nhắn`;
             
-            // Xác định xem item có đang active không
-            const isActive = itemId === (window.conversationController ? window.conversationController.currentChatId : null);
+            // Thêm class active nếu đây là cuộc trò chuyện hiện tại
+            const activeClass = isActive ? 'active bg-blue-50 dark:bg-blue-900/50 border-l-4 border-blue-500' : '';
             
             const itemHTML = `
-                <div data-chat-id="${itemId}" class="history-item flex flex-col p-3 rounded-lg cursor-pointer transition-all duration-200 ${
-                    isActive 
-                    ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-500' 
-                    : 'hover:bg-gray-100 dark:hover:bg-gray-800 border-l-4 border-transparent'
-                } group">
-                    <div class="history-item-content flex justify-between items-start gap-2">
-                        <div class="flex-grow min-w-0">
-                            <h4 class="history-item-title font-medium text-sm truncate text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white">
-                                ${this.escapeHtml(title)}
-                            </h4>
-                            <div class="history-item-meta flex items-center text-xs text-gray-500 dark:text-gray-400 mt-1 space-x-1">
-                                <span class="history-item-date whitespace-nowrap">${formattedDate}</span>
-                                <span class="mx-1">&middot;</span>
-                                <span class="history-item-message-count whitespace-nowrap">${messageCountText}</span>
-                            </div>
+                <div data-chat-id="${itemId}" class="source-item history-item ${activeClass}">
+                    <div class="flex items-center">
+                        <div class="source-icon chat">
+                            <i class="fas fa-comment-alt"></i>
                         </div>
-                        <button class="history-item-delete flex-shrink-0 text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 opacity-0 group-hover:opacity-100 transition-all duration-200 p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700" title="Xóa cuộc trò chuyện">
-                            <i class="fas fa-trash-alt text-xs"></i>
-                        </button>
+                        <div class="source-info">
+                            <span class="source-name ${isActive ? 'text-blue-600 dark:text-blue-400 font-medium' : ''}" title="${this.escapeHtml(title)}">${this.escapeHtml(title)}</span>
+                            <div class="source-date">${formattedDate} · ${messageCountText}</div>
+                        </div>
                     </div>
+                    <button class="source-delete history-item-delete" title="Xóa cuộc trò chuyện">
+                        <i class="fas fa-trash"></i>
+                    </button>
                 </div>
             `;
             historyHTML += itemHTML;
@@ -2077,12 +2075,28 @@ class ChatHistoryController {
                     item.classList.add('dark:bg-blue-900/50');
                     item.classList.add('border-l-4');
                     item.classList.add('border-blue-500');
+                    
+                    // Đảm bảo tên cuộc trò chuyện vẫn hiển thị rõ ràng
+                    const sourceName = item.querySelector('.source-name');
+                    if (sourceName) {
+                        sourceName.classList.add('text-blue-600');
+                        sourceName.classList.add('dark:text-blue-400');
+                        sourceName.classList.add('font-medium');
+                    }
                 } else {
                     item.classList.remove('active');
                     item.classList.remove('bg-blue-50');
                     item.classList.remove('dark:bg-blue-900/50');
                     item.classList.remove('border-l-4');
                     item.classList.remove('border-blue-500');
+                    
+                    // Khôi phục trạng thái bình thường cho các mục không được chọn
+                    const sourceName = item.querySelector('.source-name');
+                    if (sourceName) {
+                        sourceName.classList.remove('text-blue-600');
+                        sourceName.classList.remove('dark:text-blue-400');
+                        sourceName.classList.remove('font-medium');
+                    }
                 }
             });
             
@@ -2097,6 +2111,28 @@ class ChatHistoryController {
             const response = await apiService.getMessages(chatId);
             
             if (!response || response.status === 'error') {
+                // Kiểm tra xem có phải lỗi 404 không
+                if (response && response.message && (
+                    response.message.includes('404') || 
+                    response.message.includes('Không tìm thấy hội thoại') ||
+                    response.message.includes('not found')
+                )) {
+                    // Hiển thị thông báo thân thiện hơn cho lỗi 404
+                    showNotification('Không có tin nhắn nào trong hội thoại này', 'warning');
+                    window.conversationController.removeLoadingMessage();
+                    
+                    // Xóa tin nhắn cũ trong giao diện và hiển thị thông báo trống
+                    window.conversationController.clearChat(false);
+                    const messagesContainer = document.getElementById('messagesContainer');
+                    messagesContainer.innerHTML = `
+                        <div class="welcome-message">
+                            <p>Hội thoại này không có tin nhắn nào hoặc đã bị xóa.</p>
+                            <p>Bạn có thể bắt đầu cuộc trò chuyện mới hoặc chọn một hội thoại khác từ lịch sử.</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
                 throw new Error(response?.message || 'Không thể tải tin nhắn của cuộc trò chuyện');
             }
             
@@ -2121,6 +2157,20 @@ class ChatHistoryController {
             
             // Xóa tin nhắn cũ trong giao diện
             window.conversationController.clearChat(false);
+            
+            // Kiểm tra xem có tin nhắn nào không
+            if (messages.length === 0) {
+                // Hiển thị thông báo nếu không có tin nhắn
+                const messagesContainer = document.getElementById('messagesContainer');
+                messagesContainer.innerHTML = `
+                    <div class="welcome-message">
+                        <p>Hội thoại này không có tin nhắn nào.</p>
+                        <p>Hãy bắt đầu đặt câu hỏi để tạo cuộc trò chuyện mới.</p>
+                    </div>
+                `;
+                window.conversationController.removeLoadingMessage();
+                return;
+            }
             
             // Hiển thị các tin nhắn
             messages.forEach((message, index) => {
@@ -2152,7 +2202,17 @@ class ChatHistoryController {
         } catch (error) {
             console.error('Lỗi khi tải phiên chat:', error);
             window.conversationController.removeLoadingMessage();
-            showNotification('Không thể tải nội dung hội thoại: ' + error.message, 'error');
+            
+            // Kiểm tra xem có phải lỗi 404 không
+            if (error.message && (
+                error.message.includes('404') || 
+                error.message.includes('Không tìm thấy hội thoại') ||
+                error.message.includes('not found')
+            )) {
+                showNotification('Không có tin nhắn nào trong hội thoại này', 'warning');
+            } else {
+                showNotification('Không thể tải nội dung hội thoại', 'error');
+            }
         }
     }
     
@@ -2300,49 +2360,84 @@ class ChatHistoryController {
         const searchTerm = query.toLowerCase().trim();
         const filteredItems = this.historyItems.filter(item => 
             (item.title && item.title.toLowerCase().includes(searchTerm)) || 
-            (item.content && item.content.toLowerCase().includes(searchTerm))
+            (item.content && item.content.toLowerCase().includes(searchTerm)) ||
+            (item.first_message && item.first_message.toLowerCase().includes(searchTerm))
         );
         
         const historyList = document.getElementById('historyList');
         
         if (filteredItems.length === 0) {
             historyList.innerHTML = `
-                <div class="empty-history-message">
-                    <i class="fas fa-search"></i>
+                <div class="text-center py-8 text-gray-500 dark:text-gray-400">
+                    <i class="fas fa-search text-4xl mb-3"></i>
                     <p>Không tìm thấy kết quả cho "${query}"</p>
+                    <p class="text-sm mt-2">Hãy thử tìm kiếm với từ khóa khác</p>
                 </div>`;
             return;
         }
         
         // Sắp xếp theo thời gian giảm dần (mới nhất lên đầu)
-        const sortedItems = [...filteredItems].sort((a, b) => 
-            new Date(b.timestamp) - new Date(a.timestamp)
-        );
+        const sortedItems = [...filteredItems].sort((a, b) => {
+            const dateA = new Date(a.last_updated || a.timestamp || 0);
+            const dateB = new Date(b.last_updated || b.timestamp || 0);
+            return dateB - dateA;
+        });
         
         let historyHTML = '';
         
+        // Lấy conversation_id hiện tại
+        const currentChatId = apiService.getConversationId();
+        
         sortedItems.forEach(item => {
-            const date = new Date(item.timestamp);
+            // Lấy ngày từ last_updated hoặc timestamp
+            const date = new Date(item.last_updated || item.timestamp || new Date());
             const formattedDate = this.formatDate(date);
             
-            historyHTML += `
-                <div class="history-item" data-id="${item.id}">
-                    <div class="history-item-content">
-                        <div class="history-item-title">${item.title || 'Cuộc trò chuyện mới'}</div>
-                        ${previewText ? `<div class="text-xs text-gray-500 mb-1 mt-0.5">${previewText}</div>` : ''}
-                        <div class="history-item-date">${formattedDate}</div>
+            // Lấy ID của item (có thể là session_id hoặc conversation_id)
+            const itemId = item.session_id || item.conversation_id || item.id || '';
+            
+            // Kiểm tra xem item này có phải là item đang active không
+            const isActive = itemId === currentChatId;
+            
+            // Trích xuất tiêu đề hoặc tin nhắn đầu tiên
+            let title = 'Cuộc trò chuyện mới';
+            if (item.first_message || item.title) {
+                title = item.first_message || item.title;
+                if (title.length > 60) {
+                    title = title.substring(0, 60) + '...';
+                }
+            }
+            
+            // Hiển thị số lượng tin nhắn
+            const messageCountText = `${item.message_count || 0} tin nhắn`;
+            
+            // Thêm class active nếu đây là cuộc trò chuyện hiện tại
+            const activeClass = isActive ? 'active bg-blue-50 dark:bg-blue-900/50 border-l-4 border-blue-500' : '';
+            
+            const itemHTML = `
+                <div data-chat-id="${itemId}" class="source-item history-item ${activeClass}">
+                    <div class="flex items-center">
+                        <div class="source-icon chat">
+                            <i class="fas fa-comment-alt"></i>
+                        </div>
+                        <div class="source-info">
+                            <span class="source-name ${isActive ? 'text-blue-600 dark:text-blue-400 font-medium' : ''}" title="${this.escapeHtml(title)}">${this.escapeHtml(title)}</span>
+                            <div class="source-date">${formattedDate} · ${messageCountText}</div>
+                        </div>
                     </div>
-                    <button class="history-item-delete" data-id="${item.id}" title="Xóa cuộc trò chuyện này">
+                    <button class="source-delete history-item-delete" title="Xóa cuộc trò chuyện">
                         <i class="fas fa-trash"></i>
                     </button>
-                </div>`;
+                </div>
+            `;
+            historyHTML += itemHTML;
         });
         
         historyList.innerHTML = historyHTML;
         
         // Thêm event listener cho các mục lịch sử
         document.querySelectorAll('.history-item').forEach(item => {
-            const chatId = item.getAttribute('data-id');
+            const chatId = item.getAttribute('data-chat-id');
             
             // Click vào mục để tải phiên chat
             item.addEventListener('click', (e) => {

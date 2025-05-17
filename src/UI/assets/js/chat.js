@@ -743,22 +743,20 @@ document.addEventListener('DOMContentLoaded', () => {
         console.warn('Không tìm thấy tab Sources');
     }
     
+    // Không đăng ký event cho tab History ở đây vì đã được xử lý trong ChatHistoryController
     if (historyTabBtn) {
-        console.log('Tìm thấy tab Lịch sử, đăng ký sự kiện');
-        historyTabBtn.addEventListener('click', () => {
-            // Khi chuyển sang tab lịch sử, tải lại danh sách hội thoại
-            switchTab('history');
-            loadConversations();
-        });
+        console.log('Tìm thấy tab Lịch sử nhưng KHÔNG đăng ký sự kiện tại đây để tránh trùng lặp');
+        // Event đã được đăng ký trong ChatHistoryController
     } else {
         console.warn('Không tìm thấy tab Lịch sử');
     }
     
-    // Thêm sự kiện cho nút tạo mới hội thoại
+    // Không đăng ký sự kiện cho nút tạo mới ở đây để tránh trùng lặp với ui-controllers.js
+    // Việc đăng ký event cho nút tạo mới được xử lý trong ChatHistoryController
     const createNewChatBtn = document.getElementById('createNewChatBtn');
     if (createNewChatBtn) {
-        console.log('Tìm thấy nút tạo mới, đăng ký sự kiện');
-        createNewChatBtn.addEventListener('click', createNewConversation);
+        console.log('Tìm thấy nút tạo mới nhưng KHÔNG đăng ký sự kiện tại đây để tránh trùng lặp');
+        // Đã được đăng ký trong ui-controllers.js
     } else {
         console.warn('Không tìm thấy nút tạo mới hội thoại');
     }
