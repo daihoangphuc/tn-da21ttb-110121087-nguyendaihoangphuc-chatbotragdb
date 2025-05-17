@@ -46,7 +46,10 @@ load_dotenv()
 
 # Thêm prefix API
 PREFIX = os.getenv("API_PREFIX", "/api")
+from src.suggestion_manager import SuggestionManager
 
+# Khởi tạo SuggestionManager
+suggestion_manager = SuggestionManager()
 # Khởi tạo ứng dụng FastAPI
 app = FastAPI(
     title=os.getenv("API_TITLE", "Hệ thống RAG cho Cơ sở dữ liệu"),
@@ -2044,6 +2047,109 @@ async def delete_conversation(
             status_code=500,
             detail=f"Lỗi khi xóa hội thoại: {str(e)}",
         )
+
+
+# Thêm model cho response của API đề xuất câu hỏi
+class SuggestionResponse(BaseModel):
+    suggestions: List[str]
+    conversation_id: Optional[str] = None
+    from_history: bool = (
+        False  # True nếu đề xuất dựa trên lịch sử hội thoại, False nếu dùng mặc định
+    )
+
+
+# Thêm model cho response của API lấy cuộc hội thoại gần đây
+class LatestConversationResponse(BaseModel):
+    conversation_info: Dict
+    messages: List[Dict]
+    found: bool = True  # True nếu tìm thấy cuộc hội thoại, False nếu không
+
+
+@app.get(f"{PREFIX}/suggestions", response_model=SuggestionResponse)
+async def get_question_suggestions(
+    num_suggestions: int = Query(
+        3, ge=1, le=10, description="Số lượng câu hỏi đề xuất"
+    ),
+    current_user=Depends(get_current_user),
+):
+    """
+    Lấy đề xuất câu hỏi dựa trên cuộc hội thoại gần đây nhất có tin nhắn
+    """
+    try:
+        # Lấy user_id từ thông tin người dùng hiện tại
+        user_id = current_user.id
+
+        # Lấy đề xuất câu hỏi từ cuộc hội thoại gần đây nhất
+        suggestions = suggestion_manager.get_suggestions_from_latest_conversation(
+            user_id, conversation_manager, num_suggestions
+        )
+
+        # Lấy thông tin về cuộc hội thoại đã được sử dụng (nếu có)
+        conversation_data = conversation_manager.get_latest_conversation_with_messages(
+            user_id
+        )
+
+        # Kiểm tra xem đề xuất có dựa trên lịch sử hội thoại hay không
+        from_history = bool(conversation_data and conversation_data.get("messages"))
+        conversation_id = (
+            conversation_data.get("conversation_info", {}).get("session_id")
+            if from_history
+            else None
+        )
+
+        return {
+            "suggestions": suggestions,
+            "conversation_id": conversation_id,
+            "from_history": from_history,
+        }
+    except Exception as e:
+        print(f"Lỗi khi lấy đề xuất câu hỏi: {str(e)}")
+        import traceback
+
+        traceback.print_exc()
+
+        # Trả về các đề xuất mặc định nếu có lỗi
+        default_suggestions = suggestion_manager._get_default_suggestions()[
+            :num_suggestions
+        ]
+        return {
+            "suggestions": default_suggestions,
+            "conversation_id": None,
+            "from_history": False,
+        }
+
+
+@app.get(f"{PREFIX}/latest-conversation", response_model=LatestConversationResponse)
+async def get_latest_conversation(
+    current_user=Depends(get_current_user),
+):
+    """
+    Lấy cuộc hội thoại gần đây nhất có tin nhắn
+    """
+    try:
+        # Lấy user_id từ thông tin người dùng hiện tại
+        user_id = current_user.id
+
+        # Lấy cuộc hội thoại gần đây nhất có tin nhắn
+        conversation_data = conversation_manager.get_latest_conversation_with_messages(
+            user_id
+        )
+
+        if not conversation_data:
+            return {"conversation_info": {}, "messages": [], "found": False}
+
+        return {
+            "conversation_info": conversation_data.get("conversation_info", {}),
+            "messages": conversation_data.get("messages", []),
+            "found": True,
+        }
+    except Exception as e:
+        print(f"Lỗi khi lấy cuộc hội thoại gần đây: {str(e)}")
+        import traceback
+
+        traceback.print_exc()
+
+        return {"conversation_info": {}, "messages": [], "found": False}
 
 
 if __name__ == "__main__":

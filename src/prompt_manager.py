@@ -60,9 +60,6 @@ class PromptManager:
             - Sử dụng danh sách có dấu gạch đầu dòng (-) và có số (1. 2. 3.)
             - KHÔNG sử dụng HTML, chỉ dùng Markdown
             - KHI CÂU TRẢ LỜI DẠNG BẢNG NHƯNG QUÁ DÀI THÌ HÃY TRẢ LỜI DẠNG LIỆT KÊ
-            
-            TRƯỜNG HỢP BẠN KHÔNG TRẢ LỜI ĐƯỢC:
-            - Phân tích câu hỏi để xác định thiếu sót VÀ hãy hỏi lại người dùng để khai thác thêm thống tin
             """,
             # Giữ lại template gợi ý câu hỏi liên quan
             "related_questions": """

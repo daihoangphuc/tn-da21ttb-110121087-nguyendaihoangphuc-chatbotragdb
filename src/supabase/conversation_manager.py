@@ -301,12 +301,15 @@ class SupabaseConversationManager:
             print(f"Lỗi khi format lịch sử hội thoại: {str(e)}")
             return ""
 
-    def get_conversations(self, user_id: str) -> List[Dict]:
+    def get_conversations(self, user_id: str, delete_empty: bool = True) -> List[Dict]:
         """
-        Lấy danh sách tất cả các phiên hội thoại của người dùng
+        Lấy danh sách các phiên hội thoại của người dùng
+        Chỉ trả về những hội thoại có tin nhắn, trừ cuộc hội thoại mới nhất
+        Có thể xóa những hội thoại rỗng (không có tin nhắn) nếu delete_empty=True
 
         Args:
             user_id: ID người dùng
+            delete_empty: Nếu True, xóa luôn những cuộc hội thoại không có tin nhắn (trừ cuộc hội thoại mới nhất)
 
         Returns:
             Danh sách các phiên hội thoại
@@ -321,28 +324,16 @@ class SupabaseConversationManager:
                 .execute()
             )
 
-            if not hasattr(result, "data"):
+            if not hasattr(result, "data") or not result.data:
                 return []
 
             conversations = []
+            is_first = True  # Đánh dấu cuộc hội thoại đầu tiên (mới nhất)
+            deleted_count = 0  # Đếm số cuộc hội thoại bị xóa
+
             for conv in result.data:
                 conversation_id = conv.get("conversation_id")
                 last_updated = conv.get("last_updated")
-
-                # Lấy tin nhắn đầu tiên để hiển thị làm tiêu đề
-                first_message = ""
-                message_result = (
-                    self.supabase_client.table("messages")
-                    .select("content")
-                    .eq("conversation_id", conversation_id)
-                    .eq("role", "user")
-                    .order("sequence")
-                    .limit(1)
-                    .execute()
-                )
-
-                if hasattr(message_result, "data") and message_result.data:
-                    first_message = message_result.data[0].get("content", "")
 
                 # Đếm số lượng tin nhắn
                 count_result = (
@@ -356,16 +347,64 @@ class SupabaseConversationManager:
                 if hasattr(count_result, "count"):
                     message_count = count_result.count
 
-                # Tạo đối tượng hội thoại
-                conversations.append(
-                    {
-                        "session_id": conversation_id,
-                        "last_updated": last_updated,
-                        "first_message": first_message,
-                        "message_count": message_count,
-                    }
-                )
+                # Nếu không phải cuộc hội thoại mới nhất và không có tin nhắn, xóa nếu delete_empty=True
+                if not is_first and message_count == 0 and delete_empty:
+                    try:
+                        # Xóa cuộc hội thoại rỗng
+                        delete_result = (
+                            self.supabase_client.table("conversations")
+                            .delete()
+                            .eq("conversation_id", conversation_id)
+                            .eq("user_id", user_id)
+                            .execute()
+                        )
+                        if hasattr(delete_result, "data") and delete_result.data:
+                            deleted_count += 1
+                            print(f"Đã xóa cuộc hội thoại rỗng: {conversation_id}")
+                        continue  # Bỏ qua, không thêm vào kết quả
+                    except Exception as e:
+                        print(
+                            f"Lỗi khi xóa cuộc hội thoại rỗng {conversation_id}: {str(e)}"
+                        )
 
+                # Nếu là cuộc hội thoại mới nhất hoặc có tin nhắn, thì thêm vào danh sách
+                if is_first or message_count > 0:
+                    # Lấy tin nhắn đầu tiên để hiển thị làm tiêu đề
+                    first_message = ""
+                    message_result = (
+                        self.supabase_client.table("messages")
+                        .select("content")
+                        .eq("conversation_id", conversation_id)
+                        .eq("role", "user")
+                        .order("sequence")
+                        .limit(1)
+                        .execute()
+                    )
+
+                    if hasattr(message_result, "data") and message_result.data:
+                        first_message = message_result.data[0].get("content", "")
+
+                    # Tạo đối tượng hội thoại
+                    conversations.append(
+                        {
+                            "session_id": conversation_id,
+                            "last_updated": last_updated,
+                            "first_message": first_message,
+                            "message_count": message_count,
+                            "is_newest": is_first,  # Thêm trường để biết đây là cuộc hội thoại mới nhất
+                        }
+                    )
+
+                # Đánh dấu không còn là cuộc hội thoại đầu tiên nữa
+                if is_first:
+                    is_first = False
+
+            if delete_empty and deleted_count > 0:
+                print(f"Đã xóa {deleted_count} cuộc hội thoại rỗng")
+
+            print(
+                f"Đã tìm thấy {len(conversations)} cuộc hội thoại có tin nhắn (hoặc mới nhất)"
+            )
             return conversations
         except Exception as e:
             print(f"Lỗi khi lấy danh sách hội thoại: {str(e)}")
@@ -456,3 +495,81 @@ class SupabaseConversationManager:
         except Exception as e:
             print(f"Lỗi khi tạo phiên hội thoại: {str(e)}")
             raise e
+
+    def get_latest_conversation_with_messages(
+        self, user_id: str, limit: int = 100
+    ) -> Dict:
+        """
+        Lấy đoạn hội thoại gần đây nhất của người dùng có tin nhắn
+        - Nếu hội thoại gần nhất có tin nhắn, trả về hội thoại đó
+        - Nếu hội thoại gần nhất không có tin nhắn, tìm hội thoại gần thứ hai có tin nhắn
+
+        Args:
+            user_id: ID người dùng
+            limit: Số lượng tin nhắn tối đa trả về trong mỗi hội thoại
+
+        Returns:
+            Dict chứa thông tin hội thoại và danh sách tin nhắn:
+            {
+                "conversation_info": {
+                    "session_id": str,
+                    "last_updated": str,
+                    "first_message": str,
+                    "message_count": int
+                },
+                "messages": List[Dict]  # Danh sách tin nhắn của hội thoại
+            }
+            Trả về {} nếu không tìm thấy hội thoại có tin nhắn
+        """
+        try:
+            # Lấy danh sách phiên hội thoại từ Supabase
+            result = (
+                self.supabase_client.table("conversations")
+                .select("conversation_id, last_updated")
+                .eq("user_id", user_id)
+                .order("last_updated", desc=True)
+                .limit(5)  # Giới hạn 5 phiên gần nhất để tìm kiếm
+                .execute()
+            )
+
+            if not hasattr(result, "data") or not result.data:
+                print(f"Không tìm thấy phiên hội thoại nào cho người dùng {user_id}")
+                return {}
+
+            for conv in result.data:
+                conversation_id = conv.get("conversation_id")
+                last_updated = conv.get("last_updated")
+
+                # Lấy tin nhắn của phiên hội thoại
+                messages = self.get_messages(conversation_id, limit)
+
+                # Nếu có tin nhắn, trả về thông tin hội thoại và tin nhắn
+                if messages and len(messages) > 0:
+                    # Lấy tin nhắn đầu tiên để hiển thị làm tiêu đề
+                    first_message = ""
+                    for msg in messages:
+                        if msg.get("role") == "user":
+                            first_message = msg.get("content", "")
+                            break
+
+                    print(
+                        f"Đã tìm thấy hội thoại gần đây có {len(messages)} tin nhắn: {conversation_id}"
+                    )
+
+                    return {
+                        "conversation_info": {
+                            "session_id": conversation_id,
+                            "last_updated": last_updated,
+                            "first_message": first_message,
+                            "message_count": len(messages),
+                        },
+                        "messages": messages,
+                    }
+
+            # Nếu không tìm thấy hội thoại nào có tin nhắn
+            print(f"Không tìm thấy hội thoại nào có tin nhắn cho người dùng {user_id}")
+            return {}
+
+        except Exception as e:
+            print(f"Lỗi khi lấy hội thoại gần đây có tin nhắn: {str(e)}")
+            return {}
