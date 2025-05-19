@@ -387,7 +387,7 @@ class SupabaseConversationManager:
                     # Tạo đối tượng hội thoại
                     conversations.append(
                         {
-                            "session_id": conversation_id,
+                            "conversation_id": conversation_id,
                             "last_updated": last_updated,
                             "first_message": first_message,
                             "message_count": message_count,

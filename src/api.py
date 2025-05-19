@@ -1443,9 +1443,9 @@ async def get_conversation_detail(
         conversation_manager.set_current_conversation_id(conversation_id)
         if not messages:
             return JSONResponse(
-                status_code=404,
+                status_code=200,
                 content={
-                    "status": "error",
+                    "status": "success",
                     "message": f"Không tìm thấy hội thoại với ID {conversation_id}",
                     "conversation_id": conversation_id,
                 },
