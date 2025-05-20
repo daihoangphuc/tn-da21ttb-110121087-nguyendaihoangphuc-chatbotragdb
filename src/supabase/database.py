@@ -188,7 +188,7 @@ class SupabaseDatabase:
             print(f"Warning: Role '{role}' không hợp lệ, đang sử dụng 'user' thay thế")
             role = "user"
 
-        # Kiểm tra session_id không được để trống
+        # Kiểm tra conversation_id không được để trống
         if not current_conversation_id:
             print("Warning: current_conversation_id rỗng, đang tạo ID ngẫu nhiên")
             import uuid
@@ -301,7 +301,7 @@ class SupabaseDatabase:
             Danh sách tin nhắn của cuộc hội thoại, sắp xếp theo thời gian
         """
         try:
-            # Bước 1: Lấy session_id từ session_id
+            # Bước 1: Lấy conversation_id từ conversation_id
             conv_result = (
                 self.from_table("conversations")
                 .select("conversation_id")
@@ -369,7 +369,7 @@ class SupabaseDatabase:
             Kết quả của thao tác
         """
         try:
-            # Bước 1: Lấy session_id từ session_id, kiểm tra cả user_id nếu có
+            # Bước 1: Lấy conversation_id từ conversation_id, kiểm tra cả user_id nếu có
             query = (
                 self.from_table("conversations")
                 .select("conversation_id")

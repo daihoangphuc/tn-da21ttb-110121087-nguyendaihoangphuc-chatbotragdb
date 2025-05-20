@@ -109,7 +109,9 @@ class QuestionRequest(BaseModel):
     alpha: Optional[float] = 0.7  # Hệ số kết hợp giữa semantic và keyword search
     sources: Optional[List[str]] = None  # Danh sách các file nguồn cần tìm kiếm
     file_id: Optional[List[str]] = None  # Danh sách các file_id cần tìm kiếm
-    session_id: Optional[str] = None  # ID phiên hội thoại, tự động tạo nếu không có
+    conversation_id: Optional[str] = (
+        None  # ID phiên hội thoại, tự động tạo nếu không có
+    )
 
 
 class AnswerResponse(BaseModel):
@@ -417,16 +419,16 @@ async def ask_question(
     - **search_type**: Loại tìm kiếm ("semantic", "keyword", "hybrid")
     - **alpha**: Hệ số kết hợp giữa semantic và keyword search (0.7 = 70% semantic + 30% keyword)
     - **sources**: Danh sách các file nguồn cần tìm kiếm
-    - **session_id**: ID phiên hội thoại để duy trì ngữ cảnh cuộc hội thoại
+    - **conversation_id**: ID phiên hội thoại để duy trì ngữ cảnh cuộc hội thoại
     """
     try:
         # Lấy hoặc tạo ID phiên hội thoại
-        session_id = request.session_id
+        conversation_id = request.conversation_id
         user_id = current_user.id
 
-        if not session_id:
+        if not conversation_id:
             # Tạo ID phiên mới nếu không có
-            session_id = f"session_{uuid4().hex[:8]}"
+            conversation_id = f"session_{uuid4().hex[:8]}"
 
         # Kiểm tra xem người dùng đã chọn nguồn hay chưa
         if not request.sources or len(request.sources) == 0:
@@ -518,11 +520,11 @@ async def ask_question(
 
         # Thêm tin nhắn người dùng vào bộ nhớ hội thoại
         conversation_manager.add_user_message(
-            session_id, request.question, user_id=user_id
+            conversation_id, request.question, user_id=user_id
         )
 
         # Lấy lịch sử hội thoại để sử dụng trong prompt
-        conversation_history = conversation_manager.format_for_prompt(session_id)
+        conversation_history = conversation_manager.format_for_prompt(conversation_id)
         print(f"Lịch sử hội thoại: {conversation_history}")
 
         # Gọi RAG để lấy kết quả, kèm theo lịch sử hội thoại
@@ -536,7 +538,7 @@ async def ask_question(
 
         # Thêm câu trả lời của AI vào bộ nhớ hội thoại
         conversation_manager.add_ai_message(
-            session_id, result["answer"], user_id=user_id
+            conversation_id, result["answer"], user_id=user_id
         )
 
         # Tạo các câu hỏi liên quan sau khi có kết quả
@@ -554,7 +556,7 @@ async def ask_question(
         result["question_id"] = question_id
         result["reranker_model"] = reranker_info
         result["processing_time"] = round(elapsed_time, 2)
-        result["session_id"] = session_id  # Trả về session_id cho client
+        result["conversation_id"] = conversation_id  # Trả về conversation_id cho client
 
         # Thêm thông tin số lượng kết quả được rerank vào debug info
         debug_info = {
@@ -579,7 +581,7 @@ async def ask_question(
             "timestamp": datetime.now().isoformat(),
             "answer": result["answer"],
             "debug_info": debug_info,
-            "session_id": session_id,  # Lưu session_id vào lịch sử
+            "conversation_id": conversation_id,  # Lưu conversation_id vào lịch sử
         }
 
         return result
@@ -703,7 +705,7 @@ async def ask_question_stream(
                         # Truyền thông tin bắt đầu
                         chunk["data"]["question_id"] = question_id
                         chunk["data"][
-                            "session_id"
+                            "conversation_id"
                         ] = conversation_manager.get_current_conversation_id()
                         yield f"event: start\ndata: {json.dumps(chunk['data'])}\n\n"
 
@@ -718,10 +720,10 @@ async def ask_question_stream(
                                 :max_sources
                             ]
 
-                        # Thêm question_id và session_id vào kết quả
+                        # Thêm question_id và conversation_id vào kết quả
                         chunk["data"]["question_id"] = question_id
                         chunk["data"][
-                            "session_id"
+                            "conversation_id"
                         ] = conversation_manager.get_current_conversation_id()
 
                         # Trả về nguồn dưới dạng SSE
@@ -738,7 +740,7 @@ async def ask_question_stream(
                         # Khi kết thúc, thêm thông tin bổ sung
                         chunk["data"]["question_id"] = question_id
                         chunk["data"][
-                            "session_id"
+                            "conversation_id"
                         ] = conversation_manager.get_current_conversation_id()
 
                         # Thêm câu trả lời của AI vào bộ nhớ hội thoại
@@ -778,7 +780,7 @@ async def ask_question_stream(
                                 "processing_time": chunk["data"].get(
                                     "processing_time", 0
                                 ),
-                                "session_id": conversation_manager.get_current_conversation_id(),
+                                "conversation_id": conversation_manager.get_current_conversation_id(),
                                 "related_questions": chunk["data"].get(
                                     "related_questions", []
                                 ),
@@ -793,7 +795,7 @@ async def ask_question_stream(
                     "error": True,
                     "message": str(e),
                     "question_id": question_id,
-                    "session_id": conversation_manager.get_current_conversation_id(),
+                    "conversation_id": conversation_manager.get_current_conversation_id(),
                 }
                 yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
                 print(f"Lỗi khi xử lý stream: {str(e)}")
@@ -1125,7 +1127,7 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
         for path in file_paths:
             print(f"[DELETE] Thử xóa với đường dẫn: {path}")
             try:
-                # Sử dụng phương thức delete_by_file_path mới
+                # Sử dụng phương thức delete_by_file_path
                 success, message = rag_system.vector_store.delete_by_file_path(
                     path, user_id=current_user.id
                 )
@@ -1272,10 +1274,10 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
                 # Lấy file_id từ kết quả tìm kiếm
                 file_id = files[0].get("file_id")
                 if file_id:
-                    # Đánh dấu file đã xóa
-                    files_manager.mark_file_as_deleted(file_id)
+                    # Xóa vĩnh viễn file khỏi database thay vì chỉ đánh dấu đã xóa
+                    files_manager.delete_file_permanently(file_id)
                     print(
-                        f"[DELETE] Đã đánh dấu file {filename} (ID: {file_id}) là đã xóa trong database"
+                        f"[DELETE] Đã xóa vĩnh viễn file {filename} (ID: {file_id}) khỏi database"
                     )
         except Exception as e:
             print(f"[DELETE] Lỗi khi đánh dấu file đã xóa trong database: {str(e)}")
@@ -2092,7 +2094,7 @@ async def get_question_suggestions(
         # Kiểm tra xem đề xuất có dựa trên lịch sử hội thoại hay không
         from_history = bool(conversation_data and conversation_data.get("messages"))
         conversation_id = (
-            conversation_data.get("conversation_info", {}).get("session_id")
+            conversation_data.get("conversation_info", {}).get("conversation_id")
             if from_history
             else None
         )

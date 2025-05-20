@@ -60,40 +60,29 @@ class QueryRouter:
             Loại câu hỏi: "question_from_document", "realtime_question", hoặc "other_question"
         """
         prompt = f"""
-        Bạn là một hệ thống phân loại câu hỏi cho ứng dụng cơ sở dữ liệu (database). 
-        Xác định xem câu hỏi sau thuộc loại nào:
+        Phân loại câu hỏi sau vào một trong ba loại:
         
         Câu hỏi: "{query}"
         
-        Phân loại thành một trong các loại sau:
-        1. "question_from_document": Câu hỏi về kiến thức cơ sở dữ liệu cơ bản, các khái niệm, syntax SQL, thiết kế cơ sở dữ liệu, các nguyên lý, v.v. Những câu hỏi này không liên quan đến thời gian hiện tại hoặc xu hướng mới.
+        1. "question_from_document": Câu hỏi về kiến thức cơ sở dữ liệu cơ bản, khái niệm, cú pháp, thiết kế, hoặc so sánh công nghệ CSDL không đề cập đến thời gian hiện tại.
+            Ví dụ:
+            - "Cơ sở dữ liệu là gì?"
+            - "So sánh SQL và NoSQL?"
+            - "Cú pháp INSERT INTO trong SQL như thế nào?"
+            - Lấy danh sách các bảng trong cơ sở dữ liệu ...
         
-        2. "realtime_question": Câu hỏi liên quan đến cơ sở dữ liệu nhưng cần thông tin thời gian thực ở hiện tại. Câu hỏi thuộc loại này thường:
-           - Có các từ khóa thời gian: "hiện nay", "hiện tại", "bây giờ", "thời điểm này", "lúc này", "gần đây", "năm nay", "đương đại", v.v.
-           - Hỏi về xu hướng mới nhất, phiên bản mới nhất của các CSDL
-           - Hỏi về sự so sánh công nghệ CSDL trong bối cảnh hiện tại
-           - Hỏi về các công nghệ đang phát triển, đang phổ biến
-           LƯU Ý QUAN TRỌNG: Ngay cả khi câu hỏi hỏi về khái niệm cơ bản nhưng có các từ khóa thời gian như "hiện nay", "hiện tại", v.v., vẫn phân loại là "realtime_question"
+        2. "realtime_question": Câu hỏi về CSDL có đề cập đến thời gian hiện tại, xu hướng mới nhất, phiên bản mới nhất, hoặc công nghệ đang phát triển. Câu hỏi này PHẢI có từ khóa thời gian như "hiện nay", "hiện tại", "bây giờ", "năm 2023", "năm 2024", v.v.
+            Ví dụ:
+            - "Xu hướng cơ sở dữ liệu mới nhất hiện nay là gì?"
+            - "Phiên bản PostgreSQL 16 hiện tại có gì mới?"
+            - "Công nghệ cơ sở dữ liệu nào đang phát triển mạnh mẽ vào năm 2024?"
         
         3. "other_question": Câu hỏi không liên quan đến lĩnh vực cơ sở dữ liệu.
+            Ví dụ:
+            - "Thời tiết hôm nay thế nào?"
+            - "Cách làm món phở bò?"
         
-        Các ví dụ về question_from_document:
-        - "SELECT là gì trong SQL?"
-        - "Cách thiết kế khóa ngoại trong cơ sở dữ liệu?"
-        - "Các loại JOIN trong SQL?"
-        - "CSDL có những khái niệm gì?"
-        
-        Các ví dụ về realtime_question:
-        - "PostgreSQL có gì mới trong phiên bản 15?"
-        - "So sánh MongoDB và MySQL trong năm 2024?"
-        - "Xu hướng cơ sở dữ liệu hiện nay?"
-        - "Hiện nay CSDL có khái niệm gì?" (Chú ý từ "hiện nay")
-        - "Các công nghệ CSDL đang phổ biến?"
-        
-        Các ví dụ về other_question:
-        - "Thời tiết ở Hà Nội hôm nay thế nào?"
-        - "Làm sao để nấu bún bò Huế?"
-        - "Tôi nên học tiếng Anh như thế nào?"
+        LƯU Ý: Câu hỏi so sánh giữa các công nghệ CSDL mà KHÔNG có từ khóa thời gian thuộc loại "question_from_document".
         
         Chỉ trả về một trong ba giá trị: "question_from_document", "realtime_question", hoặc "other_question" mà không có thêm bất kỳ giải thích nào.
         """

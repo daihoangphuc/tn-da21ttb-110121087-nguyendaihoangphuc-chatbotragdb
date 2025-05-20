@@ -313,7 +313,7 @@ class AdvancedDatabaseRAG:
     def hybrid_search(
         self,
         query: str,
-        k: int = 15,
+        k: int = 10,
         alpha: float = None,
         sources: List[str] = None,
         file_id: List[str] = None,
@@ -616,7 +616,7 @@ class AdvancedDatabaseRAG:
             }
 
         # Tăng số lượng kết quả ban đầu để có nhiều hơn cho reranking
-        search_k = 25  # Tăng lên 25 kết quả đầu vào
+        search_k = 15
 
         # Xác định loại tìm kiếm
         if search_type == "semantic":
@@ -769,7 +769,7 @@ class AdvancedDatabaseRAG:
                 "section": metadata.get(
                     "position", metadata.get("chunk_type", "Unknown")
                 ),
-                "content_snippet": doc["text"][:300] + "...",  # Hiển thị preview
+                "content_snippet": doc["text"],
                 "score": doc.get("score", 0.0),
                 "rerank_score": doc.get("rerank_score", 0.0),  # Điểm sau rerank
                 "metadata_boost": metadata_boost,  # Thêm thông tin về điểm nâng cao từ metadata
@@ -1022,7 +1022,7 @@ class AdvancedDatabaseRAG:
 
             # Tạo snippet từ nội dung
             content = doc["text"]
-            snippet = content[:200] + "..." if len(content) > 200 else content
+            snippet = content
 
             # Thêm vào danh sách nguồn
             sources_list.append(

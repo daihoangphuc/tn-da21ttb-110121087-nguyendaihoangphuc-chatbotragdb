@@ -53,13 +53,13 @@ class PromptManager:
             - Nếu không tìm thấy thông tin đầy đủ để trả lời câu hỏi, KHÔNG được sử dụng kiến thức bên ngoài. Hãy trả lời: "Tôi không thể trả lời đầy đủ câu hỏi này dựa trên tài liệu hiện có. Thông tin về [chủ đề] không được tìm thấy trong tài liệu được cung cấp."
             - Nếu chỉ tìm thấy một phần thông tin, hãy chỉ trả lời phần đó và nói rõ: "Tôi chỉ tìm thấy thông tin giới hạn về chủ đề này trong tài liệu được cung cấp."
 
-            NGUYÊN TẮC ĐỊNH DẠNG MARKDOWN:
+            NGUYÊN TẮC LUÔN PHẢI TUÂN THỦ ĐỊNH DẠNG MARKDOWN CHO PHẢN HỒI TỪ LLM:
             - Sử dụng ## cho tiêu đề chính, ### cho tiêu đề phụ
             - Sử dụng **văn bản** để làm nổi bật nội dung quan trọng
-            - Sử dụng ```sql và ``` cho khối mã SQL
-            - Sử dụng danh sách có dấu gạch đầu dòng (-) và có số (1. 2. 3.)
+            - Sử dụng ```sql và ``` cho khối mã SQL ví dụ: ```sql SELECT * FROM USERS ``` (Nếu code quá dài bạn có thể fortmat cho dễ nhìn (TUYỆT ĐỐI KHÔNG TỰ Ý ĐỔI CODE VÀ ĐẢM BẢO TỪNG KHỐI CODE NẾU RIÊNG LẺ (nếu có))
+            - Sử dụng danh sách cho các dạng liệt kê sẽ có dấu gạch đầu dòng (-) và có số (1. 2. 3.) (ƯU TIÊN TUÂN THEO CÁCH LIỆT KÊ TRONG CONTEXT)
             - KHÔNG sử dụng HTML, chỉ dùng Markdown
-            - KHI CÂU TRẢ LỜI DẠNG BẢNG NHƯNG QUÁ DÀI THÌ HÃY TRẢ LỜI DẠNG LIỆT KÊ
+            - KHI CÂU TRẢ LỜI DẠNG BẢNG NHƯNG QUÁ NHIỀU CỘT ĐỂ TRÌNH BÀY THÌ HÃY TRẢ LỜI DẠNG LIỆT KÊ
             """,
             # Giữ lại template gợi ý câu hỏi liên quan
             "related_questions": """
@@ -74,13 +74,15 @@ class PromptManager:
             2. Khám phá các trường hợp sử dụng thực tế hoặc ứng dụng cụ thể
             3. Giúp hiểu rõ hơn về các khái niệm liên quan hoặc phương pháp thay thế
             
-            Format câu trả lời của bạn như sau:
+            Format câu trả lời của bạn như sau: 
             1. [Câu hỏi 1]
             2. [Câu hỏi 2]
             3. [Câu hỏi 3]
             
             - NẾU CÂU HỎI NGƯỜI DÙNG ĐẶT RA KHÔNG LIÊN QUAN ĐẾN LĨNH VỰC VỰC CƠ SỞ DỮ LIỆU THÌ HÃY ĐƯA RA 3 CÂU HỔI TRÊN SAO CHO HƯỚNG NGƯỜI DÙNG ĐẾN VIỆC HỎI CÁC CÂU HỎI LIÊN QUAN ĐẾ LĨNH VỰC CƠ SỞ DỮ LIỆU.
-            QUAN TRỌNG: Chỉ trả về 3 câu hỏi theo đúng format trên, KHÔNG có nội dung giới thiệu hoặc kết luận. Mỗi câu hỏi phải là câu hoàn chỉnh kết thúc bằng dấu hỏi.
+            QUAN TRỌNG: 
+            + Chỉ trả về 3 câu hỏi theo đúng format trên, KHÔNG có nội dung giới thiệu hoặc kết luận. Mỗi câu hỏi phải là câu hoàn chỉnh kết thúc bằng dấu hỏi.
+            + Câu hỏi gợi ý không cần quá dài, ngắn ngắn dễ hiểu, hiệu quả là được.
             """,
         }
 
@@ -137,24 +139,6 @@ class PromptManager:
         # Xử lý đặc biệt cho câu hỏi so sánh
         if "so sánh" in query.lower():
             special_instruction = """
-            
-            ĐÂY LÀ HƯỚNG DẪN CHO CÂU HỎI DẠNG SO SÁNH:
-            
-            Trong trường hợp câu hỏi so sánh, hãy sử dụng một trong hai cách sau:
-            
-            1. Bảng đơn giản (nếu có ít thông tin):
-               | Tiêu chí | Khái niệm A | Khái niệm B |
-               |----------|-------------|-------------|
-               | Định nghĩa | ... | ... |
-               
-            2. Hoặc dùng danh sách (nếu thông tin dài):
-               **Khái niệm A:**
-               - Định nghĩa: ...
-               - Đặc điểm: ...
-               
-               **Khái niệm B:**
-               - Định nghĩa: ...
-               - Đặc điểm: ...
             """
 
             # Thêm hướng dẫn đặc biệt vào đầu prompt
@@ -193,24 +177,6 @@ class PromptManager:
         # Xử lý đặc biệt cho câu hỏi so sánh
         if "so sánh" in query.lower():
             special_instruction = """
-
-            ĐÂY LÀ HƯỚNG DẪN CHO CÂU HỎI DẠNG SO SÁNH:
-            
-            Trong trường hợp câu hỏi so sánh, hãy sử dụng một trong hai cách sau:
-            
-            1. Bảng đơn giản (nếu có ít thông tin):
-               | Tiêu chí | Khái niệm A | Khái niệm B |
-               |----------|-------------|-------------|
-               | Định nghĩa | ... | ... |
-               
-            2. Hoặc dùng danh sách (nếu thông tin dài):
-               **Khái niệm A:**
-               - Định nghĩa: ...
-               - Đặc điểm: ...
-               
-               **Khái niệm B:**
-               - Định nghĩa: ...
-               - Đặc điểm: ...
             """
 
             # Thêm hướng dẫn đặc biệt vào đầu prompt

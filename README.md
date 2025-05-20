@@ -632,7 +632,7 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
   "message": "Đã tìm thấy 8 hội thoại",
   "conversations": [
     {
-      "session_id": "session_2uwagwprti7",
+      "conversation_id": "session_2uwagwprti7",
       "last_updated": "2023-10-15T10:45:20",
       "message_count": 8,
       "first_message": "Phân biệt giữa INNER JOIN và LEFT JOIN?"
@@ -643,13 +643,13 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
 ```
 
 ### 20. Chi tiết hội thoại
-**Endpoint**: `GET /api/conversations/{session_id}`
+**Endpoint**: `GET /api/conversations/{conversation_id}`
 
 **Mô tả**: Lấy chi tiết hội thoại cho một phiên cụ thể
 
 **Tham số đầu vào**:
 - **Path Parameter**:
-  - `session_id`: ID phiên hội thoại cần lấy chi tiết
+  - `conversation_id`: ID phiên hội thoại cần lấy chi tiết
 
 **Kết quả trả về**:
 ```json
@@ -657,7 +657,7 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
   "status": "success",
   "message": "Đã tìm thấy chi tiết hội thoại cho phiên session_2uwagwprti7",
   "data": {
-    "session_id": "session_2uwagwprti7",
+    "conversation_id": "session_2uwagwprti7",
     "last_updated": "2023-10-15T10:45:20",
     "messages": [
       {

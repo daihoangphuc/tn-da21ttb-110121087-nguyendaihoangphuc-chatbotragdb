@@ -123,14 +123,14 @@ class SupabaseConversationManager:
             print(f"Lỗi khi thêm tin nhắn AI: {str(e)}")
             raise e
 
-    def _get_next_sequence(self, session_id: str) -> int:
+    def _get_next_sequence(self, conversation_id: str) -> int:
         """Lấy sequence tiếp theo cho tin nhắn mới"""
         try:
             # Tìm sequence lớn nhất
             result = (
                 self.supabase_client.table("messages")
                 .select("sequence")
-                .eq("conversation_id", session_id)
+                .eq("conversation_id", conversation_id)
                 .order("sequence", desc=True)
                 .limit(1)
                 .execute()
@@ -144,24 +144,24 @@ class SupabaseConversationManager:
             return 1
 
     def _ensure_conversation_exists(
-        self, session_id: str, user_id: Optional[str] = None
+        self, conversation_id: str, user_id: Optional[str] = None
     ) -> str:
         """
         Đảm bảo phiên hội thoại tồn tại, nếu không thì tạo mới
 
         Args:
-            session_id: ID phiên hội thoại
+            conversation_id: ID phiên hội thoại
             user_id: ID người dùng (tùy chọn)
 
         Returns:
-            session_id đã tồn tại hoặc mới tạo
+            conversation_id đã tồn tại hoặc mới tạo
         """
         try:
             # Kiểm tra phiên đã tồn tại chưa
             result = (
                 self.supabase_client.table("conversations")
                 .select("conversation_id")
-                .eq("conversation_id", session_id)
+                .eq("conversation_id", conversation_id)
                 .execute()
             )
 
@@ -173,7 +173,7 @@ class SupabaseConversationManager:
                     self.supabase_client.table("conversations")
                     .insert(
                         {
-                            "conversation_id": session_id,
+                            "conversation_id": conversation_id,
                             "user_id": user_id if user_id else uuid.uuid4(),
                             "last_updated": "NOW()",
                         }
@@ -181,41 +181,41 @@ class SupabaseConversationManager:
                     .execute()
                 )
                 if hasattr(create_result, "data") and create_result.data:
-                    print(f"Đã tạo phiên hội thoại mới: {session_id}")
+                    print(f"Đã tạo phiên hội thoại mới: {conversation_id}")
                 else:
                     print(f"Lỗi khi tạo phiên hội thoại: {create_result}")
             else:
                 # Cập nhật last_updated
-                self._update_conversation_timestamp(session_id)
+                self._update_conversation_timestamp(conversation_id)
 
-            return session_id
+            return conversation_id
         except Exception as e:
             print(f"Lỗi khi đảm bảo phiên hội thoại tồn tại: {str(e)}")
             import traceback
 
             print(traceback.format_exc())
-            return session_id
+            return conversation_id
 
-    def _update_conversation_timestamp(self, session_id: str) -> None:
+    def _update_conversation_timestamp(self, conversation_id: str) -> None:
         """
         Cập nhật thời gian cuối cùng của phiên hội thoại
 
         Args:
-            session_id: ID phiên hội thoại
+            conversation_id: ID phiên hội thoại
         """
         try:
             self.supabase_client.table("conversations").update(
                 {"last_updated": "NOW()"}
-            ).eq("conversation_id", session_id).execute()
+            ).eq("conversation_id", conversation_id).execute()
         except Exception as e:
             print(f"Lỗi khi cập nhật timestamp: {str(e)}")
 
-    def get_messages(self, session_id: str, limit: int = 100) -> List[Dict]:
+    def get_messages(self, conversation_id: str, limit: int = 100) -> List[Dict]:
         """
         Lấy danh sách tin nhắn của một phiên hội thoại
 
         Args:
-            session_id: ID phiên hội thoại
+            conversation_id: ID phiên hội thoại
             limit: Số lượng tin nhắn tối đa trả về
 
         Returns:
@@ -223,25 +223,25 @@ class SupabaseConversationManager:
         """
         try:
             # Lấy tin nhắn từ Supabase
-            messages = self.db.get_conversation_history(session_id, limit)
+            messages = self.db.get_conversation_history(conversation_id, limit)
             return messages if messages else []
         except Exception as e:
             print(f"Lỗi khi lấy tin nhắn: {str(e)}")
             return []
 
-    def clear_memory(self, session_id: str) -> bool:
+    def clear_memory(self, conversation_id: str) -> bool:
         """
         Xóa tất cả tin nhắn trong hội thoại
 
         Args:
-            session_id: ID phiên hội thoại cần xóa
+            conversation_id: ID phiên hội thoại cần xóa
 
         Returns:
             True nếu xóa thành công, False nếu có lỗi
         """
         try:
             # Xóa tin nhắn trên Supabase
-            result = self.db.clear_conversation_history(session_id)
+            result = self.db.clear_conversation_history(conversation_id)
             if isinstance(result, dict) and result.get("error"):
                 print(f"Lỗi khi xóa tin nhắn từ Supabase: {result.get('error')}")
                 return False
@@ -410,12 +410,12 @@ class SupabaseConversationManager:
             print(f"Lỗi khi lấy danh sách hội thoại: {str(e)}")
             return []
 
-    def delete_conversation(self, session_id: str, user_id: str) -> bool:
+    def delete_conversation(self, conversation_id: str, user_id: str) -> bool:
         """
         Xóa hoàn toàn một phiên hội thoại
 
         Args:
-            session_id: ID phiên hội thoại cần xóa
+            conversation_id: ID phiên hội thoại cần xóa
             user_id: ID người dùng sở hữu
 
         Returns:
@@ -426,14 +426,14 @@ class SupabaseConversationManager:
             result = (
                 self.supabase_client.table("conversations")
                 .select("conversation_id")
-                .eq("conversation_id", session_id)
+                .eq("conversation_id", conversation_id)
                 .eq("user_id", user_id)
                 .execute()
             )
 
             if not hasattr(result, "data") or not result.data:
                 print(
-                    f"Không tìm thấy phiên hội thoại {session_id} của người dùng {user_id}"
+                    f"Không tìm thấy phiên hội thoại {conversation_id} của người dùng {user_id}"
                 )
                 return False
 
@@ -441,13 +441,13 @@ class SupabaseConversationManager:
             delete_result = (
                 self.supabase_client.table("conversations")
                 .delete()
-                .eq("conversation_id", session_id)
+                .eq("conversation_id", conversation_id)
                 .eq("user_id", user_id)
                 .execute()
             )
 
             if hasattr(delete_result, "data") and delete_result.data:
-                print(f"Đã xóa phiên hội thoại {session_id}")
+                print(f"Đã xóa phiên hội thoại {conversation_id}")
                 return True
             else:
                 print(f"Lỗi khi xóa phiên hội thoại: {delete_result}")
@@ -512,7 +512,7 @@ class SupabaseConversationManager:
             Dict chứa thông tin hội thoại và danh sách tin nhắn:
             {
                 "conversation_info": {
-                    "session_id": str,
+                    "conversation_id": str,
                     "last_updated": str,
                     "first_message": str,
                     "message_count": int
@@ -558,7 +558,7 @@ class SupabaseConversationManager:
 
                     return {
                         "conversation_info": {
-                            "session_id": conversation_id,
+                            "conversation_id": conversation_id,
                             "last_updated": last_updated,
                             "first_message": first_message,
                             "message_count": len(messages),

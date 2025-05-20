@@ -21,7 +21,7 @@ Dùng cho việc đặt câu hỏi.
 -   `alpha` (Optional[float], default: 0.7): Hệ số kết hợp giữa semantic và keyword search (ví dụ: 0.7 nghĩa là 70% semantic, 30% keyword).
 -   `sources` (Optional[List[str]], default: None): Danh sách các tên file hoặc đường dẫn file nguồn cần tìm kiếm.
 -   `file_id` (Optional[List[str]], default: None): Danh sách các `file_id` của tài liệu cần tìm kiếm (sử dụng trong API stream).
--   `session_id` (Optional[str], default: None): ID của phiên hội thoại. Nếu không cung cấp, một ID mới sẽ được tạo tự động.
+-   `conversation_id` (Optional[str], default: None): ID của phiên hội thoại. Nếu không cung cấp, một ID mới sẽ được tạo tự động.
 
 ### `AnswerResponse`
 
@@ -47,7 +47,7 @@ Dùng cho việc trả về câu trả lời cho một câu hỏi.
 -   `is_low_confidence` (Optional[bool]): `True` nếu câu trả lời có độ tin cậy thấp.
 -   `confidence_score` (Optional[float]): Điểm tin cậy của câu trả lời.
 -   `query_type` (Optional[str]): Loại câu hỏi (ví dụ: "question_from_document", "realtime_question").
--   `session_id` (Optional[str]): ID của phiên hội thoại.
+-   `conversation_id` (Optional[str]): ID của phiên hội thoại.
 
 ### `FileInfo`
 
@@ -206,11 +206,11 @@ Thông tin về cuộc hội thoại gần đây nhất.
     -   **Request Body:** `QuestionRequest` (trong đó `file_id` được ưu tiên sử dụng thay vì `sources`).
 -   **Đầu ra (Thành công - 200):** `StreamingResponse` (media type: `text/event-stream`).
     Các sự kiện SSE có thể bao gồm:
-    -   `event: start`: Bắt đầu quá trình trả lời. Dữ liệu là JSON object chứa `question_id`, `session_id`.
-    -   `event: sources`: Thông tin về các nguồn tài liệu. Dữ liệu là JSON object chứa `sources`, `question_id`, `session_id`.
+    -   `event: start`: Bắt đầu quá trình trả lời. Dữ liệu là JSON object chứa `question_id`, `conversation_id`.
+    -   `event: sources`: Thông tin về các nguồn tài liệu. Dữ liệu là JSON object chứa `sources`, `question_id`, `conversation_id`.
     -   `event: content`: Một phần của nội dung câu trả lời. Dữ liệu là JSON object chứa `content`.
-    -   `event: end`: Kết thúc quá trình trả lời. Dữ liệu là JSON object chứa thông tin tổng kết như `question_id`, `session_id`, `processing_time`, `related_questions`.
-    -   `event: error`: Nếu có lỗi xảy ra trong quá trình stream. Dữ liệu là JSON object chứa `error: true`, `message`, `question_id`, `session_id`.
+    -   `event: end`: Kết thúc quá trình trả lời. Dữ liệu là JSON object chứa thông tin tổng kết như `question_id`, `conversation_id`, `processing_time`, `related_questions`.
+    -   `event: error`: Nếu có lỗi xảy ra trong quá trình stream. Dữ liệu là JSON object chứa `error: true`, `message`, `question_id`, `conversation_id`.
 -   **Lỗi có thể xảy ra (Trước khi stream bắt đầu):**
     -   `400 Bad Request`: Nếu không cung cấp `file_id`. Nội dung response:
         ```json

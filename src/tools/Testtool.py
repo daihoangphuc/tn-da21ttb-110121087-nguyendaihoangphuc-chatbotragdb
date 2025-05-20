@@ -10,7 +10,7 @@ load_dotenv()
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 USE_GEMINI = os.getenv("USE_GEMINI", "false").lower() == "true"
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "gemini-2.0-flash")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 if USE_GEMINI:
@@ -23,7 +23,7 @@ class WebSearchAgent:
         self.verbose = verbose
         if USE_GEMINI:
             self.llm = ChatGoogleGenerativeAI(
-                model=GEMINI_MODEL, temperature=0, google_api_key=GOOGLE_API_KEY
+                model=LLM_MODEL_NAME, temperature=0, google_api_key=GOOGLE_API_KEY
             )
 
     def query(self, question: str) -> dict:

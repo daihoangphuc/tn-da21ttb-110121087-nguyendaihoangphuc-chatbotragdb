@@ -362,43 +362,43 @@ class SearchManager:
         # Khởi tạo lại BM25
         return self._initialize_bm25()
 
-    def hybrid_search(
-        self,
-        query: str,
-        k: int = 5,
-        alpha: float = 0.7,
-        sources: List[str] = None,
-        file_id: List[str] = None,
-    ) -> List[Dict]:
-        """Kết hợp tìm kiếm ngữ nghĩa và keyword"""
-        print(f"=== Bắt đầu hybrid search với alpha={alpha} ===")
+    # def hybrid_search(
+    #     self,
+    #     query: str,
+    #     k: int = 5,
+    #     alpha: float = 0.7,
+    #     sources: List[str] = None,
+    #     file_id: List[str] = None,
+    #     ) -> List[Dict]:
+    #     """Kết hợp tìm kiếm ngữ nghĩa và keyword"""
+    #     print(f"=== Bắt đầu hybrid search với alpha={alpha} ===")
 
-        semantic = self.semantic_search(query, k=k, sources=sources, file_id=file_id)
-        print(f"Đã tìm được {len(semantic)} kết quả từ semantic search")
+    #     semantic = self.semantic_search(query, k=k, sources=sources, file_id=file_id)
+    #     print(f"Đã tìm được {len(semantic)} kết quả từ semantic search")
 
-        keyword = self.keyword_search(query, k=k, sources=sources, file_id=file_id)
-        print(f"Đã tìm được {len(keyword)} kết quả từ keyword search")
+    #     keyword = self.keyword_search(query, k=k, sources=sources, file_id=file_id)
+    #     print(f"Đã tìm được {len(keyword)} kết quả từ keyword search")
 
-        combined = {}
-        for res in semantic:
-            combined[res["text"]] = {**res, "score": alpha * res["score"]}
+    #     combined = {}
+    #     for res in semantic:
+    #         combined[res["text"]] = {**res, "score": alpha * res["score"]}
 
-        for res in keyword:
-            if res["text"] in combined:
-                combined[res["text"]]["score"] += (1 - alpha) * res["score"]
-                print(f"Đã kết hợp kết quả trùng lặp: {res['text'][:50]}...")
-            else:
-                combined[res["text"]] = {**res, "score": (1 - alpha) * res["score"]}
+    #     for res in keyword:
+    #         if res["text"] in combined:
+    #             combined[res["text"]]["score"] += (1 - alpha) * res["score"]
+    #             print(f"Đã kết hợp kết quả trùng lặp: {res['text'][:50]}...")
+    #         else:
+    #             combined[res["text"]] = {**res, "score": (1 - alpha) * res["score"]}
 
-        sorted_results = sorted(
-            combined.values(), key=lambda x: x["score"], reverse=True
-        )
+    #     sorted_results = sorted(
+    #         combined.values(), key=lambda x: x["score"], reverse=True
+    #     )
 
-        print(
-            f"=== Kết thúc hybrid search: {len(sorted_results[:k])}/{len(combined)} kết quả ==="
-        )
+    #     print(
+    #         f"=== Kết thúc hybrid search: {len(sorted_results[:k])}/{len(combined)} kết quả ==="
+    #     )
 
-        return sorted_results[:k]
+    #     return sorted_results[:k]
 
     def rerank_results(self, query: str, results: List[Dict]) -> List[Dict]:
         """Tái xếp hạng kết quả sử dụng cross-encoder và metadata phong phú"""
@@ -407,7 +407,7 @@ class SearchManager:
 
         # Sử dụng model reranker đã được tải trước đó
         pairs = [(query, result["text"]) for result in results]
-        scores = self.reranker.predict(pairs)
+        scores = self.reranker.predict(pairs, batch_size=8)
 
         # Nhận dạng loại truy vấn (definition, syntax, example, etc.)
         query_type = self._detect_query_type(query)
