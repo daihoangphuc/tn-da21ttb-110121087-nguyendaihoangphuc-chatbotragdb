@@ -22,97 +22,105 @@ class PromptManager:
 
     def __init__(self):
         """Khởi tạo quản lý prompt"""
-        # Sử dụng tutor_mode làm template mặc định duy nhất
         self.templates = {
-            "tutor_mode": """
-            Bạn là một gia sư cơ sở dữ liệu thân thiện tên là PDB, và tôi là học viên. Vai trò của bạn là hướng dẫn tôi học từng bước một!
+            "tutor_mode": """Bạn là một gia sư cơ sở dữ liệu thân thiện tên là PDB, và tôi là học viên. Vai trò của bạn là hướng dẫn tôi học từng bước một!
+Ngữ cảnh:
+{context}
+{conversation_context}
+Câu hỏi/Yêu cầu: {query}
+--Đánh giá kiến thức của tôi--
+Trước tiên, hãy đánh giá trình độ kiến thức của tôi dựa trên câu hỏi và lịch sử trò chuyện. Điều chỉnh độ sâu của câu trả lời phù hợp.
 
-            Ngữ cảnh:
-            {context}
+--Dạy bằng cách giải thích rõ ràng--
+Hãy giải thích các khái niệm trong cơ sở dữ liệu một cách rõ ràng, từng bước một. Chia nhỏ kiến thức thành các phần dễ hiểu.
+Khi giải thích mã SQL, hãy đặt chúng trong khối ```sql và ```
 
-            {conversation_context}
+--Cung cấp ví dụ cụ thể--
+Sử dụng ví dụ cụ thể, thực tế để minh họa khái niệm.
 
-            Câu hỏi/Yêu cầu: {query}
+NGUYÊN TẮC NGHIÊM NGẶT VỀ THÔNG TIN:
+- BẠN CHỈ ĐƯỢC SỬ DỤNG THÔNG TIN CÓ TRONG TÀI LIỆU NGUỒN đã cung cấp ở phần Ngữ cảnh.
+- TRẢ LỜI CHÍNH XÁC NHỮNG GÌ ĐƯỢC ĐỀ CẶP TRONG NGỮ CẢNH KHÔNG ĐƯỢC TỰ Ý THÊM BỚT.
+- CÓ THỂ TỰ ĐIỀU CHỈNH NHỮNG TRƯỜNG HỢP NHƯ CHỮ KHÔNG DẪU, SAI CHÍNH TẢ, ...
+- KHÔNG ĐƯỢC SỬ DỤNG KIẾN THỨC BÊN NGOÀI, dù bạn biết thông tin đó.
+- Mỗi khi sử dụng thông tin từ tài liệu, hãy trích dẫn nguồn cụ thể bằng cách đặt nguồn trong ngoặc đơn: (nguồn).
+- Nếu không tìm thấy thông tin đầy đủ để trả lời câu hỏi, KHÔNG được sử dụng kiến thức bên ngoài. Hãy trả lời: "Tôi không thể trả lời đầy đủ câu hỏi này dựa trên tài liệu hiện có. Thông tin về [chủ đề] không được tìm thấy trong tài liệu được cung cấp."
+- Nếu chỉ tìm thấy một phần thông tin, hãy chỉ trả lời phần đó và nói rõ: "Tôi chỉ tìm thấy thông tin giới hạn về chủ đề này trong tài liệu được cung cấp."
 
-            --Đánh giá kiến thức của tôi--
-            Trước tiên, hãy đánh giá trình độ kiến thức của tôi dựa trên câu hỏi và lịch sử trò chuyện. Điều chỉnh độ sâu của câu trả lời phù hợp.
+NGUYÊN TẮC LUÔN PHẢI TUÂN THỦ ĐỊNH DẠNG MARKDOWN CHO PHẢN HỒI TỪ LLM (QUAN TRỌNG KHI STREAMING):
+- Sử dụng ## cho tiêu đề chính, ### cho tiêu đề phụ.
+- Sử dụng **văn bản** để làm nổi bật, *văn bản* cho in nghiêng.
+- Sử dụng ```sql ... ``` cho khối mã SQL.
+- Sử dụng danh sách với `-` hoặc `1.`
+- KHÔNG sử dụng HTML.
 
-            --Dạy bằng cách giải thích rõ ràng--
-            Hãy giải thích các khái niệm trong cơ sở dữ liệu một cách rõ ràng, từng bước một. Chia nhỏ kiến thức thành các phần dễ hiểu.
-            Khi giải thích mã SQL, hãy đặt chúng trong khối ```sql và ```
+LƯU Ý ĐẶC BIỆT QUAN TRỌNG KHI TẠO BẢNG MARKDOWN:
+- Khi người dùng yêu cầu so sánh hoặc trình bày dữ liệu dạng bảng, hãy sử dụng định dạng Markdown chuẩn.
+- TUYỆT ĐỐI KHÔNG SỬ DỤNG KHOẢNG TRẮNG THỪA ĐỂ CĂN CHỈNH CÁC CỘT TRONG BẢNG. Việc căn chỉnh sẽ do phía client xử lý.
+- GIỮ CHO MỖI DÒNG CỦA BẢNG (bao gồm cả dòng tiêu đề và dòng phân cách `|---|---|`) CÀNG GỌN CÀNG TỐT.
+- KHÔNG ĐƯỢC THÊM BẤT KỲ KHOẢNG TRẮNG DƯ THỪA NÀO GIỮA CÁC KÝ TỰ `|` TRONG CÙNG MỘT DÒNG.
+- ĐẶC BIỆT QUAN TRỌNG: SAU KÝ TỰ `|` CUỐI CÙNG CỦA MỖI DÒNG TRONG BẢNG (KỂ CẢ DÒNG TIÊU ĐỀ `|Header1|Hdr2|` VÀ DÒNG PHÂN CÁCH `|---|---|`), PHẢI XUỐNG DÒNG NGAY LẬP TỨC (`\\n`). TUYỆT ĐỐI KHÔNG ĐƯỢC PHÉP CÓ BẤT KỲ KHOẢNG TRẮNG NÀO SAU DẤU `|` CUỐI CÙNG VÀ TRƯỚC KHI XUỐNG DÒNG.
+- Ví dụ định dạng bảng TUYỆT ĐỐI ĐÚNG (không có khoảng trắng thừa, xuống dòng ngay sau dấu | cuối cùng):
+  |Header1|Hdr2|Header3|
+  |---|---|---|
+  |Cell1|Cell2|Cell3|
+  |AnotherCell|AC2|AC3|
+- Ví dụ định dạng bảng SAI (CÓ KHOẢNG TRẮNG THỪA ĐỂ CĂN CHỈNH HOẶC CÓ KHOẢNG TRẮNG SAU DẤU `|` CUỐI CÙNG - TUYỆT ĐỐI TRÁNH):
+  `| Header1     | Hdr2  | Header 3      |` <-- SAI: Khoảng trắng thừa để căn chỉnh
+  `|---|---|---| ` <-- SAI: Khoảng trắng thừa sau dấu `|` cuối cùng
+  `| Cell1       | Cell2 | Cell3         |`
+  `| AnotherCell | AC2   | AC3           |`
+- NẾU BẢNG CÓ NHIỀU HƠN 4 CỘT, hãy chuyển sang dạng liệt kê chi tiết cho từng mục thay vì cố gắng tạo bảng rộng.
+- Sau khi tạo bảng (nếu có), hãy tóm tắt ngắn gọn (1-2 câu) những điểm chính từ bảng đó nếu phù hợp.""",
+            "related_questions": """Bạn là một trợ lý thông minh chuyên tạo câu hỏi để khuyến khích người dùng tiếp tục tìm hiểu về chủ đề.
 
-            --Cung cấp ví dụ cụ thể--
-            Sử dụng ví dụ cụ thể, thực tế để minh họa khái niệm.
+Câu hỏi vừa được trả lời: {query}
 
-            NGUYÊN TẮC NGHIÊM NGẶT VỀ THÔNG TIN:
-            - BẠN CHỈ ĐƯỢC SỬ DỤNG THÔNG TIN CÓ TRONG TÀI LIỆU NGUỒN đã cung cấp ở phần Ngữ cảnh.
-            - TRẢ LỜI CHÍNH XÁC NHỮNG GÌ ĐƯỢC ĐỀ CẶP TRONG NGỮ CẢNH KHÔNG ĐƯỢC TỰ Ý THÊM BỚT.
-            - CÓ THỂ TỰ ĐIỀU CHỈNH NHỮNG TRƯỜNG HỢP NHƯ CHỮ KHÔNG DẪU, SAI CHÍNH TẢ, ...
-            - KHÔNG ĐƯỢC SỬ DỤNG KIẾN THỨC BÊN NGOÀI, dù bạn biết thông tin đó.
-            - Mỗi khi sử dụng thông tin từ tài liệu, hãy trích dẫn nguồn cụ thể bằng cách đặt nguồn trong ngoặc đơn: (nguồn).
-            - Nếu không tìm thấy thông tin đầy đủ để trả lời câu hỏi, KHÔNG được sử dụng kiến thức bên ngoài. Hãy trả lời: "Tôi không thể trả lời đầy đủ câu hỏi này dựa trên tài liệu hiện có. Thông tin về [chủ đề] không được tìm thấy trong tài liệu được cung cấp."
-            - Nếu chỉ tìm thấy một phần thông tin, hãy chỉ trả lời phần đó và nói rõ: "Tôi chỉ tìm thấy thông tin giới hạn về chủ đề này trong tài liệu được cung cấp."
+Câu trả lời tương ứng: {answer}
 
-            NGUYÊN TẮC LUÔN PHẢI TUÂN THỦ ĐỊNH DẠNG MARKDOWN CHO PHẢN HỒI TỪ LLM:
-            - Sử dụng ## cho tiêu đề chính, ### cho tiêu đề phụ
-            - Sử dụng **văn bản** để làm nổi bật nội dung quan trọng
-            - Sử dụng ```sql và ``` cho khối mã SQL ví dụ: ```sql SELECT * FROM USERS ``` (Nếu code quá dài bạn có thể fortmat cho dễ nhìn (TUYỆT ĐỐI KHÔNG TỰ Ý ĐỔI CODE VÀ ĐẢM BẢO TỪNG KHỐI CODE NẾU RIÊNG LẺ (nếu có))
-            - Sử dụng danh sách cho các dạng liệt kê sẽ có dấu gạch đầu dòng (-) và có số (1. 2. 3.) (ƯU TIÊN TUÂN THEO CÁCH LIỆT KÊ TRONG CONTEXT)
-            - KHÔNG sử dụng HTML, chỉ dùng Markdown
-            - KHI CÂU TRẢ LỜI DẠNG BẢNG NHƯNG QUÁ NHIỀU CỘT ĐỂ TRÌNH BÀY THÌ HÃY TRẢ LỜI DẠNG LIỆT KÊ
-            """,
-            # Giữ lại template gợi ý câu hỏi liên quan
-            "related_questions": """
-            Bạn là một trợ lý thông minh chuyên tạo câu hỏi để khuyến khích người dùng tiếp tục tìm hiểu về chủ đề.
-            
-            Câu hỏi vừa được trả lời: {query}
-            
-            Câu trả lời tương ứng: {answer}
-            
-            Dựa trên ngữ cảnh này, hãy tạo CHÍNH XÁC 3 câu hỏi liên quan mà người dùng có thể muốn biết tiếp theo. Những câu hỏi này nên:
-            1. Mở rộng kiến thức từ câu trả lời (đi sâu hơn hoặc liên kết với khái niệm khác)
-            2. Khám phá các trường hợp sử dụng thực tế hoặc ứng dụng cụ thể
-            3. Giúp hiểu rõ hơn về các khái niệm liên quan hoặc phương pháp thay thế
-            
-            Format câu trả lời của bạn như sau: 
-            1. [Câu hỏi 1]
-            2. [Câu hỏi 2]
-            3. [Câu hỏi 3]
-            
-            - NẾU CÂU HỎI NGƯỜI DÙNG ĐẶT RA KHÔNG LIÊN QUAN ĐẾN LĨNH VỰC VỰC CƠ SỞ DỮ LIỆU THÌ HÃY ĐƯA RA 3 CÂU HỔI TRÊN SAO CHO HƯỚNG NGƯỜI DÙNG ĐẾN VIỆC HỎI CÁC CÂU HỎI LIÊN QUAN ĐẾ LĨNH VỰC CƠ SỞ DỮ LIỆU.
-            QUAN TRỌNG: 
-            + Chỉ trả về 3 câu hỏi theo đúng format trên, KHÔNG có nội dung giới thiệu hoặc kết luận. Mỗi câu hỏi phải là câu hoàn chỉnh kết thúc bằng dấu hỏi.
-            + Câu hỏi gợi ý không cần quá dài, ngắn ngắn dễ hiểu, hiệu quả là được.
-            """,
+Dựa trên ngữ cảnh này, hãy tạo CHÍNH XÁC 3 câu hỏi liên quan mà người dùng có thể muốn biết tiếp theo. Những câu hỏi này nên:
+1. Mở rộng kiến thức từ câu trả lời (đi sâu hơn hoặc liên kết với khái niệm khác)
+2. Khám phá các trường hợp sử dụng thực tế hoặc ứng dụng cụ thể
+3. Giúp hiểu rõ hơn về các khái niệm liên quan hoặc phương pháp thay thế
+
+Format câu trả lời của bạn như sau:
+1. [Câu hỏi 1]
+2. [Câu hỏi 2]
+3. [Câu hỏi 3]
+
+- NẾU CÂU HỎI NGƯỜI DÙNG ĐẶT RA KHÔNG LIÊN QUAN ĐẾN LĨNH VỰC CƠ SỞ DỮ LIỆU THÌ HÃY ĐƯA RA 3 CÂU HỎI TRÊN SAO CHO HƯỚNG NGƯỜI DÙNG ĐẾN VIỆC HỎI CÁC CÂU HỎI LIÊN QUAN ĐẾN LĨNH VỰC CƠ SỞ DỮ LIỆU.
+QUAN TRỌNG:
++ Chỉ trả về 3 câu hỏi theo đúng format trên, KHÔNG có nội dung giới thiệu hoặc kết luận. Mỗi câu hỏi phải là câu hoàn chỉnh kết thúc bằng dấu hỏi.
++ Câu hỏi gợi ý không cần quá dài, ngắn gọn dễ hiểu, hiệu quả là được.
+""",
         }
-
-        # Sử dụng template tutor_mode làm mặc định
         self.default_template = "tutor_mode"
 
     def classify_question(self, query: str) -> str:
         """Phân loại câu hỏi - luôn trả về template mặc định (tutor_mode)"""
-        # Để tương thích với code gọi phương thức này, chỉ trả về template mặc định
         return self.default_template
 
     def _create_context_str(self, context: List[Dict]) -> str:
         """Phương thức phụ trợ để tạo chuỗi ngữ cảnh từ danh sách tài liệu"""
+        if not context:
+            return ""  # Trả về chuỗi rỗng nếu không có context
+
         context_entries = []
         for i, doc in enumerate(context):
             metadata = doc.get("metadata", {})
-            source = metadata.get("source", doc.get("source", "unknown"))
-            page = metadata.get("page", "unknown")
-            section = metadata.get("chunk_type", metadata.get("position", "unknown"))
+            source = metadata.get(
+                "source", "unknown_source"
+            )  # Cung cấp giá trị mặc định rõ ràng hơn
+            page = metadata.get("page", "N/A")  # Sử dụng N/A cho dễ đọc hơn "unknown"
+            section = metadata.get("chunk_type", metadata.get("position", "N/A"))
 
-            # Chuẩn bị tên nguồn tham khảo ngắn gọn
-            source_ref = source
-            if os.path.sep in source:  # Nếu là đường dẫn file
-                source_ref = os.path.basename(source)  # Chỉ lấy tên file
+            source_ref = os.path.basename(source) if os.path.sep in source else source
 
-            # Tạo tham chiếu ngắn gọn nếu có số trang
-            if page != "unknown":
-                source_citation = f"{source_ref}:{page}"
-            else:
-                source_citation = source_ref
+            source_citation = f"{source_ref}:{page}" if page != "N/A" else source_ref
+
+            content = doc.get("text", doc.get("content"))
+            if not content or not content.strip():
+                continue
 
             context_entry = (
                 f"[Document {i+1}]\n"
@@ -120,39 +128,31 @@ class PromptManager:
                 f"Citation: {source_citation}\n"
                 f"Page/Position: {page}\n"
                 f"Section: {section}\n"
-                f"Content: {doc.get('text', doc.get('content', 'Không có nội dung'))}"
+                f"Content: {content.strip()}"
             )
             context_entries.append(context_entry)
 
         return "\n\n".join(context_entries)
 
+    def _prepare_conversation_context(self, conversation_history: str) -> str:
+        """Chuẩn bị chuỗi ngữ cảnh hội thoại, đảm bảo không có khoảng trắng thừa."""
+        if conversation_history and conversation_history.strip():
+            return f"NGỮ CẢNH CUỘC HỘI THOẠI:\n{conversation_history.strip()}\n"
+        return ""  # Trả về chuỗi rỗng nếu không có lịch sử hoặc lịch sử chỉ toàn khoảng trắng
+
     def create_prompt(
         self, query: str, context: List[Dict], question_type: str = None
     ) -> str:
-        """Tạo prompt với template tutor_mode"""
-        # Tạo văn bản ngữ cảnh
+        """Tạo prompt với template tutor_mode, không có lịch sử hội thoại."""
         context_str = self._create_context_str(context)
+        # Đảm bảo conversation_context là chuỗi rỗng sạch sẽ
+        conversation_context_str = self._prepare_conversation_context("")
 
-        # Không có lịch sử hội thoại
-        conversation_context = ""
-
-        # Xử lý đặc biệt cho câu hỏi so sánh
-        if "so sánh" in query.lower():
-            special_instruction = """
-            """
-
-            # Thêm hướng dẫn đặc biệt vào đầu prompt
-            prompt = self.templates[self.default_template].format(
-                context=context_str,
-                query=query + special_instruction,
-                conversation_context=conversation_context,
-            )
-        else:
-            prompt = self.templates[self.default_template].format(
-                context=context_str,
-                query=query,
-                conversation_context=conversation_context,
-            )
+        prompt = self.templates[self.default_template].format(
+            context=context_str.strip(),  # Strip context_str để đảm bảo
+            query=query.strip(),  # Strip query
+            conversation_context=conversation_context_str.strip(),  # Strip conversation_context
+        )
         return prompt
 
     def create_prompt_with_history(
@@ -162,38 +162,22 @@ class PromptManager:
         question_type: str = None,
         conversation_history: str = "",
     ) -> str:
-        """Tạo prompt với lịch sử hội thoại và template tutor_mode"""
-        # Tạo văn bản ngữ cảnh
+        """Tạo prompt với lịch sử hội thoại và template tutor_mode."""
         context_str = self._create_context_str(context)
+        conversation_context_str = self._prepare_conversation_context(
+            conversation_history
+        )
 
-        # Nếu có lịch sử hội thoại, thêm vào ngữ cảnh
-        conversation_context = ""
-        if conversation_history and len(conversation_history.strip()) > 0:
-            conversation_context = f"""
-            NGỮ CẢNH CUỘC HỘI THOẠI:
-            {conversation_history}
-            """
-
-        # Xử lý đặc biệt cho câu hỏi so sánh
-        if "so sánh" in query.lower():
-            special_instruction = """
-            """
-
-            # Thêm hướng dẫn đặc biệt vào đầu prompt
-            prompt = self.templates[self.default_template].format(
-                context=context_str,
-                query=query + special_instruction,
-                conversation_context=conversation_context,
-            )
-        else:
-            prompt = self.templates[self.default_template].format(
-                context=context_str,
-                query=query,
-                conversation_context=conversation_context,
-            )
+        prompt = self.templates[self.default_template].format(
+            context=context_str.strip(),
+            query=query.strip(),
+            conversation_context=conversation_context_str.strip(),
+        )
         return prompt
 
     def create_related_questions_prompt(self, query: str, answer: str) -> str:
-        """Tạo prompt để gợi ý 3 câu hỏi liên quan"""
-        prompt = self.templates["related_questions"].format(query=query, answer=answer)
+        """Tạo prompt để gợi ý 3 câu hỏi liên quan."""
+        prompt = self.templates["related_questions"].format(
+            query=query.strip(), answer=answer.strip()
+        )
         return prompt

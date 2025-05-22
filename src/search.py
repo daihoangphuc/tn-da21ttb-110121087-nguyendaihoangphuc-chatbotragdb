@@ -60,7 +60,7 @@ class SearchManager:
         # - "vblagoje/dres-cross-encoder-roberta-base" (được tinh chỉnh cho tìm kiếm tài liệu)
 
         # Cho phép cấu hình model thông qua biến môi trường
-        default_reranker_model = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"  # Mặc định là model đa ngôn ngữ tốt
+        default_reranker_model = "ms-marco-MiniLM-L-12-v2"  
         reranker_model = os.getenv("RERANKER_MODEL", default_reranker_model)
 
         try:
@@ -405,9 +405,13 @@ class SearchManager:
         if not results:
             return results
 
+        # Đọc batch_size từ biến môi trường hoặc sử dụng giá trị mặc định cao hơn
+        batch_size = int(os.getenv("RERANK_BATCH_SIZE", "16"))
+        print(f"Đang rerank với batch_size={batch_size}")
+
         # Sử dụng model reranker đã được tải trước đó
         pairs = [(query, result["text"]) for result in results]
-        scores = self.reranker.predict(pairs, batch_size=8)
+        scores = self.reranker.predict(pairs, batch_size=batch_size)
 
         # Nhận dạng loại truy vấn (definition, syntax, example, etc.)
         query_type = self._detect_query_type(query)

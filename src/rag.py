@@ -1,4 +1,5 @@
 import logging
+import asyncio
 
 # Cấu hình logging cho cả logging và print
 logging.basicConfig(format="[RAG_Pipeline] %(message)s", level=logging.INFO)
@@ -32,6 +33,9 @@ import concurrent.futures
 from dotenv import load_dotenv
 import time
 import asyncio
+import requests
+import uuid
+import json
 
 # Load biến môi trường từ .env
 load_dotenv()
@@ -313,12 +317,13 @@ class AdvancedDatabaseRAG:
     def hybrid_search(
         self,
         query: str,
-        k: int = 10,
+        k: int = 15,
         alpha: float = None,
         sources: List[str] = None,
         file_id: List[str] = None,
     ) -> List[Dict]:
         """Tìm kiếm kết hợp ngữ nghĩa và keyword (ưu tiên ngữ nghĩa nhiều hơn với alpha=0.7)"""
+        # Sử dụng phương pháp đồng bộ để khỏi gặp lỗi asyncio.run từ trong event loop
         # Sử dụng alpha mặc định từ biến môi trường nếu không được chỉ định
         if alpha is None:
             alpha = self.default_alpha
@@ -359,19 +364,30 @@ class AdvancedDatabaseRAG:
                     alpha = 0.6  # 60% semantic + 40% keyword
                     break
 
-        print(f"=== Bắt đầu hybrid search với alpha={alpha} ===")
+        print(f"=== Bắt đầu hybrid search song song với alpha={alpha} ===")
 
         # Tăng số lượng kết quả tìm kiếm đầu vào để có nhiều hơn cho reranking
-        initial_k = k * 3  # Lấy gấp 3 lần số kết quả cần thiết
+        initial_k = max(10, k * 2)  # Giảm từ k * 3 xuống k * 2
 
-        semantic = self.search_manager.semantic_search(
-            query, k=initial_k, sources=sources, file_id=file_id
-        )
+        # Thực hiện song song tìm kiếm bằng ThreadPoolExecutor thay vì asyncio
+        semantic = None
+        keyword = None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            # Tạo và submit các tác vụ tìm kiếm
+            semantic_future = executor.submit(
+                self.search_manager.semantic_search, query, initial_k, sources, file_id
+            )
+
+            keyword_future = executor.submit(
+                self.search_manager.keyword_search, query, initial_k, sources, file_id
+            )
+
+            # Lấy kết quả từ future
+            semantic = semantic_future.result()
+            keyword = keyword_future.result()
+
         print(f"Đã tìm được {len(semantic)} kết quả từ semantic search")
-
-        keyword = self.search_manager.keyword_search(
-            query, k=initial_k, sources=sources, file_id=file_id
-        )
         print(f"Đã tìm được {len(keyword)} kết quả từ keyword search")
 
         combined = {}
@@ -381,7 +397,10 @@ class AdvancedDatabaseRAG:
         for res in keyword:
             if res["text"] in combined:
                 combined[res["text"]]["score"] += (1 - alpha) * res["score"]
-                print(f"Đã kết hợp kết quả trùng lặp: {res['text'][:50]}...")
+                text_preview = (
+                    res["text"][:50] + "..." if len(res["text"]) > 50 else res["text"]
+                )
+                print(f"Đã kết hợp kết quả trùng lặp: {text_preview}")
             else:
                 combined[res["text"]] = {**res, "score": (1 - alpha) * res["score"]}
 
@@ -389,7 +408,7 @@ class AdvancedDatabaseRAG:
             combined.values(), key=lambda x: x["score"], reverse=True
         )
 
-        # Lấy nhiều kết quả hơn để reranking
+        # Lấy nhiều kết quả hơn để reranking nhưng ít hơn so với trước
         results_for_reranking = sorted_results[: min(len(sorted_results), initial_k)]
 
         # Tái xếp hạng để lấy kết quả phù hợp nhất
@@ -933,6 +952,7 @@ class AdvancedDatabaseRAG:
                 query_to_use, k=k, sources=sources, file_id=file_id
             )
         else:  # hybrid
+            # Sử dụng hybrid_search đồng bộ, không còn gây lỗi asyncio.run
             search_results = self.hybrid_search(
                 query_to_use,
                 k=k,
@@ -1107,16 +1127,6 @@ class AdvancedDatabaseRAG:
         # Tạo prompt phù hợp
         prompt = self.prompt_manager.create_prompt(query, context_docs, question_type)
 
-        # Thêm lưu ý về độ dài và định dạng
-        prompt += """
-        
-        LƯU Ý QUAN TRỌNG:
-        - Trả lời phải ngắn gọn, tối đa 3-4 đoạn văn
-        - Sử dụng định dạng Markdown: ## cho tiêu đề, **in đậm** cho điểm quan trọng
-        - Đặt code SQL trong ```sql và ```
-        - Nếu cần bảng so sánh, tạo bảng đơn giản với tối đa 3 cột
-        - KHÔNG sử dụng HTML, chỉ dùng Markdown
-        """
 
         # Gọi LLM
         response = self.llm.invoke(prompt)
@@ -1139,15 +1149,7 @@ class AdvancedDatabaseRAG:
         # Tạo prompt với template phù hợp
         prompt = self.prompt_manager.templates["query_with_context"].format(
             context=context, query=query
-        )
-
-        # Thêm yêu cầu định dạng Markdown trong prompt
-        prompt += "\n\nVui lòng trả lời câu hỏi trong định dạng Markdown rõ ràng để dễ hiển thị ở frontend. Sử dụng các thẻ như **in đậm**, *in nghiêng*, ## tiêu đề, - danh sách, ```code``` và các bảng khi cần thiết."
-
-        # In prompt để debug
-        # print(f"=== PROMPT ===\n{prompt}\n=== END PROMPT ===")
-
-        # Gọi LLM và lấy kết quả
+        ) # Gọi LLM và lấy kết quả
         response = self.llm.invoke(prompt)
         return response.content
 

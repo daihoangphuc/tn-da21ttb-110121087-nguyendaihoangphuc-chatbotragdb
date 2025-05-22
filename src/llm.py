@@ -85,26 +85,6 @@ class GeminiLLM:
         self._configure_api()
         return True
 
-    def preprocess_prompt(self, prompt):
-        """Tiền xử lý prompt trước khi gửi đến LLM"""
-        # Chỉ xử lý prompt dạng văn bản
-        if isinstance(prompt, str):
-            # Thêm nhắc nhở về định dạng Markdown và độ dài
-            format_reminder = """
-            LƯU Ý BỔ SUNG (QUAN TRỌNG):
-            - Hãy trả lời ngắn gọn, tập trung vào trọng tâm
-            - Sử dụng định dạng Markdown với ## cho tiêu đề chính
-            - Đặt code SQL trong ```sql và ```
-            - KHÔNG dùng HTML, chỉ dùng Markdown
-            - Giới hạn độ dài trả lời không quá 4 đoạn văn
-            - Nếu cần bảng so sánh, hãy tạo bảng đơn giản với tối đa 3 cột, nếu có nhiều cột quá thì trả lời dạng liệt kê
-            """
-
-            # Thêm hướng dẫn vào cuối prompt
-            prompt += format_reminder
-
-        return prompt
-
     def postprocess_response(self, response):
         """Hậu xử lý phản hồi từ LLM để đảm bảo định dạng nhất quán"""
         # Trả về response gốc mà không xử lý gì thêm
@@ -112,7 +92,7 @@ class GeminiLLM:
 
     def invoke(self, prompt):
         """Gọi mô hình LLM với prompt"""
-        processed_prompt = self.preprocess_prompt(prompt)
+        processed_prompt = prompt
 
         max_retries = len(self.api_keys)
         retry_count = 0
@@ -149,10 +129,9 @@ class GeminiLLM:
         """
         async for chunk in self.invoke_streaming(prompt):
             yield chunk
-
     async def invoke_streaming(self, prompt):
         """Gọi mô hình LLM với prompt và trả về kết quả dạng streaming"""
-        processed_prompt = self.preprocess_prompt(prompt)
+        processed_prompt = prompt
 
         max_retries = len(self.api_keys)
         retry_count = 0
