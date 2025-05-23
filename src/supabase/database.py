@@ -500,105 +500,106 @@ class SupabaseDatabase:
             "not_helpful_count": 0,
         }
 
-    # Document Metadata Management
+    # Document Files Management
 
-    def create_document_metadata_table(self):
-        """Create the document metadata table if it doesn't exist"""
+    def create_document_files_table(self):
+        """Create the document files table if it doesn't exist"""
         sql = """
-        CREATE TABLE IF NOT EXISTS document_metadata (
-            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-            filename TEXT NOT NULL,
-            file_path TEXT NOT NULL,
-            file_type TEXT,
-            file_size INTEGER,
-            upload_date TIMESTAMPTZ DEFAULT NOW(),
-            user_id TEXT,
-            category TEXT,
-            title TEXT,
-            description TEXT,
-            is_indexed BOOLEAN DEFAULT FALSE,
-            last_indexed TIMESTAMPTZ,
-            metadata JSONB
+        -- Tạo bảng document_files để lưu trữ thông tin file
+        CREATE TABLE IF NOT EXISTS public.document_files (
+          file_id UUID PRIMARY KEY,
+          filename TEXT NOT NULL,
+          file_path TEXT NOT NULL,
+          user_id UUID NOT NULL REFERENCES auth.users(id),
+          upload_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          file_type TEXT,
+          is_deleted BOOLEAN DEFAULT FALSE,
+          deleted_at TIMESTAMPTZ,
+          metadata JSONB
         );
         
-        -- Create indexes for faster queries
-        CREATE INDEX IF NOT EXISTS idx_document_metadata_filename ON document_metadata(filename);
-        CREATE INDEX IF NOT EXISTS idx_document_metadata_user_id ON document_metadata(user_id);
-        CREATE INDEX IF NOT EXISTS idx_document_metadata_category ON document_metadata(category);
+        -- Tạo index để tìm kiếm nhanh
+        CREATE INDEX IF NOT EXISTS idx_document_files_user_id ON public.document_files(user_id);
+        CREATE INDEX IF NOT EXISTS idx_document_files_filename ON public.document_files(filename);
+        CREATE INDEX IF NOT EXISTS idx_document_files_upload_time ON public.document_files(upload_time);
+
+        -- Policy để mỗi người dùng chỉ thấy file của mình
+        CREATE POLICY IF NOT EXISTS "Người dùng chỉ thấy file của mình" 
+        ON public.document_files FOR SELECT 
+        USING (auth.uid() = user_id);
+
+        -- Policy cho phép người dùng tạo file của mình
+        CREATE POLICY IF NOT EXISTS "Người dùng có thể tạo file" 
+        ON public.document_files FOR INSERT 
+        WITH CHECK (auth.uid() = user_id);
+
+        -- Policy cho phép người dùng cập nhật file của mình
+        CREATE POLICY IF NOT EXISTS "Người dùng có thể cập nhật file của mình" 
+        ON public.document_files FOR UPDATE 
+        USING (auth.uid() = user_id);
+
+        -- Policy cho phép người dùng xóa file của mình
+        CREATE POLICY IF NOT EXISTS "Người dùng có thể xóa file của mình" 
+        ON public.document_files FOR DELETE 
+        USING (auth.uid() = user_id);
         """
         return self.query(sql)
 
-    def save_document_metadata(
+    def save_document_file(
         self,
         filename: str,
         file_path: str,
         file_type: Optional[str] = None,
-        file_size: Optional[int] = None,
         user_id: Optional[str] = None,
-        category: Optional[str] = None,
-        title: Optional[str] = None,
-        description: Optional[str] = None,
         metadata: Optional[Dict] = None,
     ) -> Dict:
         """
-        Save document metadata to the database
+        Save document file information to the database
 
         Args:
             filename: Name of the file
             file_path: Path to the file (in storage)
             file_type: Type of the file (extension)
-            file_size: Size of the file in bytes
             user_id: ID of the user who uploaded the file
-            category: Category of the document
-            title: Title of the document
-            description: Description of the document
             metadata: Additional metadata
 
         Returns:
             The created record
         """
-        table = self.from_table("document_metadata")
+        import uuid
+        table = self.from_table("document_files")
 
-        data = {"filename": filename, "file_path": file_path}
+        data = {
+            "file_id": str(uuid.uuid4()),
+            "filename": filename,
+            "file_path": file_path,
+            "user_id": user_id,
+            "upload_time": "NOW()"
+        }
 
         if file_type:
             data["file_type"] = file_type
-
-        if file_size:
-            data["file_size"] = file_size
-
-        if user_id:
-            data["user_id"] = user_id
-
-        if category:
-            data["category"] = category
-
-        if title:
-            data["title"] = title
-
-        if description:
-            data["description"] = description
 
         if metadata:
             data["metadata"] = metadata
 
         return table.insert(data).execute()
 
-    def get_document_metadata(
+    def get_document_files(
         self, filename: str = None, user_id: str = None
     ) -> List[Dict]:
         """
-        Get document metadata from the database
+        Get document file information from the database
 
         Args:
             filename: Optional filename to filter by
             user_id: Optional user ID to filter by
 
         Returns:
-            List of document metadata records
+            List of document file records
         """
-        table = self.from_table("document_metadata")
-        query = table.select("*")
+        table = self.from_table("document_files")
+        query = table.select("*").eq("is_deleted", False)  # Only return non-deleted files
 
         if filename:
             query = query.eq("filename", filename)
@@ -609,11 +610,11 @@ class SupabaseDatabase:
         response = query.execute()
         return response.data
 
-    def update_document_indexed_status(
+    def update_document_file_metadata(
         self, filename: str, is_indexed: bool = True
     ) -> Dict:
         """
-        Update the indexed status of a document
+        Update metadata of a document file
 
         Args:
             filename: Name of the file
@@ -622,14 +623,20 @@ class SupabaseDatabase:
         Returns:
             The updated record
         """
-        table = self.from_table("document_metadata")
-        data = {"is_indexed": is_indexed, "last_indexed": "NOW()"}
+        table = self.from_table("document_files")
+        # Store indexing information in the metadata field
+        data = {
+            "metadata": {
+                "is_indexed": is_indexed,
+                "last_indexed": "NOW()"
+            }
+        }
 
         return table.update(data).eq("filename", filename).execute()
 
-    def delete_document_metadata(self, filename: str) -> Dict:
+    def delete_document_file(self, filename: str) -> Dict:
         """
-        Delete document metadata from the database
+        Mark a document file as deleted (soft delete)
 
         Args:
             filename: Name of the file
@@ -637,8 +644,12 @@ class SupabaseDatabase:
         Returns:
             Result of the operation
         """
-        table = self.from_table("document_metadata")
-        return table.delete().eq("filename", filename).execute()
+        table = self.from_table("document_files")
+        data = {
+            "is_deleted": True,
+            "deleted_at": "NOW()"
+        }
+        return table.update(data).eq("filename", filename).execute()
 
     def delete_conversation(self, conversation_id: str, user_id: str = None) -> Dict:
         """

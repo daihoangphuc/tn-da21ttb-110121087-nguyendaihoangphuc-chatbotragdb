@@ -37,6 +37,9 @@ import requests
 import uuid
 import json
 
+# Import Google_Agents_Search
+from src.tools.Google_Agents_Search import run_query_with_sources as google_agent_search
+
 # Load biến môi trường từ .env
 load_dotenv()
 
@@ -468,28 +471,133 @@ class AdvancedDatabaseRAG:
                 query, k=search_k, alpha=alpha, sources=sources
             )
 
-        # Nếu không có kết quả tìm kiếm, trả về thông báo không tìm thấy
+        # Kiểm tra độ tin cậy của kết quả RAG ban đầu
+        is_low_confidence_rag = False
+        if self.enable_confidence_check and retrieved:
+            top_score_rag = retrieved[0].get("rerank_score", 0)
+            if top_score_rag < self.confidence_threshold:
+                is_low_confidence_rag = True
+                print(f"Kết quả RAG có độ tin cậy thấp (score: {top_score_rag:.2f}). Sẽ thử fallback với Google Agent Search.")
+
+        # Fallback mechanism: nếu không có kết quả RAG hoặc độ tin cậy thấp
+        perform_fallback = not retrieved or is_low_confidence_rag
+        
+        gas_fallback_used = False
+        if perform_fallback:
+            print(f"Không có kết quả RAG đáng tin cậy. Thực hiện fallback với Google Agent Search cho: '{query}'")
+            try:
+                gas_summary, gas_urls = google_agent_search(query)
+                
+                gas_sources_info = []
+                if gas_urls:
+                    for url in gas_urls:
+                        gas_sources_info.append({
+                            "source": url,
+                            "page": "Web Search",
+                            "original_page": url,
+                            "section": "N/A",
+                            "content_snippet": "Thông tin từ Google Agent Search.",
+                            "score": 1.0, # Điểm cao cho nguồn từ GAS
+                            "rerank_score": 1.0,
+                            "metadata_boost": 0.0,
+                            "special_metadata": {"is_web_search": True}
+                        })
+                
+                return {
+                    "answer": gas_summary.content if hasattr(gas_summary, 'content') else str(gas_summary),
+                    "sources": gas_sources_info,
+                    "question": query,
+                    "search_method": "google_agent_search",
+                    "expanded_query": query if query != query else None,
+                    "query_type": "realtime_question",
+                }
+            except Exception as e:
+                print(f"Lỗi khi sử dụng Google Agent Search: {str(e)}")
+                # Nếu có lỗi, tiếp tục với phương pháp tìm kiếm thông thường
+                print("Chuyển sang phương pháp tìm kiếm thông thường")
+
+        # Phân loại lại câu hỏi
+        final_query_type = self.query_router.classify_query(query)
+        print(f"Phân loại cuối cùng: '{final_query_type}'")
+
+        # Nếu là realtime_question, trả về ngay
+        if final_query_type == "realtime_question" and not gas_fallback_used:
+            return {
+                "answer": self.query_router.prepare_realtime_response(query),
+                "sources": [],
+                "question": query,
+                "search_method": search_type,
+                "expanded_query": query if query != query else None,
+                "query_type": "realtime_question",
+            }
+
+        # Nếu là other_question, trả về ngay
+        if final_query_type == "other_question":
+            return {
+                "answer": "Vì mình là Chatbot chỉ hỗ trợ và phản hồi trong lĩnh vực cơ sở dữ liệu thôi.",
+                "sources": [],
+                "question": query,
+                "search_method": search_type,
+                "expanded_query": query if query != query else None,
+                "query_type": "other_question",
+            }
+
+        # Nếu không có kết quả tìm kiếm
         if not retrieved:
-            return "Không tìm thấy thông tin liên quan đến câu hỏi này trong cơ sở dữ liệu. Vui lòng thử lại với câu hỏi khác hoặc tải thêm tài liệu vào hệ thống."
+            return {
+                "answer": "Không tìm thấy thông tin liên quan đến câu hỏi này trong cơ sở dữ liệu hoặc từ tìm kiếm mở rộng.",
+                "sources": [],
+                "question": query,
+                "search_method": search_type + ("+gas_fallback" if gas_fallback_used else ""),
+                "expanded_query": query if query != query else None,
+                "query_type": "question_from_document",
+            }
 
-        # Lưu thông tin về số lượng kết quả được rerank để báo cáo
-        total_reranked = len(retrieved)
-        retrieved_before_rerank = retrieved
+        # Lưu thông tin về số lượng kết quả được rerank
+        total_reranked = 0
+        for result in retrieved:
+            if "total_reranked" in result:
+                total_reranked = max(total_reranked, result["total_reranked"])
 
-        # Chỉ rerank nếu không phải kết quả từ hybrid search (đã được rerank)
+        if total_reranked == 0:
+            total_reranked = len(retrieved)
+
+        # Chỉ rerank nếu không phải hybrid search (đã được rerank)
         if search_type != "hybrid":
             # Tái xếp hạng kết quả
-            print(f"Đang rerank {len(retrieved)} kết quả...")
-        retrieved = self.rerank_results(query, retrieved)
-        # Giới hạn số lượng kết quả sau rerank
-        retrieved = retrieved[:10]
+            retrieved = self.rerank_results(query, retrieved)
+            # Giới hạn số lượng kết quả
+            retrieved = retrieved[:10]
+
+        # Kiểm tra độ tin cậy của kết quả
+        is_low_confidence = False
+        confidence_message = ""
+        if self.enable_confidence_check and retrieved:
+            # Lấy rerank_score cao nhất của kết quả đầu tiên
+            top_score = retrieved[0].get("rerank_score", 0)
+            print(
+                f"Top rerank_score: {top_score}, Threshold: {self.confidence_threshold}"
+            )
+
+            if top_score < self.confidence_threshold:
+                is_low_confidence = True
+                confidence_message = (
+                    f"\n\n**Lưu ý**: Độ tin cậy của câu trả lời này thấp "
+                    f"(điểm {top_score:.2f} < ngưỡng {self.confidence_threshold:.2f}). "
+                    f"Thông tin có thể không đầy đủ hoặc không chính xác hoàn toàn. "
+                    f"Vui lòng kiểm tra thêm thông tin từ các nguồn tham khảo."
+                )
 
         # Xác định loại câu hỏi
         question_type = self.prompt_manager.classify_question(query)
-        print(f"Loại câu hỏi được phát hiện: {question_type}")
 
-        # Tạo prompt phù hợp
-        prompt = self.prompt_manager.create_prompt(query, retrieved, question_type)
+        # Tạo prompt phù hợp, bổ sung lịch sử hội thoại nếu có
+        if conversation_history:
+            prompt = self.prompt_manager.create_prompt_with_history(
+                query, retrieved, question_type, conversation_history
+            )
+        else:
+            prompt = self.prompt_manager.create_prompt(query, retrieved, question_type)
 
         # Gọi LLM để tạo câu trả lời
         start_time = time.time()
@@ -634,6 +742,73 @@ class AdvancedDatabaseRAG:
                 "query_type": "other_question",
             }
 
+        # Xử lý realtime_question với Google Agent Search
+        if query_type == "realtime_question":
+            print(f"Câu hỏi được phân loại là realtime, sử dụng Google Agent Search cho: '{query}'")
+            try:
+                gas_summary, gas_urls = google_agent_search(query)
+                
+                # Tạo một document từ kết quả Google Agent Search để đưa vào LLM
+                summary_content = gas_summary.content if hasattr(gas_summary, 'content') else str(gas_summary)
+                print(f"Google Agent Search tìm thấy: {summary_content[:100]}...")
+                
+                # Tạo một danh sách retrieved chỉ chứa kết quả từ Google Agent Search
+                retrieved = [{
+                    "text": summary_content,
+                    "metadata": {
+                        "source": "Google Agent Search",
+                        "page": "Web Result",
+                        "source_type": "web_search",
+                        "urls": gas_urls
+                    },
+                    "score": 1.0, # Điểm cao cho nguồn từ GAS
+                    "rerank_score": 1.0
+                }]
+                
+                # Xác định loại câu hỏi
+                question_type = self.prompt_manager.classify_question(query)
+                
+                # Tạo prompt phù hợp, bổ sung lịch sử hội thoại nếu có
+                if conversation_history:
+                    prompt = self.prompt_manager.create_prompt_with_history(
+                        query, retrieved, question_type, conversation_history
+                    )
+                else:
+                    prompt = self.prompt_manager.create_prompt(query, retrieved, question_type)
+                
+                # Gọi LLM để tạo câu trả lời
+                response = self.llm.invoke(prompt)
+                answer_content = response.content
+                
+                # Chuẩn bị phần thông tin về nguồn tham khảo
+                gas_sources_info = []
+                if gas_urls:
+                    for url in gas_urls:
+                        gas_sources_info.append({
+                            "source": url,  # Sử dụng URL làm nguồn trực tiếp
+                            "page": "Web Search",
+                            "original_page": url,
+                            "section": "N/A",
+                            "content_snippet": "Thông tin từ Google Agent Search.",
+                            "score": 1.0, # Điểm cao cho nguồn từ GAS
+                            "rerank_score": 1.0,
+                            "metadata_boost": 0.0,
+                            "special_metadata": {"is_web_search": True}
+                        })
+                
+                return {
+                    "answer": answer_content,
+                    "sources": gas_sources_info,
+                    "question": original_query,
+                    "search_method": "google_agent_search",
+                    "expanded_query": query if query != original_query else None,
+                    "query_type": "realtime_question",
+                }
+            except Exception as e:
+                print(f"Lỗi khi sử dụng Google Agent Search: {str(e)}")
+                # Nếu có lỗi, tiếp tục với phương pháp tìm kiếm thông thường
+                print("Chuyển sang phương pháp tìm kiếm thông thường")
+
         # Tăng số lượng kết quả ban đầu để có nhiều hơn cho reranking
         search_k = 15
 
@@ -649,12 +824,56 @@ class AdvancedDatabaseRAG:
                 query, k=search_k, alpha=alpha, sources=sources
             )
 
+        # Kiểm tra độ tin cậy của kết quả RAG ban đầu
+        is_low_confidence_rag = False
+        if self.enable_confidence_check and retrieved:
+            top_score_rag = retrieved[0].get("rerank_score", 0)
+            if top_score_rag < self.confidence_threshold:
+                is_low_confidence_rag = True
+                print(f"Kết quả RAG có độ tin cậy thấp (score: {top_score_rag:.2f}). Sẽ thử fallback với Google Agent Search.")
+
+        # Fallback mechanism: nếu không có kết quả RAG hoặc độ tin cậy thấp
+        perform_fallback = not retrieved or is_low_confidence_rag
+        
+        gas_fallback_used = False
+        if perform_fallback:
+            print(f"Không có kết quả RAG đáng tin cậy. Thực hiện fallback với Google Agent Search cho: '{query}'")
+            try:
+                fallback_summary, fallback_urls = google_agent_search(query)
+                
+                if fallback_summary and (hasattr(fallback_summary, 'content') and fallback_summary.content != "Không tìm thấy thông tin liên quan đến truy vấn này." or not hasattr(fallback_summary, 'content') and fallback_summary != "Không tìm thấy thông tin liên quan đến truy vấn này."):
+                    gas_fallback_used = True
+                    summary_content = fallback_summary.content if hasattr(fallback_summary, 'content') else str(fallback_summary)
+                    print(f"Google Agent Search tìm thấy: {summary_content[:100]}...")
+                    fallback_doc = {
+                        "text": summary_content,
+                        "metadata": {
+                            "source": "Google Agent Search",
+                            "page": "Web Result",
+                            "source_type": "web_search",
+                            "urls": fallback_urls
+                        },
+                        "score": 0.9,
+                        "rerank_score": 0.9,
+                        "file_id": "web_search_fallback"
+                    }
+                    # Thêm kết quả fallback vào đầu danh sách retrieved
+                    if not retrieved:
+                        retrieved = [fallback_doc]
+                    else:
+                        retrieved.insert(0, fallback_doc)
+                else:
+                    print("Google Agent Search không tìm thấy kết quả fallback.")
+            except Exception as e:
+                print(f"Lỗi khi sử dụng Google Agent Search fallback: {str(e)}")
+                # Tiếp tục với kết quả hiện tại
+
         # Phân loại lại câu hỏi
         final_query_type = self.query_router.classify_query(query)
         print(f"Phân loại cuối cùng: '{final_query_type}'")
 
         # Nếu là realtime_question, trả về ngay
-        if final_query_type == "realtime_question":
+        if final_query_type == "realtime_question" and not gas_fallback_used:
             return {
                 "answer": self.query_router.prepare_realtime_response(query),
                 "sources": [],
@@ -678,10 +897,10 @@ class AdvancedDatabaseRAG:
         # Nếu không có kết quả tìm kiếm
         if not retrieved:
             return {
-                "answer": "Không tìm thấy thông tin liên quan đến câu hỏi này trong cơ sở dữ liệu.",
+                "answer": "Không tìm thấy thông tin liên quan đến câu hỏi này trong cơ sở dữ liệu hoặc từ tìm kiếm mở rộng.",
                 "sources": [],
                 "question": original_query,
-                "search_method": search_type,
+                "search_method": search_type + ("+gas_fallback" if gas_fallback_used else ""),
                 "expanded_query": query if query != original_query else None,
                 "query_type": "question_from_document",
             }
@@ -745,56 +964,47 @@ class AdvancedDatabaseRAG:
         for idx, doc in enumerate(retrieved[:10]):  # Giới hạn hiển thị 10 nguồn
             # Lấy metadata
             metadata = doc.get("metadata", {})
-
-            # Tính điểm nâng cao từ metadata nếu có
-            metadata_boost = doc.get("metadata_boost", 0.0)
-
-            # Kiểm tra các metadata đặc biệt
-            special_metadata = {}
-            for key in [
-                "chứa_định_nghĩa",
-                "chứa_cú_pháp",
-                "chứa_mẫu_code",
-                "chứa_cú_pháp_select",
-                "chứa_cú_pháp_join",
-                "chứa_cú_pháp_ddl",
-                "chứa_cú_pháp_dml",
-            ]:
-                if key in metadata and metadata[key]:
-                    special_metadata[key] = True
-
-            # Cải thiện thông tin trang để hiển thị chính xác
-            page_info = metadata.get("page", "Unknown")
-            page_source = metadata.get("page_source", "unknown")
-            section_in_page = metadata.get("section_in_page", "")
-
-            # Định dạng thông tin trang dựa trên nguồn
-            if page_source == "original_document":
-                # Nếu là trang gốc từ tài liệu, hiển thị rõ ràng
-                formatted_page = f"Trang {page_info}"
-                if section_in_page:
-                    formatted_page += f" (Phần {section_in_page})"
-            elif page_source == "auto_generated":
-                # Nếu là trang tự động tạo, đánh dấu rõ
-                formatted_page = f"{page_info} (tự động tạo)"
+            
+            # Kiểm tra nếu đây là nguồn từ Google Agent Search
+            if metadata.get("source_type") == "web_search":
+                # Xử lý nguồn từ GAS
+                urls_from_gas = metadata.get("urls", [])
+                snippet = doc["text"]
+                if urls_from_gas:
+                    snippet += "\n\nNguồn tham khảo từ web:\n" + "\n".join([f"- {url}" for url in urls_from_gas])
+                
+                sources_info.append({
+                    "source": "Google Agent Search",
+                    "page": "Web Search Result",
+                    "section": "Web Content",
+                    "score": doc.get("score", 0.9),
+                    "content_snippet": snippet,
+                    "file_id": doc.get("file_id", "web_search"),
+                    "is_web_search": True
+                })
             else:
-                # Trường hợp khác
-                formatted_page = f"{page_info}"
+                # Nguồn từ RAG thông thường
+                source = metadata.get("source", "unknown")
+                page = metadata.get("page", "N/A")
+                section = metadata.get("section", "N/A")
+                result_file_id = doc.get("file_id", "unknown")  # Lấy file_id từ kết quả
 
-            source_info = {
-                "source": metadata.get("source", doc.get("source", "Unknown")),
-                "page": formatted_page,
-                "original_page": metadata.get("original_page", page_info),
-                "section": metadata.get(
-                    "position", metadata.get("chunk_type", "Unknown")
-                ),
-                "content_snippet": doc["text"],
-                "score": doc.get("score", 0.0),
-                "rerank_score": doc.get("rerank_score", 0.0),  # Điểm sau rerank
-                "metadata_boost": metadata_boost,  # Thêm thông tin về điểm nâng cao từ metadata
-                "special_metadata": special_metadata,  # Các metadata đặc biệt
-            }
-            sources_info.append(source_info)
+                # Tạo snippet từ nội dung
+                content = doc["text"]
+                snippet = content
+
+                # Thêm vào danh sách nguồn
+                sources_info.append(
+                    {
+                        "source": source,
+                        "page": page,
+                        "section": section,
+                        "score": doc.get("score", 0.0),
+                        "content_snippet": snippet,
+                        "file_id": result_file_id,
+                        "is_web_search": False
+                    }
+                )
 
         end_time = time.time()
         total_time = end_time - start_time
@@ -875,7 +1085,7 @@ class AdvancedDatabaseRAG:
                     "query_type": query_type,
                     "search_type": search_type,
                     "alpha": alpha if alpha is not None else self.default_alpha,
-                    "file_id": file_id,
+                    "file_id": file_id
                 },
             }
 
@@ -911,25 +1121,87 @@ class AdvancedDatabaseRAG:
                 "type": "start",
                 "data": {
                     "query_type": query_type,
-                    "search_type": search_type,
+                    "search_type": "google_agent_search",
                     "alpha": alpha if alpha is not None else self.default_alpha,
                     "file_id": file_id,
                 },
             }
 
-            # Trả về nguồn rỗng
-            yield {
-                "type": "sources",
-                "data": {
-                    "sources": [],
-                    "filtered_sources": [],
-                    "filtered_file_id": file_id if file_id else [],
-                },
-            }
+            # Sử dụng Google Agent Search để tìm kiếm
+            try:
+                gas_summary, gas_urls = google_agent_search(query_to_use)
+                
+                # Tạo document từ kết quả Google Agent Search
+                gas_content = gas_summary.content if hasattr(gas_summary, 'content') else str(gas_summary)
+                
+                # Tạo một danh sách retrieved chỉ chứa kết quả từ Google Agent Search
+                retrieved = [{
+                    "text": gas_content,
+                    "metadata": {
+                        "source": "Google Agent Search",
+                        "page": "Web Result",
+                        "source_type": "web_search",
+                        "urls": gas_urls
+                    },
+                    "score": 1.0,
+                    "rerank_score": 1.0
+                }]
+                
+                # Chuẩn bị danh sách nguồn từ Google Agent Search
+                gas_sources_list = []
+                if gas_urls:
+                    for url_idx, url in enumerate(gas_urls):
+                        gas_sources_list.append({
+                            "source": url,  # Sử dụng URL trực tiếp làm nguồn
+                            "page": "Web Search",
+                            "section": f"Web Source {url_idx+1}",
+                            "score": 1.0,
+                            "content_snippet": f"Thông tin từ web: {url}",
+                            "file_id": "web_search",
+                            "is_web_search": True
+                        })
+                
+                # Trả về nguồn
+                yield {
+                    "type": "sources",
+                    "data": {
+                        "sources": gas_sources_list,
+                        "filtered_sources": [],
+                        "filtered_file_id": file_id if file_id else [],
+                    },
+                }
 
-            # Trả về nội dung
-            response = self.query_router.prepare_realtime_response(query)
-            yield {"type": "content", "data": {"content": response}}
+                # Chuẩn bị prompt cho LLM với kết quả từ Google Agent Search
+                prompt = self.prompt_manager.create_prompt_with_history(
+                    query_to_use, retrieved, conversation_history=conversation_history
+                )
+
+                # Gọi LLM để trả lời dưới dạng stream
+                try:
+                    async for content in self.llm.stream(prompt):
+                        yield {"type": "content", "data": {"content": content}}
+                except Exception as e:
+                    print(f"Lỗi khi gọi LLM stream cho realtime_question: {str(e)}")
+                    # Trả về lỗi
+                    yield {
+                        "type": "content",
+                        "data": {
+                            "content": f"Xin lỗi, có lỗi xảy ra khi xử lý câu hỏi thời gian thực: {str(e)}"
+                        },
+                    }
+            except Exception as e:
+                print(f"Lỗi khi sử dụng Google Agent Search (stream): {str(e)}")
+                # Trả về nguồn rỗng
+                yield {
+                    "type": "sources",
+                    "data": {
+                        "sources": [],
+                        "filtered_sources": [],
+                        "filtered_file_id": file_id if file_id else [],
+                    },
+                }
+                # Trả về thông báo lỗi
+                yield {"type": "content", "data": {"content": f"Không thể sử dụng Google Agent Search: {str(e)}. Vui lòng kiểm tra lại API key hoặc cấu hình."}}
 
             # Trả về kết thúc
             elapsed_time = time.time() - start_time
@@ -960,6 +1232,54 @@ class AdvancedDatabaseRAG:
                 sources=sources,
                 file_id=file_id,
             )
+            
+        # Fallback mechanism cho streaming
+        perform_fallback_stream = not search_results or len(search_results) == 0
+        gas_fallback_used = False
+        
+        if perform_fallback_stream:
+            print(f"Không có kết quả RAG (stream). Thực hiện fallback với Google Agent Search cho: '{query_to_use}'")
+            try:
+                fallback_summary, fallback_urls = google_agent_search(query_to_use)
+                fallback_content = fallback_summary.content if hasattr(fallback_summary, 'content') else str(fallback_summary)
+                
+                if fallback_content and fallback_content != "Không tìm thấy thông tin liên quan đến truy vấn này.":
+                    gas_fallback_used = True
+                    print(f"Đã tìm thấy kết quả fallback: {fallback_content[:100]}...")
+                    
+                    # Tạo một doc giả cho fallback để đưa vào context LLM
+                    fallback_doc = {
+                        "text": fallback_content,
+                        "metadata": {
+                            "source": "Google Agent Search",
+                            "page": "Web Result",
+                            "source_type": "web_search",
+                            "urls": fallback_urls
+                        },
+                        "score": 0.9,
+                        "rerank_score": 0.9,
+                        "file_id": "web_search_fallback"
+                    }
+                    
+                    # Thêm vào search_results
+                    search_results = [fallback_doc]
+                    
+                    # Cập nhật danh sách nguồn với kết quả fallback
+                    for url_idx, url in enumerate(fallback_urls):
+                        sources_list.append({
+                            "source": url,  # Sử dụng URL trực tiếp làm nguồn
+                            "page": "Web Search",
+                            "section": f"Fallback Source {url_idx+1}",
+                            "score": 0.9,
+                            "content_snippet": f"Thông tin bổ sung từ web: {url}",
+                            "file_id": "web_search_fallback",
+                            "is_web_search": True
+                        })
+                else:
+                    print("Google Agent Search không tìm thấy kết quả fallback.")
+            except Exception as e:
+                print(f"Lỗi khi thực hiện fallback với Google Agent Search: {str(e)}")
+                # Tiếp tục với kết quả hiện tại
 
         # Nếu không có kết quả tìm kiếm, trả về thông báo không tìm thấy
         if not search_results or len(search_results) == 0:
@@ -998,7 +1318,7 @@ class AdvancedDatabaseRAG:
                 },
             }
             return
-
+            
         # Rerank kết quả nếu có nhiều hơn 1 kết quả
         if len(search_results) > 1:
             reranked_results = self.search_manager.rerank_results(
@@ -1035,26 +1355,46 @@ class AdvancedDatabaseRAG:
         for i, doc in enumerate(reranked_results):
             # Trích xuất thông tin từ metadata
             metadata = doc.get("metadata", {})
-            source = metadata.get("source", "unknown")
-            page = metadata.get("page", "N/A")
-            section = metadata.get("section", "N/A")
-            result_file_id = doc.get("file_id", "unknown")  # Lấy file_id từ kết quả
-
-            # Tạo snippet từ nội dung
-            content = doc["text"]
-            snippet = content
-
-            # Thêm vào danh sách nguồn
-            sources_list.append(
-                {
-                    "source": source,
-                    "page": page,
-                    "section": section,
-                    "score": doc.get("score", 0.0),
+            
+            # Kiểm tra nếu là nguồn từ Google Agent Search
+            if metadata.get("source_type") == "web_search":
+                urls_from_gas = metadata.get("urls", [])
+                snippet = doc["text"]
+                if urls_from_gas:
+                    snippet += "\n\nNguồn tham khảo từ web:\n" + "\n".join([f"- {url}" for url in urls_from_gas])
+                
+                sources_list.append({
+                    "source": "Google Agent Search",
+                    "page": "Web Search Result",
+                    "section": "Web Content",
+                    "score": doc.get("score", 0.9),
                     "content_snippet": snippet,
-                    "file_id": result_file_id,  # Thêm file_id vào kết quả
-                }
-            )
+                    "file_id": doc.get("file_id", "web_search"),
+                    "is_web_search": True
+                })
+            else:
+                # Nguồn từ RAG thông thường
+                source = metadata.get("source", "unknown")
+                page = metadata.get("page", "N/A")
+                section = metadata.get("section", "N/A")
+                result_file_id = doc.get("file_id", "unknown")  # Lấy file_id từ kết quả
+
+                # Tạo snippet từ nội dung
+                content = doc["text"]
+                snippet = content
+
+                # Thêm vào danh sách nguồn
+                sources_list.append(
+                    {
+                        "source": source,
+                        "page": page,
+                        "section": section,
+                        "score": doc.get("score", 0.0),
+                        "content_snippet": snippet,
+                        "file_id": result_file_id,
+                        "is_web_search": False
+                    }
+                )
 
         # Trả về thông báo bắt đầu
         yield {
