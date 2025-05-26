@@ -985,7 +985,10 @@ class AdvancedDatabaseRAG:
             else:
                 # Nguồn từ RAG thông thường
                 source = metadata.get("source", "unknown")
-                page = metadata.get("page", "N/A")
+                
+                # Ưu tiên sử dụng page_label nếu có
+                page = metadata.get("page_label", metadata.get("page", "N/A"))
+                page_label = metadata.get("page_label", "")
                 section = metadata.get("section", "N/A")
                 result_file_id = doc.get("file_id", "unknown")  # Lấy file_id từ kết quả
 
@@ -998,11 +1001,13 @@ class AdvancedDatabaseRAG:
                     {
                         "source": source,
                         "page": page,
+                        "page_label": page_label,  # Thêm page_label vào sources
                         "section": section,
                         "score": doc.get("score", 0.0),
                         "content_snippet": snippet,
                         "file_id": result_file_id,
-                        "is_web_search": False
+                        "is_web_search": False,
+                        "source_filename": os.path.basename(source) if os.path.sep in source else source,  # Thêm tên file không có đường dẫn
                     }
                 )
 
@@ -1032,7 +1037,7 @@ class AdvancedDatabaseRAG:
         query: str,
         search_type: str = "hybrid",
         alpha: float = None,
-        k: int = 10,
+        k: int = 15,
         sources: List[str] = None,
         file_id: List[str] = None,
         conversation_history: str = None,
@@ -1332,11 +1337,13 @@ class AdvancedDatabaseRAG:
 
         # Chuẩn bị context từ các kết quả đã rerank
         context_docs = []
-        for i, result in enumerate(reranked_results[:5]):  # Chỉ lấy top 5 kết quả
+        for i, result in enumerate(reranked_results[:15]):  
             # Chuẩn bị metadata
             metadata = result.get("metadata", {})
             source = metadata.get("source", "unknown")
-            page = metadata.get("page", "N/A")
+            
+            # Ưu tiên sử dụng page_label nếu có
+            page = metadata.get("page_label", metadata.get("page", "N/A"))
             section = metadata.get("section", "N/A")
 
             # Thêm vào danh sách context
@@ -1345,8 +1352,10 @@ class AdvancedDatabaseRAG:
                     "content": result["text"],
                     "source": source,
                     "page": page,
+                    "page_label": metadata.get("page_label", ""),  # Thêm page_label vào context
                     "section": section,
                     "score": result.get("score", 0.0),
+                    "metadata": metadata,  # Thêm toàn bộ metadata để sử dụng trong prompt
                 }
             )
 
@@ -1375,7 +1384,10 @@ class AdvancedDatabaseRAG:
             else:
                 # Nguồn từ RAG thông thường
                 source = metadata.get("source", "unknown")
-                page = metadata.get("page", "N/A")
+                
+                # Ưu tiên sử dụng page_label nếu có
+                page = metadata.get("page_label", metadata.get("page", "N/A"))
+                page_label = metadata.get("page_label", "")
                 section = metadata.get("section", "N/A")
                 result_file_id = doc.get("file_id", "unknown")  # Lấy file_id từ kết quả
 
@@ -1388,11 +1400,13 @@ class AdvancedDatabaseRAG:
                     {
                         "source": source,
                         "page": page,
+                        "page_label": page_label,  # Thêm page_label vào sources
                         "section": section,
                         "score": doc.get("score", 0.0),
                         "content_snippet": snippet,
                         "file_id": result_file_id,
-                        "is_web_search": False
+                        "is_web_search": False,
+                        "source_filename": os.path.basename(source) if os.path.sep in source else source,  # Thêm tên file không có đường dẫn
                     }
                 )
 

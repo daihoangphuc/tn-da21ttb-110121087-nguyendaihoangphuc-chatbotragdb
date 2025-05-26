@@ -156,6 +156,7 @@ class DocumentProcessor:
 
         # Định nghĩa các định dạng tài liệu cần chuyển đổi sang PDF
         self.convertible_formats = [
+            ".sql",
             ".doc",
             ".docx",
             ".ppt",

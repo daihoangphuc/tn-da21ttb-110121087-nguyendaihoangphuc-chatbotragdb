@@ -40,10 +40,16 @@ Sử dụng ví dụ cụ thể, thực tế để minh họa khái niệm.
 
 NGUYÊN TẮC NGHIÊM NGẶT VỀ THÔNG TIN:
 - BẠN CHỈ ĐƯỢC SỬ DỤNG THÔNG TIN CÓ TRONG TÀI LIỆU NGUỒN đã cung cấp ở phần Ngữ cảnh.
-- TRẢ LỜI CHÍNH XÁC NHỮNG GÌ ĐƯỢC ĐỀ CẶP TRONG NGỮ CẢNH KHÔNG ĐƯỢC TỰ Ý THÊM BỚT.
+- TRẢ LỜI CHÍNH XÁC NHỮNG GÌ ĐƯỢC ĐỀ CẬP TRONG NGỮ CẢNH KHÔNG ĐƯỢC TỰ Ý THÊM BỚT.
 - CÓ THỂ TỰ ĐIỀU CHỈNH NHỮNG TRƯỜNG HỢP NHƯ CHỮ KHÔNG DẪU, SAI CHÍNH TẢ, ...
 - KHÔNG ĐƯỢC SỬ DỤNG KIẾN THỨC BÊN NGOÀI, dù bạn biết thông tin đó.
-- Mỗi khi sử dụng thông tin từ tài liệu, hãy trích dẫn nguồn cụ thể bằng cách đặt nguồn trong ngoặc đơn: (nguồn).
+
+NGUYÊN TẮC TRÍCH DẪN NGUỒN (QUAN TRỌNG):
+- Mỗi khi sử dụng thông tin từ tài liệu, LUÔN PHẢI trích dẫn nguồn cụ thể bằng cách sử dụng thông tin "Citation" được cung cấp trong mỗi tài liệu.
+- Định dạng trích dẫn PHẢI là: (trang X của file Y) - trong đó X là số trang và Y là tên file.
+- Ví dụ: "SQL Server là một hệ quản trị cơ sở dữ liệu quan hệ (trang 20 của file Hệ_QT_CSDl.pdf)."
+- KHÔNG được sử dụng định dạng trích dẫn đơn giản như "(Document 1)" hoặc "(Source 1)".
+- Nếu không có thông tin về trang, chỉ sử dụng tên file: "(file Hệ_QT_CSDl.pdf)".
 - Nếu không tìm thấy thông tin đầy đủ để trả lời câu hỏi, KHÔNG được sử dụng kiến thức bên ngoài. Hãy trả lời: "Tôi không thể trả lời đầy đủ câu hỏi này dựa trên tài liệu hiện có. Thông tin về [chủ đề] không được tìm thấy trong tài liệu được cung cấp."
 - Nếu chỉ tìm thấy một phần thông tin, hãy chỉ trả lời phần đó và nói rõ: "Tôi chỉ tìm thấy thông tin giới hạn về chủ đề này trong tài liệu được cung cấp."
 - Khi thông tin đến từ Google Agent Search, LUÔN PHẢI bao gồm URL nguồn đầy đủ trong ngoặc vuông: [URL]. Ví dụ: "SQL Server 2022 là phiên bản mới nhất (Google Agent Search) [https://example.com]". KHÔNG ĐƯỢC BỎ QUA URL nguồn trong bất kỳ trường hợp nào.
@@ -109,16 +115,24 @@ QUAN TRỌNG:
 
         context_entries = []
         for i, doc in enumerate(context):
-            metadata = doc.get("metadata", {})
-            source = metadata.get(
-                "source", "unknown_source"
-            )  # Cung cấp giá trị mặc định rõ ràng hơn
-            page = metadata.get("page", "N/A")  # Sử dụng N/A cho dễ đọc hơn "unknown"
+            # Ưu tiên sử dụng metadata đầy đủ nếu được truyền vào
+            if "metadata" in doc and isinstance(doc["metadata"], dict):
+                metadata = doc["metadata"]
+            else:
+                metadata = doc.get("metadata", {})
+            
+            # Lấy thông tin nguồn từ metadata
+            source = metadata.get("source", "unknown_source")
+            
+            # Lấy tên file thay vì đường dẫn đầy đủ
+            source_filename = os.path.basename(source) if os.path.sep in source else source
+            
+            # Ưu tiên sử dụng page_label nếu có, nếu không thì dùng page
+            page = metadata.get("page_label", metadata.get("page", "N/A"))
             section = metadata.get("chunk_type", metadata.get("position", "N/A"))
 
-            source_ref = os.path.basename(source) if os.path.sep in source else source
-
-            source_citation = f"{source_ref}:{page}" if page != "N/A" else source_ref
+            # Tạo trích dẫn nguồn rõ ràng hơn
+            source_citation = f"trang {page} của file {source_filename}" if page != "N/A" else f"file {source_filename}"
 
             content = doc.get("text", doc.get("content"))
             if not content or not content.strip():
@@ -126,7 +140,7 @@ QUAN TRỌNG:
 
             context_entry = (
                 f"[Document {i+1}]\n"
-                f"Source: {source}\n"
+                f"Source: {source_filename}\n"
                 f"Citation: {source_citation}\n"
                 f"Page/Position: {page}\n"
                 f"Section: {section}\n"
