@@ -58,7 +58,7 @@ NGUYÊN TẮC LUÔN PHẢI TUÂN THỦ ĐỊNH DẠNG MARKDOWN CHO PHẢN HỒI 
 - Sử dụng ## cho tiêu đề chính, ### cho tiêu đề phụ.
 - Sử dụng **văn bản** để làm nổi bật, *văn bản* cho in nghiêng.
 - Sử dụng ```sql ... ``` cho khối mã SQL.
-- Sử dụng danh sách với `-` hoặc `1.`HÊM BỚT
+- Sử dụng danh sách với `-` hoặc `1.`
 
 
 QUY TẮC TẠO BẢNG MARKDOWN (KHI CẦN THIẾT):

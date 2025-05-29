@@ -321,6 +321,44 @@ class AdvancedDatabaseRAG:
         # Loại bỏ hoàn toàn chức năng mở rộng truy vấn
         return self.search_manager.semantic_search(query, k, sources, file_id)
 
+    def _hybrid_search_task(self, query_to_use, k, alpha, sources, file_id, results):
+        """Task chạy song song để thực hiện hybrid search"""
+        try:
+            # Hybrid search cần cả tìm kiếm ngữ nghĩa và từ khóa
+            print(f"=== BM25 DEBUG === Bắt đầu hybrid_search với query: '{query_to_use}'")
+            
+            keyword_results = self.search_manager.keyword_search(
+                query_to_use, k=k, sources=sources, file_id=file_id
+            )
+            
+            # Ghi log số lượng kết quả từ BM25
+            print(f"=== BM25 DEBUG === Số kết quả từ BM25: {len(keyword_results)}")
+            if not keyword_results:
+                print("Không tìm thấy kết quả với BM25, quay lại tìm kiếm ngữ nghĩa")
+                # Không có kết quả từ tìm kiếm keyword, chỉ dùng tìm kiếm ngữ nghĩa
+                semantic_results = self.search_manager.semantic_search(
+                    query_to_use, k=k, sources=sources, file_id=file_id
+                )
+                results["semantic"] = semantic_results
+                results["keyword"] = []  # Danh sách rỗng vẫn được lưu để biết BM25 đã được thử
+                return
+                
+            # Cũng thực hiện tìm kiếm ngữ nghĩa
+            semantic_results = self.search_manager.semantic_search(
+                query_to_use, k=k, sources=sources, file_id=file_id
+            )
+            
+            # Lưu kết quả vào biến chung
+            results["keyword"] = keyword_results
+            results["semantic"] = semantic_results
+        except Exception as e:
+            print(f"Lỗi trong hybrid_search: {str(e)}")
+            # Fallback to just semantic search
+            results["semantic"] = self.search_manager.semantic_search(
+                query_to_use, k=k, sources=sources, file_id=file_id
+            )
+            results["keyword"] = []
+
     def hybrid_search(
         self,
         query: str,
@@ -330,7 +368,6 @@ class AdvancedDatabaseRAG:
         file_id: List[str] = None,
     ) -> List[Dict]:
         """Tìm kiếm kết hợp ngữ nghĩa và keyword (ưu tiên ngữ nghĩa nhiều hơn với alpha=0.7)"""
-        # Sử dụng phương pháp đồng bộ để khỏi gặp lỗi asyncio.run từ trong event loop
         # Sử dụng alpha mặc định từ biến môi trường nếu không được chỉ định
         if alpha is None:
             alpha = self.default_alpha
@@ -377,22 +414,23 @@ class AdvancedDatabaseRAG:
         initial_k = max(10, k * 2)  # Giảm từ k * 3 xuống k * 2
 
         # Thực hiện song song tìm kiếm bằng ThreadPoolExecutor thay vì asyncio
-        semantic = None
-        keyword = None
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            # Tạo và submit các tác vụ tìm kiếm
-            semantic_future = executor.submit(
-                self.search_manager.semantic_search, query, initial_k, sources, file_id
+        results = {"semantic": None, "keyword": None}
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            # Thực hiện hybrid search trong một luồng riêng biệt
+            executor.submit(
+                self._hybrid_search_task, 
+                query, 
+                initial_k, 
+                alpha, 
+                sources, 
+                file_id, 
+                results
             )
-
-            keyword_future = executor.submit(
-                self.search_manager.keyword_search, query, initial_k, sources, file_id
-            )
-
-            # Lấy kết quả từ future
-            semantic = semantic_future.result()
-            keyword = keyword_future.result()
+            
+        # Lấy kết quả từ biến chung
+        semantic = results["semantic"] or []
+        keyword = results["keyword"] or []
 
         print(f"Đã tìm được {len(semantic)} kết quả từ semantic search")
         print(f"Đã tìm được {len(keyword)} kết quả từ keyword search")
