@@ -66,6 +66,7 @@ class DocumentProcessor:
             ".docx": Docx2txtLoader,
             ".txt": TextLoader,
             ".sql": TextLoader,
+            ".md": TextLoader,
         }
 
         # Định nghĩa các từ khóa để phân loại tài liệu

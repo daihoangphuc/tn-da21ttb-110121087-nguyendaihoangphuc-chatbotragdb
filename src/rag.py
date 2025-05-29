@@ -72,10 +72,13 @@ def initialize_global_resources():
         global_prompt_manager = PromptManager()
         print("Đã khởi tạo Prompt Manager toàn cục")
 
-        # Tạo search manager dùng chung
-        temp_vector_store = VectorStore()  # Tạm thời tạo để khởi tạo SearchManager
-        global_search_manager = SearchManager(temp_vector_store, global_embedding_model)
+        # Tạo search manager dùng chung với VectorStore không có user_id
+        # Điều này đảm bảo không tạo hay tải BM25 index không cần thiết khi khởi tạo
+        # BM25 index phù hợp sẽ được tải khi user_id thực sự được sử dụng
+        empty_vector_store = VectorStore()  # VectorStore không có user_id
+        global_search_manager = SearchManager(empty_vector_store, global_embedding_model)
         print("Đã khởi tạo Search Manager toàn cục (BM25, reranker)")
+        print("SearchManager toàn cục sẽ tải BM25 index phù hợp khi được gán cho user_id cụ thể")
 
         global_resources_initialized = True
         print("Hoàn thành khởi tạo tất cả tài nguyên toàn cục")
@@ -142,10 +145,11 @@ class AdvancedDatabaseRAG:
 
         # Sử dụng search_manager từ bên ngoài hoặc tạo mới với vector_store của user
         if search_manager is not None:
-            # Gán search_manager toàn cục nhưng cập nhật vector_store
+            # Gán search_manager toàn cục và cập nhật vector_store (cùng với BM25 index tương ứng)
             self.search_manager = search_manager
-            self.search_manager.vector_store = self.vector_store
-            print("Sử dụng Search Manager toàn cục (cập nhật vector_store cho user)")
+            # Thay vì chỉ gán vector_store, gọi phương thức để cập nhật và tải lại BM25 index phù hợp
+            self.search_manager.set_vector_store_and_reload_bm25(self.vector_store)
+            print("Sử dụng Search Manager toàn cục (đã cập nhật vector_store và BM25 index cho user)")
         else:
             print("Khởi tạo Search Manager mới")
             self.search_manager = SearchManager(self.vector_store, self.embedding_model)
@@ -1245,6 +1249,8 @@ class AdvancedDatabaseRAG:
         if perform_fallback_stream:
             print(f"Không có kết quả RAG (stream). Thực hiện fallback với Google Agent Search cho: '{query_to_use}'")
             try:
+                # Khởi tạo sources_list trước khi sử dụng
+                sources_list = []
                 fallback_summary, fallback_urls = google_agent_search(query_to_use)
                 fallback_content = fallback_summary.content if hasattr(fallback_summary, 'content') else str(fallback_summary)
                 

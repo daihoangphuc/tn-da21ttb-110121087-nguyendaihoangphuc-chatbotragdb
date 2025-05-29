@@ -40,11 +40,25 @@ class SearchManager:
 
         # Đường dẫn lưu BM25 index
         data_dir = os.getenv("UPLOAD_DIR", "src/data")
-        self.bm25_index_dir = os.path.join(data_dir, "bm25_index")
+        
+        # Lấy user_id từ vector_store
+        user_id = self.vector_store.user_id if hasattr(self.vector_store, 'user_id') else None
+        
+        if user_id:
+            # Tạo thư mục bm25_index trong thư mục của người dùng
+            user_dir = os.path.join(data_dir, user_id)
+            self.bm25_index_dir = os.path.join(user_dir, "bm25_index")
+            print(f"Sử dụng thư mục BM25 index trong thư mục người dùng: {self.bm25_index_dir}")
+        else:
+            # Sử dụng thư mục mặc định nếu không có user_id
+            self.bm25_index_dir = os.path.join(data_dir, "bm25_index")
+            print("Sử dụng thư mục BM25 index mặc định (không có user_id)")
+            
         os.makedirs(self.bm25_index_dir, exist_ok=True)
         self.bm25_index_path = os.path.join(self.bm25_index_dir, "bm25_index.pkl")
         self.corpus_path = os.path.join(self.bm25_index_dir, "corpus.pkl")
         self.doc_mappings_path = os.path.join(self.bm25_index_dir, "doc_mappings.pkl")
+        self.metadata_path = os.path.join(self.bm25_index_dir, "bm25_metadata.json")
 
         # Nếu có index BM25 đã lưu, tải lên khi khởi tạo
         self._try_load_bm25_index()
@@ -141,12 +155,11 @@ class SearchManager:
             current_points_count = collection_info.get("points_count", 0)
 
             # Kiểm tra xem đã có file bm25_metadata.json chứa thông tin về số lượng points đã indexing trước đó
-            metadata_path = os.path.join(self.bm25_index_dir, "bm25_metadata.json")
             previous_points_count = 0
 
-            if os.path.exists(metadata_path):
+            if os.path.exists(self.metadata_path):
                 try:
-                    with open(metadata_path, "r") as f:
+                    with open(self.metadata_path, "r") as f:
                         metadata = json.load(f)
                         previous_points_count = metadata.get("points_count", 0)
                 except:
@@ -203,7 +216,7 @@ class SearchManager:
 
             # Lưu metadata
             try:
-                with open(metadata_path, "w") as f:
+                with open(self.metadata_path, "w") as f:
                     json.dump({"points_count": current_points_count}, f)
             except Exception as e:
                 print(f"Lỗi khi lưu metadata: {str(e)}")
@@ -469,6 +482,52 @@ class SearchManager:
                 print(f"Tăng điểm {score_boost:.2f} cho chunk có metadata phù hợp.")
 
         return sorted(results, key=lambda x: x["rerank_score"], reverse=True)
+        
+    def set_vector_store_and_reload_bm25(self, new_vector_store):
+        """
+        Cập nhật vector_store và tải lại BM25 index phù hợp với user_id mới.
+        Sử dụng khi chuyển đổi giữa các user_id khác nhau trong cùng một SearchManager toàn cục.
+        """
+        # Kiểm tra nếu vector_store hoặc user_id đã thay đổi
+        old_user_id = self.vector_store.user_id if hasattr(self.vector_store, 'user_id') else None
+        new_user_id = new_vector_store.user_id if hasattr(new_vector_store, 'user_id') else None
+        
+        if old_user_id != new_user_id:
+            print(f"Chuyển đổi SearchManager từ user_id={old_user_id} sang user_id={new_user_id}")
+            
+            # Cập nhật vector_store
+            self.vector_store = new_vector_store
+            
+            # Cập nhật đường dẫn BM25 index cho user_id mới
+            data_dir = os.getenv("UPLOAD_DIR", "src/data")
+            if new_user_id:
+                user_dir = os.path.join(data_dir, new_user_id)
+                self.bm25_index_dir = os.path.join(user_dir, "bm25_index")
+                print(f"Sử dụng thư mục BM25 index trong thư mục người dùng: {self.bm25_index_dir}")
+            else:
+                self.bm25_index_dir = os.path.join(data_dir, "bm25_index")
+                print("Sử dụng thư mục BM25 index mặc định (không có user_id)")
+                
+            os.makedirs(self.bm25_index_dir, exist_ok=True)
+            self.bm25_index_path = os.path.join(self.bm25_index_dir, "bm25_index.pkl")
+            self.corpus_path = os.path.join(self.bm25_index_dir, "corpus.pkl")
+            self.doc_mappings_path = os.path.join(self.bm25_index_dir, "doc_mappings.pkl")
+            self.metadata_path = os.path.join(self.bm25_index_dir, "bm25_metadata.json")
+            
+            # Reset BM25 state
+            self.bm25 = None
+            self.corpus = []
+            self.doc_mappings = []
+            self.bm25_initialized = False
+            
+            # Tải lại BM25 index cho user_id mới
+            loaded = self._try_load_bm25_index()
+            if not loaded:
+                print(f"Không tìm thấy BM25 index cho user_id={new_user_id}, sẽ tạo mới khi cần thiết")
+        else:
+            # Chỉ cập nhật vector_store nếu user_id không thay đổi
+            self.vector_store = new_vector_store
+            print(f"Đã cập nhật vector_store (giữ nguyên user_id={new_user_id})")
 
     def _detect_query_type(self, query: str) -> str:
         """Phát hiện loại truy vấn: định nghĩa, cú pháp, hoặc ví dụ"""

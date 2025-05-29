@@ -64,6 +64,7 @@ class SuggestionManager:
         3. Câu hỏi nên giúp người dùng khám phá sâu hơn, mở rộng kiến thức
         4. Câu hỏi nên phù hợp cho một người đang tìm hiểu về cơ sở dữ liệu
         5. Câu hỏi phải viết bằng tiếng Việt và phải có dấu câu hỏi ở cuối
+        6. Câu hỏi có độ dài vừa phải thôi, không cần quá dài khoảng 80 kí tự là được
         
         Chỉ trả về {num_suggestions} câu hỏi, mỗi câu hỏi trên một dòng, với định dạng:
         1. [Câu hỏi 1]

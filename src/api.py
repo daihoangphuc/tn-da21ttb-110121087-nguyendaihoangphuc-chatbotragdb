@@ -831,7 +831,7 @@ async def upload_document(
     try:
         # Kiểm tra phần mở rộng file
         ext = os.path.splitext(file.filename)[1].lower()
-        allowed_extensions = [".pdf", ".docx", ".txt", ".sql"]
+        allowed_extensions = [".pdf", ".docx", ".txt", ".sql", ".md"]
 
         if ext not in allowed_extensions:
             raise HTTPException(
