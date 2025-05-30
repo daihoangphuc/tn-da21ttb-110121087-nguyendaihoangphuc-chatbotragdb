@@ -327,6 +327,12 @@ class AdvancedDatabaseRAG:
             # Hybrid search cần cả tìm kiếm ngữ nghĩa và từ khóa
             print(f"=== BM25 DEBUG === Bắt đầu hybrid_search với query: '{query_to_use}'")
             
+            # Kiểm tra user_id trong SearchManager.vector_store
+            sm_user_id = self.search_manager.vector_store.user_id if hasattr(self.search_manager.vector_store, 'user_id') else "N/A"
+            print(f"=== BM25 DEBUG === SearchManager.vector_store.user_id TRƯỚC KHI TÌM KIẾM: {sm_user_id}")
+            vs_user_id = self.vector_store.user_id if hasattr(self.vector_store, 'user_id') else "N/A"
+            print(f"=== BM25 DEBUG === self.vector_store.user_id: {vs_user_id}")
+            
             keyword_results = self.search_manager.keyword_search(
                 query_to_use, k=k, sources=sources, file_id=file_id
             )

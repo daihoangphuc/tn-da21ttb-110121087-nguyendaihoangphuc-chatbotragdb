@@ -422,9 +422,19 @@ async def ask_question(
     - **conversation_id**: ID phiên hội thoại để duy trì ngữ cảnh cuộc hội thoại
     """
     try:
+        # Lấy user_id từ token
+        user_id = current_user.id
+
+        # Đặt collection_name cho vector store
+        rag_system.vector_store.collection_name = "user_" + str(user_id)
+        # Cập nhật user_id cho vector_store trong SearchManager
+        rag_system.vector_store.user_id = user_id
+        # QUAN TRỌNG: Cập nhật SearchManager.vector_store và tải BM25 index cho user hiện tại
+        rag_system.search_manager.set_vector_store_and_reload_bm25(rag_system.vector_store)
+        print(f"Đã cập nhật SearchManager vector_store và BM25 index cho user_id={user_id}")
+        
         # Lấy hoặc tạo ID phiên hội thoại
         conversation_id = request.conversation_id
-        user_id = current_user.id
 
         if not conversation_id:
             # Tạo ID phiên mới nếu không có
@@ -617,6 +627,11 @@ async def ask_question_stream(
 
         # Đặt collection_name cho vector store
         rag_system.vector_store.collection_name = "user_" + str(user_id)
+        # Cập nhật user_id cho vector_store trong SearchManager
+        rag_system.vector_store.user_id = user_id
+        # QUAN TRỌNG: Cập nhật SearchManager.vector_store và tải BM25 index cho user hiện tại
+        rag_system.search_manager.set_vector_store_and_reload_bm25(rag_system.vector_store)
+        print(f"Đã cập nhật SearchManager vector_store và BM25 index cho user_id={user_id}")
 
         # Kiểm tra xem người dùng đã chọn file_id hay chưa
         if (
@@ -826,51 +841,64 @@ async def upload_document(
     current_user=Depends(get_current_user),
 ):
     """
-    Tải lên một tài liệu để thêm vào hệ thống và tự động xử lý/index
+    Upload tài liệu và index vào vector database
+
+    - **file**: File cần upload (PDF, DOCX, TXT)
+    - **category**: Danh mục của tài liệu (tùy chọn)
     """
     try:
-        # Kiểm tra phần mở rộng file
-        ext = os.path.splitext(file.filename)[1].lower()
-        allowed_extensions = [".pdf", ".docx", ".txt", ".sql", ".md"]
+        # Tạo thư mục upload cho user nếu chưa tồn tại
+        user_id = current_user.id
+        upload_dir = os.getenv("UPLOAD_DIR", "src/data")
+        user_dir = os.path.join(upload_dir, user_id)
+        os.makedirs(user_dir, exist_ok=True)
 
-        if ext not in allowed_extensions:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Định dạng file không được hỗ trợ. Chấp nhận: {', '.join(allowed_extensions)}",
-            )
+        # Lưu file vào thư mục uploads
+        file_name = file.filename
+        file_path = os.path.join(user_dir, file_name)
+        
+        # Cập nhật user_id cho vector_store
+        rag_system.vector_store.user_id = user_id
+        # Đặt collection_name cho vector store
+        rag_system.vector_store.collection_name = "user_" + str(user_id)
+        # QUAN TRỌNG: Cập nhật SearchManager.vector_store và tải BM25 index cho user hiện tại
+        rag_system.search_manager.set_vector_store_and_reload_bm25(rag_system.vector_store)
+        print(f"Đã cập nhật SearchManager vector_store và BM25 index cho user_id={user_id}")
 
-        # Lấy thư mục upload của user
-        user_upload_dir = get_user_upload_dir(current_user.id)
+        with open(file_path, "wb+") as buffer:
+            shutil.copyfileobj(file.file, buffer)
 
-        # Lưu file vào thư mục của user
-        file_location = os.path.join(user_upload_dir, file.filename)
-        with open(file_location, "wb") as f:
-            shutil.copyfileobj(file.file, f)
+        print(f"[UPLOAD] Đã lưu file {file_name} vào {file_path}")
 
-        # Xử lý metadata bổ sung (nếu có)
-        metadata = {}
-        if category:
-            metadata["category"] = category
-
-        # Xử lý file vừa tải lên
-        print(f"Bắt đầu xử lý file {file.filename}...")
-
-        # Tải tài liệu bằng loader thích hợp
-        if category:
-            documents = rag_system.document_processor.load_document_with_category(
-                file_location, category
-            )
-        else:
-            ext = os.path.splitext(file_location)[1].lower()
-            if ext in rag_system.document_processor.loaders:
-                loader = rag_system.document_processor.loaders[ext](file_location)
-                documents = loader.load()
+        # Xác định loại file
+        file_extension = os.path.splitext(file_name)[1].lower()
+        
+        # Đọc nội dung file và xử lý
+        documents = None
+        try:
+            # Sử dụng DocumentProcessor thay vì các hàm riêng lẻ
+            document_processor = rag_system.document_processor
+            documents = document_processor.load_document_with_category(file_path, category)
+            
+            if file_extension == ".pdf":
+                file_type = "pdf"
+            elif file_extension == ".docx":
+                file_type = "docx"
+            elif file_extension == ".txt":
+                file_type = "txt"
             else:
                 return {
                     "filename": file.filename,
                     "status": "error",
-                    "message": f"Không hỗ trợ định dạng {ext}",
+                    "message": f"Không hỗ trợ định dạng file {file_extension}",
                 }
+        except Exception as e:
+            print(f"[UPLOAD] Lỗi khi đọc file {file_name}: {str(e)}")
+            return {
+                "filename": file.filename,
+                "status": "error",
+                "message": f"Lỗi khi đọc file: {str(e)}",
+            }
 
         if not documents:
             return {
@@ -902,56 +930,20 @@ async def upload_document(
                 user_id=current_user.id,
                 file_id=file_id,
             )
+            
+            # Cập nhật BM25 index sau khi index xong
+            print(f"[UPLOAD] Cập nhật BM25 index cho user_id={current_user.id}")
+            rag_system.search_manager.update_bm25_index()
+            print(f"[UPLOAD] Hoàn thành cập nhật BM25 index")
 
-            # Lưu thông tin file vào bảng document_files
-            try:
-                from src.supabase.files_manager import FilesManager
-                from src.supabase.client import SupabaseClient
-
-                client = SupabaseClient().get_client()
-                files_manager = FilesManager(client)
-
-                # Lấy kích thước file
-                file_stats = os.stat(file_location)
-
-                # Lưu metadata
-                file_metadata = {
-                    "category": category,
-                    "chunks_count": len(processed_chunks),
-                    "file_size": file_stats.st_size,  # Đưa kích thước file vào metadata thay vì trường riêng
-                }
-
-                # Lưu thông tin file vào database
-                files_manager.save_file_metadata(
-                    file_id=file_id,
-                    filename=file.filename,
-                    file_path=file_location,
-                    user_id=current_user.id,
-                    file_type=ext,
-                    metadata=file_metadata,
-                )
-                print(
-                    f"[UPLOAD] Đã lưu thông tin file {file.filename} vào bảng document_files"
-                )
-            except Exception as e:
-                print(f"[UPLOAD] Lỗi khi lưu thông tin file vào database: {str(e)}")
-
-            return {
-                "filename": file.filename,
-                "status": "success",
-                "message": f"Đã tải lên và index thành công {len(processed_chunks)} chunks từ tài liệu",
-                "chunks_count": len(processed_chunks),
-                "category": category,
-                "file_id": file_id,
-            }
-        else:
-            return {
-                "filename": file.filename,
-                "status": "warning",
-                "message": "Tài liệu đã được tải lên nhưng không thể tạo chunks",
-                "category": category,
-            }
-
+        return {
+            "filename": file.filename,
+            "status": "success",
+            "message": f"Đã tải lên và index thành công {len(processed_chunks)} chunks từ tài liệu",
+            "chunks_count": len(processed_chunks),
+            "category": category,
+            "file_id": file_id,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý tài liệu: {str(e)}")
 

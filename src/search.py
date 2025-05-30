@@ -286,11 +286,25 @@ class SearchManager:
                 if 'text' not in doc or not doc['text']:
                     print(f"=== BM25 DEBUG === (_initialize_bm25) Tài liệu thứ {i} không có trường 'text' hoặc text rỗng")
                     continue
+                
+                # Xử lý văn bản cho tiếng Việt
                 text = doc["text"].lower()
-                text = re.sub(r"[^\\w\\s]", " ", text)
+                
+                # Tiền xử lý nhẹ nhàng hơn để giữ lại các ký tự tiếng Việt
+                # Thay vì loại bỏ tất cả các ký tự đặc biệt, chỉ loại bỏ dấu câu
+                # và giữ lại tất cả các ký tự Unicode của tiếng Việt
+                text = re.sub(r'[.,;:!?()[\]{}"\'-]', ' ', text)  # Loại bỏ dấu câu thông dụng
+                
+                # Loại bỏ nhiều khoảng trắng liên tiếp
+                text = re.sub(r'\s+', ' ', text)
+                
+                # Loại bỏ khoảng trắng ở đầu và cuối
+                text = text.strip()
+                
                 tokens = text.split()
                 if i == 0: # Log mẫu token của tài liệu đầu tiên
                     print(f"=== BM25 DEBUG === (_initialize_bm25) Mẫu tokens sau khi tiền xử lý (doc 0): {tokens[:20]}")
+                
                 corpus.append(tokens)
                 doc_mappings.append(doc)
 
@@ -380,6 +394,8 @@ class SearchManager:
         print(f"=== BM25 DEBUG === Bắt đầu tìm kiếm từ khóa với query: '{query}'")
 
         current_user_id = self.vector_store.user_id if hasattr(self.vector_store, 'user_id') else None
+        print(f"=== BM25 DEBUG === user_id trong vector_store TRONG keyword_search: {current_user_id}")
+        
         if not current_user_id:
             print(f"=== BM25 DEBUG === Không có user_id trong vector_store, không thể thực hiện keyword search.")
             return []
@@ -413,9 +429,15 @@ class SearchManager:
                 print(f"=== BM25 DEBUG === Câu truy vấn rỗng hoặc không phải string, không thể tìm kiếm")
                 return []
 
+            # Xử lý văn bản tiếng Việt cho query giống như đã làm với corpus
             processed_query = query.lower()
             print(f"=== BM25 DEBUG === (Preprocessing Query) Query sau lower(): '{processed_query}'")
-            processed_query = re.sub(r"[^\\w\\s]", " ", processed_query)
+            
+            # Sử dụng regex giống như trong phương thức _initialize_bm25
+            processed_query = re.sub(r'[.,;:!?()[\]{}"\'-]', ' ', processed_query)  # Loại bỏ dấu câu thông dụng
+            processed_query = re.sub(r'\s+', ' ', processed_query)  # Loại bỏ nhiều khoảng trắng liên tiếp
+            processed_query = processed_query.strip()  # Loại bỏ khoảng trắng ở đầu và cuối
+            
             print(f"=== BM25 DEBUG === (Preprocessing Query) Query sau regex sub: '{processed_query}'")
             query_tokens = processed_query.split()
             
@@ -684,61 +706,56 @@ class SearchManager:
         """Phát hiện loại truy vấn: định nghĩa, cú pháp, hoặc ví dụ"""
         query_lower = query.lower()
 
-        # Phát hiện truy vấn định nghĩa
-        definition_patterns = [
-            r"\b(định nghĩa|khái niệm|là gì|what is|define|mean by)\b",
-            r"\b(nghĩa của|ý nghĩa|meaning of)\b",
+        # Phát hiện truy vấn cú pháp (ưu tiên cao hơn) - liên quan đến SQL và các lệnh
+        syntax_patterns = [
+            r"\b(cú\s*pháp|syntax|format|khai\s*báo|declaration|statement)\b",
+            r"\b(sử\s*dụng|cách\s*sử\s*dụng|usage|how\s*to\s*use)\b",
+            r"\b(select|create|alter|insert|update|delete|procedure|function|trigger|view|index)\b",
+            r"\b(sql|database|db|query|truy\s*vấn)\b.*\b(viết|tạo|thực\s*hiện)\b",
+            r"\b(viết|write|code|lập\s*trình)\b.*\b(câu\s*lệnh|lệnh|command|statement|query)\b",
+            r"\b(lệnh|câu\s*lệnh|command)\b.*\b(như\s*thế\s*nào|ra\s*sao|thế\s*nào)\b",
+            r"\b(query|truy\s*vấn|câu\s*truy\s*vấn)\b",
         ]
 
-        # Phát hiện truy vấn cú pháp
-        syntax_patterns = [
-            r"\b(cú pháp|syntax|format|khai báo|declaration|statement)\b",
-            r"\b(sử dụng|cách sử dụng|usage|how to use)\b",
-            r"\b(SELECT|CREATE|ALTER|INSERT|UPDATE|DELETE)\b.*\b(như thế nào|ra sao|thế nào)\b",
-            r"\b(viết|write)\b.*\b(câu lệnh|lệnh|command|statement)\b",
+        # Phát hiện truy vấn định nghĩa
+        definition_patterns = [
+            r"\b(định\s*nghĩa|khái\s*niệm|là\s*gì|what\s*is|define|mean\s*by)\b",
+            r"\b(nghĩa\s*của|ý\s*nghĩa|meaning\s*of)\b",
+            r"\b(giải\s*thích|explain|mô\s*tả|describe)\b",
         ]
 
         # Phát hiện truy vấn ví dụ
         example_patterns = [
-            r"\b(ví dụ|minh họa|example|demonstrate|sample|mẫu)\b",
-            r"\b(show me|cho xem)\b",
+            r"\b(ví\s*dụ|minh\s*họa|example|demonstrate|sample|mẫu)\b",
+            r"\b(cho\s*xem|show\s*me|đưa\s*ra)\b",
+            r"\b(demo|demonstration)\b",
         ]
 
-        # Kiểm tra theo từng loại pattern
-        for pattern in definition_patterns:
-            if re.search(pattern, query_lower):
-                return "definition"
-
+        # Kiểm tra truy vấn cú pháp trước (ưu tiên cao hơn vì cần chính xác)
         for pattern in syntax_patterns:
             if re.search(pattern, query_lower):
                 return "syntax"
 
+        # Kiểm tra các từ khóa SQL cụ thể
+        sql_keywords = [
+            "SELECT", "FROM", "WHERE", "JOIN", "GROUP BY", "HAVING", "ORDER BY",
+            "INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP",
+            "PROCEDURE", "FUNCTION", "TRIGGER", "VIEW", "INDEX", "TABLE"
+        ]
+
+        for keyword in sql_keywords:
+            if keyword.lower() in query_lower or keyword in query:
+                return "syntax"  # Nếu truy vấn chứa từ khóa SQL, coi như truy vấn cú pháp
+
+        # Kiểm tra truy vấn ví dụ
         for pattern in example_patterns:
             if re.search(pattern, query_lower):
                 return "example"
 
-        # Kiểm tra các từ khóa SQL cụ thể
-        sql_keywords = [
-            "SELECT",
-            "FROM",
-            "WHERE",
-            "JOIN",
-            "GROUP BY",
-            "HAVING",
-            "ORDER BY",
-            "INSERT",
-            "UPDATE",
-            "DELETE",
-            "CREATE",
-            "ALTER",
-            "DROP",
-        ]
-
-        for keyword in sql_keywords:
-            if keyword in query.upper():
-                return (
-                    "syntax"  # Nếu truy vấn chứa từ khóa SQL, coi như truy vấn cú pháp
-                )
+        # Kiểm tra truy vấn định nghĩa
+        for pattern in definition_patterns:
+            if re.search(pattern, query_lower):
+                return "definition"
 
         # Mặc định trả về general nếu không phát hiện loại cụ thể
         return "general"
