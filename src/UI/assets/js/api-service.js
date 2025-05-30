@@ -637,7 +637,7 @@ class APIService {
 
     // Phương thức đăng nhập bằng Google
     async getGoogleAuthUrl() {
-        const redirectUrl = `${window.location.origin}/auth-callback.html`;
+        const redirectUrl = `${window.location.origin}/src/UI/auth-callback.html`;
         console.log(`Lấy URL đăng nhập Google với redirect_url: ${redirectUrl}`);
         
         try {

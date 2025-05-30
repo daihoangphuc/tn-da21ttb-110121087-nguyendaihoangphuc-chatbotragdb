@@ -94,13 +94,17 @@
                 <div class="header-title">
                     <h1 class="text-lg font-semibold">RAG - Cơ sở dữ liệu</h1>
                 </div>
-                <div class="search-container w-1/3">
+                <!-- <div class="search-container w-1/3">
                     <div class="search-box relative">
                         <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500"></i>
                         <input type="text" id="searchInput" placeholder="Tìm kiếm lịch sử chat..." class="w-full pl-10 pr-4 py-2 rounded-full border border-gray-300 focus:border-gray-400 focus:outline-none transition-all">
                     </div>
-                </div>
-                <div class="header-actions">
+                </div> -->
+                <div class="header-actions"> 
+                    <button class="sql-playground-toggle rounded-md px-3 py-1.5 flex items-center gap-2 hover:bg-gray-100 transition-colors" id="sqlPlaygroundToggle">
+                        <span class="sm:inline-block">SQL Playground</span>
+                        <i class="fas fa-database text-blue-500"></i>
+                    </button>
                     <button class="theme-toggle p-2 rounded-full hover:bg-gray-200 transition-colors" id="themeToggle">
                         <i class="fas fa-moon"></i>
                     </button>
@@ -122,13 +126,13 @@
                                     <p class="user-email text-sm text-gray-500" id="userEmail">user@example.com</p>
                                 </div>
                             </div>
-                            <div class="dropdown-divider"></div>
+                            <!-- <div class="dropdown-divider"></div>
                             <ul class="dropdown-menu py-1">
                                 <li><a href="#" id="profileLink" class="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"><i class="fas fa-user mr-2 w-5 text-center"></i> Hồ sơ</a></li>
                                 <li><a href="#" id="settingsLink" class="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"><i class="fas fa-cog mr-2 w-5 text-center"></i> Cài đặt</a></li>
                                 <li><a href="#" id="helpLink" class="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"><i class="fas fa-question-circle mr-2 w-5 text-center"></i> Trợ giúp</a></li>
                             </ul>
-                            <div class="dropdown-divider"></div>
+                            <div class="dropdown-divider"></div> -->
                             <ul class="dropdown-menu py-1">
                                 <li><a href="#" class="flex items-center px-4 py-2 text-sm text-red-600 hover:bg-gray-100" id="logoutLink"><i class="fas fa-sign-out-alt mr-2 w-5 text-center"></i> Đăng xuất</a></li>
                             </ul>
@@ -229,9 +233,9 @@
                             <option value="semantic">Semantic</option>
                             <option value="keyword">Keyword</option>
                         </select>
-                        <button class="btn btn-ghost btn-sm" id="clear-chat-btn" title="Xóa lịch sử hội thoại hiện tại">
+                        <!-- <button class="btn btn-ghost btn-sm" id="clear-chat-btn" title="Xóa lịch sử hội thoại hiện tại">
                             <i class="fas fa-broom"></i>
-                        </button>
+                        </button> -->
                         <button class="btn btn-outline btn-sm mobile-only" id="viewSourcesBtn">
                             <i class="fas fa-layer-group"></i>
                             <span>Xem nguồn</span>
@@ -261,19 +265,113 @@
             <div class="source-view-panel" id="sourceViewPanel">
                 <div class="panel-header">
                     <div class="panel-header-content">
-                        <h2>Nội dung tài liệu</h2>
-                        <button class="btn btn-ghost btn-sm mobile-only" id="backToConversationBtn">
-                            <i class="fas fa-chevron-left"></i>
-                            <span>Trở lại</span>
+                        <div class="sql-playground-header">
+                            <div class="sql-icon">
+                                <i class="fas fa-database"></i>
+                            </div>
+                            <div>
+                                <h2>SQL Playground</h2>
+                                <div class="database-info">SQLite (sql.js)</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="header-actions">
+                        <button class="btn-expand" id="expandSqlBtn" title="Mở rộng (Toàn màn hình)">
+                            <i class="fas fa-expand"></i>
+                        </button>
+                        <button class="btn-close" id="closeSqlBtn" title="Đóng">
+                            <i class="fas fa-times"></i>
                         </button>
                     </div>
-                    <button class="btn btn-ghost btn-sm panel-collapse-btn" id="collapseSourceViewBtn">
-                        <i class="fas fa-chevron-right"></i>
-                    </button>
                 </div>
-                <div class="source-content" id="sourceContent">
-                    <div class="no-source-selected">
-                        <p>Chọn một nguồn tài liệu để xem nội dung chi tiết</p>
+                <div class="modern-sql-playground">
+                    <div class="modern-sql-header">
+                        <!-- <div class="db-icon-container">
+                            <i class="fas fa-database"></i>
+                            <span>SQL Playground</span>
+                            <span class="db-type">SQLite (sql.js)</span>
+                        </div> -->
+                        <button id="runSqlBtn" class="modern-run-btn">
+                            <i class="fas fa-play"></i> Chạy
+                        </button>
+                    </div>
+
+                    <div class="modern-sql-tabs">
+                        <button class="modern-tab active" id="queryTab">Truy vấn</button>
+                        <button class="modern-tab" id="resultsTab">Kết quả</button>
+                    </div>
+
+                    <div class="modern-sql-content">
+                        <div class="modern-sql-editor" id="queryContent">
+                            <div class="editor-header">
+                                <span class="editor-title">SQL Query Editor</span>
+                            </div>
+                            <div class="editor-container">
+                                <div class="line-numbers">1</div>
+                                <textarea id="sqlInput" placeholder="Nhập truy vấn SQL...">SELECT * FROM users LIMIT 10;</textarea>
+                            </div>
+                        </div>
+                        
+                        <div class="modern-sql-results" id="resultsContent" style="display:none;">
+                            <div class="execution-info">
+                                <span>Thời gian thực thi: 1ms</span>
+                                <span class="row-count">5 dòng</span>
+                            </div>
+                            <div class="results-table-wrapper">
+                                <table class="modern-results-table">
+                                    <thead>
+                                        <tr>
+                                            <th>id</th>
+                                            <th>name</th>
+                                            <th>email</th>
+                                            <th>age</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td>1</td>
+                                            <td>Nguyễn Văn A</td>
+                                            <td>nguyenvana@example.com</td>
+                                            <td>30</td>
+                                        </tr>
+                                        <tr>
+                                            <td>2</td>
+                                            <td>Trần Thị B</td>
+                                            <td>tranthib@example.com</td>
+                                            <td>24</td>
+                                        </tr>
+                                        <tr>
+                                            <td>3</td>
+                                            <td>Lê Văn C</td>
+                                            <td>levanc@example.com</td>
+                                            <td>35</td>
+                                        </tr>
+                                        <tr>
+                                            <td>4</td>
+                                            <td>Phạm Thị D</td>
+                                            <td>phamthid@example.com</td>
+                                            <td>28</td>
+                                        </tr>
+                                        <tr>
+                                            <td>5</td>
+                                            <td>Hoàng Văn E</td>
+                                            <td>hoangvane@example.com</td>
+                                            <td>42</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="modern-sql-footer">
+                        <div class="footer-shortcuts">
+                            <span>Nhấn <kbd>Ctrl + Enter</kbd> để thực thi</span>
+                        </div>
+                        <div class="connection-status">
+                            <i class="fas fa-circle-dot"></i>
+                            <span>Đã kết nối</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -288,7 +386,7 @@
                 Tin nhắn
             </button>
             <button class="nav-button" data-panel="sourceView">
-                Trích dẫn
+                SQL Playground
             </button>
         </div>
 

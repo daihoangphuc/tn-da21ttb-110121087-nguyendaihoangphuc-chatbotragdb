@@ -2483,4 +2483,425 @@ class ChatHistoryController {
              .replace(/"/g, "&quot;")
              .replace(/'/g, "&#039;");
     }
+}
+
+/**
+ * Controller quản lý SQL Playground
+ */
+class SqlPlaygroundController {
+    constructor() {
+        this.isExpanded = false;
+        this.isFullscreen = false;
+        this.isVisible = false;
+        this.initSqlEditor();
+        this.setupEventListeners();
+    }
+
+    initSqlEditor() {
+        // Khởi tạo editor với một số dòng ban đầu
+        this.updateLineNumbers();
+        
+        // Theo dõi thay đổi trong textarea để cập nhật số dòng
+        const sqlInput = document.getElementById('sqlInput');
+        if (sqlInput) {
+            sqlInput.addEventListener('input', () => {
+                this.updateLineNumbers();
+            });
+            
+            // Hỗ trợ tab trong textarea
+            sqlInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Tab') {
+                    e.preventDefault();
+                    const start = sqlInput.selectionStart;
+                    const end = sqlInput.selectionEnd;
+                    
+                    // Thêm dấu tab (4 dấu cách) vào vị trí con trỏ
+                    sqlInput.value = sqlInput.value.substring(0, start) + '    ' + sqlInput.value.substring(end);
+                    
+                    // Di chuyển con trỏ đến sau tab
+                    sqlInput.selectionStart = sqlInput.selectionEnd = start + 4;
+                }
+            });
+            
+            // Thêm hỗ trợ Ctrl+Enter để chạy truy vấn
+            sqlInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault();
+                    this.executeSqlQuery();
+                }
+            });
+        }
+    }
+    
+    updateLineNumbers() {
+        const sqlInput = document.getElementById('sqlInput');
+        const lineNumbers = document.querySelector('.line-numbers');
+        
+        if (!sqlInput || !lineNumbers) return;
+        
+        // Đếm số dòng trong textarea
+        const lineCount = sqlInput.value.split('\n').length;
+        let lineNumbersHtml = '';
+        
+        // Tạo danh sách số dòng
+        for (let i = 1; i <= lineCount; i++) {
+            lineNumbersHtml += i + '<br>';
+        }
+        
+        // Cập nhật HTML
+        lineNumbers.innerHTML = lineNumbersHtml;
+    }
+
+    setupEventListeners() {
+        // Xử lý sự kiện khi nhấn nút "Chạy"
+        const runSqlBtn = document.getElementById('runSqlBtn');
+        if (runSqlBtn) {
+            runSqlBtn.addEventListener('click', () => {
+                this.executeSqlQuery();
+            });
+        }
+        
+        // Xử lý sự kiện cho tabs
+        const queryTab = document.getElementById('queryTab');
+        const resultsTab = document.getElementById('resultsTab');
+        
+        if (queryTab && resultsTab) {
+            queryTab.addEventListener('click', () => {
+                this.switchTab('query');
+            });
+            
+            resultsTab.addEventListener('click', () => {
+                this.switchTab('results');
+            });
+        }
+        
+        // Xử lý sự kiện cho nút mở rộng
+        const expandSqlBtn = document.getElementById('expandSqlBtn');
+        if (expandSqlBtn) {
+            expandSqlBtn.addEventListener('click', () => {
+                this.toggleFullscreen();
+            });
+        }
+        
+        // Xử lý sự kiện cho nút đóng
+        const closeSqlBtn = document.getElementById('closeSqlBtn');
+        if (closeSqlBtn) {
+            closeSqlBtn.addEventListener('click', () => {
+                this.closePlayground();
+            });
+        }
+        
+        // Xử lý sự kiện cho nút toggle SQL Playground trong header
+        const sqlPlaygroundToggle = document.getElementById('sqlPlaygroundToggle');
+        if (sqlPlaygroundToggle) {
+            sqlPlaygroundToggle.addEventListener('click', () => {
+                this.togglePlayground();
+            });
+        }
+        
+        // Xử lý sự kiện keyboard shortcuts
+        const sqlInput = document.getElementById('sqlInput');
+        if (sqlInput) {
+            sqlInput.addEventListener('keydown', (e) => {
+                // Ctrl+Enter để thực thi truy vấn
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                    e.preventDefault();
+                    this.executeSqlQuery();
+                }
+            });
+        }
+        
+        // Kiểm tra trạng thái từ sessionStorage khi khởi tạo
+        this.loadStateFromSession();
+    }
+    
+    loadStateFromSession() {
+        // Kiểm tra trạng thái hiển thị từ sessionStorage
+        const isVisible = sessionStorage.getItem('sqlPlaygroundVisible') === 'true';
+        if (isVisible) {
+            this.showPlayground();
+        } else {
+            this.hidePlayground();
+        }
+        
+        // Kiểm tra trạng thái fullscreen từ sessionStorage
+        const isFullscreen = sessionStorage.getItem('sqlPlaygroundFullscreen') === 'true';
+        if (isFullscreen) {
+            this.showFullscreen();
+        }
+    }
+    
+    switchTab(tabName) {
+        const queryTab = document.getElementById('queryTab');
+        const resultsTab = document.getElementById('resultsTab');
+        const queryContent = document.getElementById('queryContent');
+        const resultsContent = document.getElementById('resultsContent');
+        
+        if (tabName === 'query') {
+            queryTab.classList.add('active');
+            resultsTab.classList.remove('active');
+            
+            if (queryContent) queryContent.style.display = 'flex';
+            if (resultsContent) resultsContent.style.display = 'none';
+        } else if (tabName === 'results') {
+            resultsTab.classList.add('active');
+            queryTab.classList.remove('active');
+            
+            if (queryContent) queryContent.style.display = 'none';
+            if (resultsContent) resultsContent.style.display = 'flex';
+        }
+    }
+    
+    togglePlayground() {
+        const sourceViewPanel = document.getElementById('sourceViewPanel');
+        if (!sourceViewPanel) return;
+        
+        // Cập nhật toggle button
+        const toggleBtn = document.getElementById('sqlPlaygroundToggle');
+        
+        if (this.isVisible) {
+            this.hidePlayground();
+        } else {
+            this.showPlayground();
+        }
+        
+        // Cập nhật trạng thái trong sessionStorage
+        sessionStorage.setItem('sqlPlaygroundVisible', this.isVisible.toString());
+    }
+    
+    showPlayground() {
+        const sourceViewPanel = document.getElementById('sourceViewPanel');
+        const toggleBtn = document.getElementById('sqlPlaygroundToggle');
+        
+        if (sourceViewPanel) {
+            sourceViewPanel.style.transition = 'all 0.3s ease';
+            sourceViewPanel.classList.remove('collapsed');
+            
+            // Ensure the panel is properly displayed after transition
+            setTimeout(() => {
+                sourceViewPanel.style.transition = '';
+            }, 300);
+        }
+        
+        if (toggleBtn) {
+            toggleBtn.classList.add('active');
+        }
+        
+        this.isVisible = true;
+    }
+    
+    hidePlayground() {
+        const sourceViewPanel = document.getElementById('sourceViewPanel');
+        const toggleBtn = document.getElementById('sqlPlaygroundToggle');
+        
+        if (sourceViewPanel) {
+            sourceViewPanel.style.transition = 'all 0.3s ease';
+            sourceViewPanel.classList.add('collapsed');
+            
+            // Reset transition after it completes
+            setTimeout(() => {
+                sourceViewPanel.style.transition = '';
+            }, 300);
+        }
+        
+        if (toggleBtn) {
+            toggleBtn.classList.remove('active');
+        }
+        
+        this.isVisible = false;
+    }
+    
+    toggleFullscreen() {
+        if (this.isFullscreen) {
+            this.exitFullscreen();
+        } else {
+            this.showFullscreen();
+        }
+    }
+    
+    showFullscreen() {
+        const sourceViewPanel = document.getElementById('sourceViewPanel');
+        const resultsContent = document.getElementById('resultsContent');
+        
+        if (!sourceViewPanel) return;
+        
+        // Đảm bảo panel đang hiển thị
+        this.showPlayground();
+        
+        // Đặt cố định element vào document body để đảm bảo toàn màn hình
+        document.body.classList.add('overflow-hidden');
+        
+        // Thêm class fullscreen
+        sourceViewPanel.classList.add('sql-playground-fullscreen');
+        
+        // Cập nhật style trực tiếp để đảm bảo fullscreen
+        sourceViewPanel.style.width = '100vw';
+        sourceViewPanel.style.maxWidth = '100vw';
+        sourceViewPanel.style.position = 'fixed';
+        sourceViewPanel.style.left = '0';
+        sourceViewPanel.style.top = '0';
+        sourceViewPanel.style.right = '0';
+        sourceViewPanel.style.bottom = '0';
+        sourceViewPanel.style.zIndex = '9999';
+        
+        // Cập nhật icon cho nút expand
+        const expandBtn = document.getElementById('expandSqlBtn');
+        if (expandBtn) {
+            expandBtn.innerHTML = '<i class="fas fa-compress"></i>';
+            expandBtn.title = 'Thu nhỏ';
+        }
+        
+        // Hiển thị cả hai panel cùng lúc trong chế độ fullscreen
+        if (resultsContent) {
+            resultsContent.style.display = 'flex';
+        }
+        
+        this.isFullscreen = true;
+        
+        // Lưu trạng thái vào sessionStorage
+        sessionStorage.setItem('sqlPlaygroundFullscreen', 'true');
+    }
+    
+    exitFullscreen() {
+        const sourceViewPanel = document.getElementById('sourceViewPanel');
+        const queryTab = document.getElementById('queryTab');
+        const resultsTab = document.getElementById('resultsTab');
+        
+        if (!sourceViewPanel) return;
+        
+        // Khôi phục overflow cho body
+        document.body.classList.remove('overflow-hidden');
+        
+        // Xóa class fullscreen
+        sourceViewPanel.classList.remove('sql-playground-fullscreen');
+        
+        // Xóa các style inline đã thêm
+        sourceViewPanel.style.width = '';
+        sourceViewPanel.style.maxWidth = '';
+        sourceViewPanel.style.position = '';
+        sourceViewPanel.style.left = '';
+        sourceViewPanel.style.top = '';
+        sourceViewPanel.style.right = '';
+        sourceViewPanel.style.bottom = '';
+        sourceViewPanel.style.zIndex = '';
+        
+        // Cập nhật icon cho nút expand
+        const expandBtn = document.getElementById('expandSqlBtn');
+        if (expandBtn) {
+            expandBtn.innerHTML = '<i class="fas fa-expand"></i>';
+            expandBtn.title = 'Mở rộng';
+        }
+        
+        // Trở về tab đang active trước đó
+        if (queryTab && queryTab.classList.contains('active')) {
+            this.switchTab('query');
+        } else if (resultsTab && resultsTab.classList.contains('active')) {
+            this.switchTab('results');
+        } else {
+            // Mặc định về tab query
+            this.switchTab('query');
+        }
+        
+        this.isFullscreen = false;
+        
+        // Lưu trạng thái vào sessionStorage
+        sessionStorage.setItem('sqlPlaygroundFullscreen', 'false');
+    }
+    
+    closePlayground() {
+        // Thoát khỏi chế độ fullscreen nếu đang bật
+        if (this.isFullscreen) {
+            this.exitFullscreen();
+        }
+        
+        // Ẩn panel
+        this.hidePlayground();
+    }
+
+    executeSqlQuery() {
+        const sqlInput = document.getElementById('sqlInput');
+        const resultsContent = document.getElementById('resultsContent');
+        
+        if (!sqlInput || !resultsContent) return;
+        
+        const query = sqlInput.value.trim();
+        
+        if (!query) {
+            // Hiển thị thông báo nếu truy vấn trống
+            alert('Vui lòng nhập truy vấn SQL');
+            return;
+        }
+        
+        // Hiển thị trạng thái đang tải
+        resultsContent.innerHTML = `
+            <div class="sql-loading-indicator">
+                <i class="fas fa-spinner fa-spin"></i>
+                <span>Đang thực thi truy vấn...</span>
+            </div>
+        `;
+        
+        // Đảm bảo tab kết quả được hiển thị (nếu không trong chế độ fullscreen)
+        if (!this.isFullscreen) {
+            this.switchTab('results');
+        } else {
+            resultsContent.style.display = 'flex';
+        }
+        
+        // Mô phỏng thời gian thực thi
+        setTimeout(() => {
+            // Hiển thị kết quả mẫu
+            const resultHTML = `
+                <div class="execution-info">
+                    <span>Thời gian thực thi: 5ms</span>
+                    <span class="row-count">5 dòng</span>
+                </div>
+                <div class="results-table-wrapper">
+                    <table class="modern-results-table">
+                        <thead>
+                            <tr>
+                                <th>id</th>
+                                <th>name</th>
+                                <th>email</th>
+                                <th>age</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>1</td>
+                                <td>Nguyễn Văn A</td>
+                                <td>nguyenvana@example.com</td>
+                                <td>30</td>
+                            </tr>
+                            <tr>
+                                <td>2</td>
+                                <td>Trần Thị B</td>
+                                <td>tranthib@example.com</td>
+                                <td>24</td>
+                            </tr>
+                            <tr>
+                                <td>3</td>
+                                <td>Lê Văn C</td>
+                                <td>levanc@example.com</td>
+                                <td>35</td>
+                            </tr>
+                            <tr>
+                                <td>4</td>
+                                <td>Phạm Thị D</td>
+                                <td>phamthid@example.com</td>
+                                <td>28</td>
+                            </tr>
+                            <tr>
+                                <td>5</td>
+                                <td>Hoàng Văn E</td>
+                                <td>hoangvane@example.com</td>
+                                <td>42</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            resultsContent.innerHTML = resultHTML;
+        }, 1500);
+    }
 } 

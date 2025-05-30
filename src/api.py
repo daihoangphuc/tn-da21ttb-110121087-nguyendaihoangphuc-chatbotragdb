@@ -857,7 +857,9 @@ async def upload_document(
 
         # Lưu file vào thư mục uploads
         file_name = file.filename
+        original_file_name = file_name  # Lưu tên file gốc
         file_path = os.path.join(user_dir, file_name)
+        original_file_path = file_path  # Lưu đường dẫn file gốc
         
         # Cập nhật user_id cho vector_store
         rag_system.vector_store.user_id = user_id
@@ -874,6 +876,7 @@ async def upload_document(
 
         # Xác định loại file
         file_extension = os.path.splitext(file_name)[1].lower()
+        original_file_extension = file_extension  # Lưu phần mở rộng file gốc
         file_type = None
         
         # Đọc nội dung file và xử lý
@@ -883,17 +886,27 @@ async def upload_document(
             document_processor = rag_system.document_processor
             documents = document_processor.load_document_with_category(file_path, category)
             
-            if file_extension == ".pdf":
+            # Lấy đường dẫn file sau khi chuyển đổi (nếu có)
+            converted_file_path = document_processor.get_converted_path(file_path)
+            if converted_file_path and converted_file_path != file_path:
+                file_path = converted_file_path
+                file_extension = os.path.splitext(file_path)[1].lower()
+            
+            if original_file_extension == ".pdf":
                 file_type = "pdf"
-            elif file_extension == ".docx":
+            elif original_file_extension == ".docx":
                 file_type = "docx"
-            elif file_extension == ".txt":
+            elif original_file_extension == ".txt":
                 file_type = "txt"
+            elif original_file_extension == ".sql":
+                file_type = "sql"
+            elif original_file_extension == ".md":
+                file_type = "md"
             else:
                 return {
                     "filename": file.filename,
                     "status": "error",
-                    "message": f"Không hỗ trợ định dạng file {file_extension}",
+                    "message": f"Không hỗ trợ định dạng file {original_file_extension}",
                 }
         except Exception as e:
             print(f"[UPLOAD] Lỗi khi đọc file {file_name}: {str(e)}")
@@ -949,8 +962,10 @@ async def upload_document(
                 from src.supabase.files_manager import FilesManager
                 from src.supabase.client import SupabaseClient
                 
-                # Lấy kích thước file
-                file_size = os.path.getsize(file_path)
+                # Lấy kích thước file gốc
+                file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+                if file_size == 0 and os.path.exists(original_file_path):
+                    file_size = os.path.getsize(original_file_path)
                 
                 # Tạo metadata
                 metadata = {
@@ -958,20 +973,23 @@ async def upload_document(
                     "file_size": file_size,
                     "chunks_count": len(processed_chunks),
                     "is_indexed": True,
-                    "last_indexed": datetime.now().isoformat()
+                    "last_indexed": datetime.now().isoformat(),
+                    "original_file_name": original_file_name,
+                    "original_extension": original_file_extension,
+                    "converted_to_pdf": original_file_extension != ".pdf" and file_extension == ".pdf"
                 }
                 
                 # Lưu thông tin file vào Supabase
                 client = SupabaseClient().get_client()
                 files_manager = FilesManager(client)
                 
-                # Lưu metadata vào Supabase
+                # Lưu metadata vào Supabase - sử dụng tên file gốc
                 save_result = files_manager.save_file_metadata(
                     file_id=file_id,
-                    filename=file_name,
-                    file_path=file_path,
+                    filename=original_file_name,  # Sử dụng tên file gốc
+                    file_path=file_path,  # Vẫn lưu đường dẫn file đã chuyển đổi để xử lý
                     user_id=user_id,
-                    file_type=file_type,
+                    file_type=file_type,  # Loại file gốc
                     metadata=metadata
                 )
                 
@@ -981,7 +999,7 @@ async def upload_document(
                 # Không dừng quá trình nếu lưu vào Supabase thất bại
 
         return {
-            "filename": file.filename,
+            "filename": original_file_name,  # Trả về tên file gốc
             "status": "success",
             "message": f"Đã tải lên và index thành công {len(processed_chunks)} chunks từ tài liệu",
             "chunks_count": len(processed_chunks),
@@ -1032,43 +1050,56 @@ async def reset_collection():
 @app.get(f"{PREFIX}/files", response_model=FileListResponse)
 async def get_uploaded_files(current_user=Depends(get_current_user)):
     """
-    Lấy danh sách các file đã được upload vào hệ thống
+    Lấy danh sách các file đã upload của người dùng hiện tại
+
+    Returns:
+        Danh sách các file đã upload
     """
     try:
-        from src.supabase.files_manager import FilesManager
-        from src.supabase.client import SupabaseClient
-
-        # Sử dụng FilesManager để lấy danh sách file từ database
-        client = SupabaseClient().get_client()
-        files_manager = FilesManager(client)
-
-        # Lấy danh sách file của người dùng hiện tại từ bảng document_files
-        db_files = files_manager.get_files_by_user(
-            current_user.id, include_deleted=False
-        )
-        print(
-            f"[FILES] Tìm thấy {len(db_files)} file của user {current_user.id} trong database"
-        )
-
         files = []
+        user_id = current_user.id
+
+        # Lấy danh sách file từ database
+        try:
+            from src.supabase.files_manager import FilesManager
+            from src.supabase.client import SupabaseClient
+
+            client = SupabaseClient().get_client()
+            files_manager = FilesManager(client)
+
+            # Lấy danh sách file từ database
+            db_files = files_manager.get_files_by_user(user_id)
+            print(f"[FILES] Tìm thấy {len(db_files)} file của user {user_id} trong database")
+        except Exception as e:
+            print(f"[FILES] Lỗi khi lấy danh sách file từ database: {str(e)}")
+            db_files = []
 
         if db_files:
             for file_record in db_files:
                 # Convert từ dữ liệu database sang model FileInfo
                 file_path = file_record.get("file_path", "")
                 filename = file_record.get("filename", "")
-                extension = os.path.splitext(filename)[1].lower() if filename else ""
-                upload_time = file_record.get("upload_time", "")
-
+                
                 # Lấy metadata
                 metadata = file_record.get("metadata", {}) or {}
+                
+                # Ưu tiên sử dụng tên file gốc từ metadata nếu có
+                original_file_name = metadata.get("original_file_name", filename)
+                # Sử dụng phần mở rộng gốc nếu có
+                original_extension = metadata.get("original_extension", "")
+                if original_extension:
+                    extension = original_extension
+                else:
+                    extension = os.path.splitext(filename)[1].lower() if filename else ""
+                
+                upload_time = file_record.get("upload_time", "")
                 category = metadata.get("category", None)
                 # Lấy kích thước file từ metadata hoặc mặc định là 0
                 file_size = metadata.get("file_size", 0)
 
                 files.append(
                     FileInfo(
-                        filename=filename,
+                        filename=original_file_name,  # Sử dụng tên file gốc
                         path=file_path,
                         size=file_size,
                         upload_date=upload_time,

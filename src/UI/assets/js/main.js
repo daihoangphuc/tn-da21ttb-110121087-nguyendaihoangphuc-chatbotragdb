@@ -3,14 +3,15 @@ document.addEventListener('DOMContentLoaded', async function() {
     const themeController = new ThemeController();
     const sourceController = new SourceController();
     const conversationController = new ConversationController();
-    const sourceViewController = new SourceViewController();
+    const sqlPlaygroundController = new SqlPlaygroundController();
     const mobileNavController = new MobileNavController();
     const uploadController = new UploadController();
     const modalController = new ModalController();
     const chatHistoryController = new ChatHistoryController();
     
-    // Lưu conversationController vào window để có thể truy cập từ các controller khác
+    // Lưu conversationController và sqlPlaygroundController vào window để có thể truy cập từ các controller khác
     window.conversationController = conversationController;
+    window.sqlPlaygroundController = sqlPlaygroundController;
 
     // Khởi tạo các component Flowbite
     initFlowbiteComponents();

@@ -91,20 +91,20 @@ class FilesManager:
 
         Args:
             user_id: ID của người dùng
-            include_deleted: Có bao gồm file đã xóa không
+            include_deleted: Có bao gồm file đã bị xóa hay không
 
         Returns:
             Danh sách thông tin file
         """
         query = self.client.table("document_files").select("*").eq("user_id", user_id)
-
+        
         if not include_deleted:
             query = query.eq("is_deleted", False)
-
-        # Sắp xếp theo thời gian tải lên (mới nhất lên đầu)
+            
         query = query.order("upload_time", desc=True)
-
+        
         result = query.execute()
+        
         return result.data if hasattr(result, "data") else []
 
     def get_file_by_id(self, file_id: str) -> Optional[Dict]:

@@ -172,6 +172,38 @@ class DocumentProcessor:
         # Đường dẫn đến LibreOffice
         self.libreoffice_path = r"C:\Program Files\LibreOffice\program\soffice.exe"
 
+    def get_converted_path(self, input_path: str) -> str:
+        """
+        Lấy đường dẫn file sau khi chuyển đổi (nếu có)
+        
+        Args:
+            input_path: Đường dẫn đến tập tin gốc
+            
+        Returns:
+            Đường dẫn đến tập tin đã chuyển đổi (PDF) hoặc đường dẫn gốc nếu không chuyển đổi
+        """
+        # Kiểm tra phần mở rộng
+        file_ext = os.path.splitext(input_path)[1].lower()
+        
+        # Nếu đã là PDF hoặc không phải định dạng cần chuyển đổi thì trả về đường dẫn gốc
+        if file_ext == ".pdf" or file_ext not in self.convertible_formats:
+            return input_path
+            
+        # Lấy thư mục chứa tập tin
+        output_dir = os.path.dirname(input_path)
+        
+        # Tên tập tin không có phần mở rộng
+        file_name = os.path.splitext(os.path.basename(input_path))[0]
+        
+        # Đường dẫn đến tập tin PDF sau khi chuyển đổi
+        pdf_path = os.path.join(output_dir, f"{file_name}.pdf")
+        
+        # Kiểm tra xem tập tin PDF đã tồn tại chưa
+        if os.path.exists(pdf_path):
+            return pdf_path
+            
+        return input_path  # Trả về đường dẫn gốc nếu không tìm thấy file đã chuyển đổi
+
     def convert_to_pdf(self, input_path: str, remove_original: bool = True) -> str:
         """
         Chuyển đổi tài liệu sang định dạng PDF sử dụng LibreOffice
