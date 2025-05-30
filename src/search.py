@@ -39,14 +39,14 @@ class SearchManager:
         self.bm25_initialized = False
 
         # Đường dẫn lưu BM25 index
-        data_dir = os.getenv("UPLOAD_DIR", "src/data")
+        self.data_dir = os.getenv("UPLOAD_DIR", "src/data")
         
         # Lấy user_id từ vector_store
         user_id = self.vector_store.user_id if hasattr(self.vector_store, 'user_id') else None
         
         if user_id:
             # Tạo thư mục bm25_index trong thư mục của người dùng
-            user_specific_dir = os.path.join(data_dir, user_id)
+            user_specific_dir = os.path.join(self.data_dir, user_id)
             self.bm25_index_dir = os.path.join(user_specific_dir, "bm25_index")
             print(f"Sử dụng thư mục BM25 index trong thư mục người dùng: {self.bm25_index_dir}")
             os.makedirs(self.bm25_index_dir, exist_ok=True)
@@ -347,6 +347,32 @@ class SearchManager:
             self.bm25_initialized = False
             return False
 
+    def _preprocess_text(self, text: str) -> str:
+        """
+        Tiền xử lý văn bản cho BM25
+        
+        Args:
+            text: Văn bản cần tiền xử lý
+            
+        Returns:
+            str: Văn bản đã được tiền xử lý
+        """
+        if not text or not isinstance(text, str) or len(text.strip()) == 0:
+            return ""
+            
+        # Chuyển thành chữ thường
+        processed_text = text.lower()
+        
+        # Loại bỏ dấu câu thông dụng
+        processed_text = re.sub(r'[.,;:!?()[\]{}"\'-]', ' ', processed_text)
+        
+        # Loại bỏ nhiều khoảng trắng liên tiếp
+        processed_text = re.sub(r'\s+', ' ', processed_text)
+        
+        # Loại bỏ khoảng trắng ở đầu và cuối
+        processed_text = processed_text.strip()
+        
+        return processed_text
 
     def semantic_search(
         self,
@@ -396,100 +422,112 @@ class SearchManager:
         current_user_id = self.vector_store.user_id if hasattr(self.vector_store, 'user_id') else None
         print(f"=== BM25 DEBUG === user_id trong vector_store TRONG keyword_search: {current_user_id}")
         
+        # Kiểm tra xem collection có tồn tại và có dữ liệu không
+        collection_exists = False
+        has_points = False
+        
+        try:
+            # Kiểm tra collection có tồn tại không
+            collection_exists = self.vector_store.client.collection_exists(self.vector_store.collection_name)
+            
+            # Nếu collection tồn tại, kiểm tra số lượng points
+            if collection_exists:
+                collection_info = self.vector_store.get_collection_info()
+                points_count = collection_info.get('points_count', 0)
+                has_points = points_count > 0
+        except Exception:
+            pass
+            
+        # Nếu collection không tồn tại hoặc không có dữ liệu, trả về danh sách rỗng
+        if not collection_exists or not has_points:
+            print(f"=== BM25 DEBUG === Collection không tồn tại hoặc không có dữ liệu. Bỏ qua keyword search.")
+            return []
+        
         if not current_user_id:
             print(f"=== BM25 DEBUG === Không có user_id trong vector_store, không thể thực hiện keyword search.")
             return []
-        
-        if not self.bm25_index_dir:
-            print(f"=== BM25 DEBUG === Đường dẫn BM25 chưa được thiết lập. Gọi set_vector_store_and_reload_bm25 trước.")
-            if hasattr(self.vector_store, 'user_id') and self.vector_store.user_id:
-                 print(f"=== BM25 DEBUG === Thử gọi set_vector_store_and_reload_bm25 nội bộ.")
-                 self.set_vector_store_and_reload_bm25(self.vector_store)
-            else:
-                 print(f"=== BM25 DEBUG === Không thể tự động set_vector_store_and_reload_bm25 do thiếu user_id.")
-                 return []
-
+            
+        # Kiểm tra trạng thái BM25
         print(f"=== BM25 DEBUG === Trạng thái BM25: bm25_initialized={self.bm25_initialized}, bm25 is None={self.bm25 is None}")
         
-        if not self.bm25_initialized:
-            print(f"=== BM25 DEBUG === BM25 chưa được khởi tạo, đang thử khởi tạo...")
-            initialized = self._initialize_bm25()
-            if not initialized:
-                print(f"=== BM25 DEBUG === Không thể khởi tạo BM25, không có kết quả từ keyword search")
-                return []
+        # Nếu BM25 chưa được khởi tạo, thử khởi tạo
+        if not self.bm25_initialized or self.bm25 is None:
+            print(f"=== BM25 DEBUG === BM25 chưa được khởi tạo, thử tải hoặc khởi tạo...")
+            load_success = self._try_load_bm25_index()
+            
+            if not load_success:
+                init_success = self._initialize_bm25()
+                
+                if not init_success:
+                    print(f"=== BM25 DEBUG === Không thể tải hoặc khởi tạo BM25. Bỏ qua keyword search.")
+                    return []
+
+        # Tiền xử lý query
+        preprocessed_query = self._preprocess_text(query)
+        print(f"=== BM25 DEBUG === Câu truy vấn sau khi tiền xử lý: '{preprocessed_query}'")
         
-        if self.bm25 is None:
-            print(f"=== BM25 DEBUG === self.bm25 vẫn là None sau khi thử khởi tạo (ví dụ, corpus rỗng). Trả về danh sách rỗng.")
-            return []
-
-        query_tokens = [] # Khởi tạo để đảm bảo luôn là list
-        try:
-            print(f"=== BM25 DEBUG === (Preprocessing Query) Bắt đầu tiền xử lý query: '{query}' (type: {type(query)})")
-            if not query or not isinstance(query, str) or len(query.strip()) == 0:
-                print(f"=== BM25 DEBUG === Câu truy vấn rỗng hoặc không phải string, không thể tìm kiếm")
-                return []
-
-            # Xử lý văn bản tiếng Việt cho query giống như đã làm với corpus
-            processed_query = query.lower()
-            print(f"=== BM25 DEBUG === (Preprocessing Query) Query sau lower(): '{processed_query}'")
-            
-            # Sử dụng regex giống như trong phương thức _initialize_bm25
-            processed_query = re.sub(r'[.,;:!?()[\]{}"\'-]', ' ', processed_query)  # Loại bỏ dấu câu thông dụng
-            processed_query = re.sub(r'\s+', ' ', processed_query)  # Loại bỏ nhiều khoảng trắng liên tiếp
-            processed_query = processed_query.strip()  # Loại bỏ khoảng trắng ở đầu và cuối
-            
-            print(f"=== BM25 DEBUG === (Preprocessing Query) Query sau regex sub: '{processed_query}'")
-            query_tokens = processed_query.split()
-            
-            print(f"=== BM25 DEBUG === Câu truy vấn sau khi tiền xử lý: '{processed_query}'")
-            print(f"=== BM25 DEBUG === Tokens của câu truy vấn: {query_tokens}")
-            
-            if len(query_tokens) == 0:
-                print(f"=== BM25 DEBUG === Không có tokens hợp lệ sau khi tiền xử lý câu truy vấn")
-                return []
-        except Exception as e_preprocess:
-            print(f"=== BM25 DEBUG === Lỗi nghiêm trọng trong quá trình tiền xử lý query: {str(e_preprocess)}")
-            import traceback
-            print(f"=== BM25 DEBUG === Stack trace (query preprocessing): {traceback.format_exc()}")
-            return []
-
-
+        # Tokenize query
+        query_tokens = preprocessed_query.split()
+        print(f"=== BM25 DEBUG === Tokens của câu truy vấn: {query_tokens}")
+        
+        # Tìm kiếm BM25
+        print(f"=== BM25 DEBUG === Bắt đầu lấy điểm BM25 với {len(query_tokens)} query tokens và {len(self.corpus)} tài liệu trong corpus.")
+        
         try:
             # Lấy điểm BM25 cho mỗi tài liệu
-            # Đảm bảo self.corpus không rỗng và self.bm25 đã được fit
-            if not self.corpus or len(self.corpus) == 0:
-                print(f"=== BM25 DEBUG === Corpus rỗng, không thể lấy điểm BM25.")
-                return []
-            
-            print(f"=== BM25 DEBUG === Bắt đầu lấy điểm BM25 với {len(query_tokens)} query tokens và {len(self.corpus)} tài liệu trong corpus.")
             bm25_scores = self.bm25.get_scores(query_tokens)
-
-            # Tạo danh sách kết quả
-            results = []
-            for idx, score in enumerate(bm25_scores):
-                # Lấy văn bản gốc từ doc_mappings thay vì sử dụng tokens từ corpus
-                original_text = self.doc_mappings[idx].get("text", "")
-                # Nếu không có text gốc trong doc_mappings, chuyển đổi tokens thành string
-                if not original_text:
-                    original_text = " ".join(self.corpus[idx]) if self.corpus[idx] else ""
+            
+            # Tạo danh sách (index, score) và sắp xếp theo điểm giảm dần
+            doc_scores = [(i, score) for i, score in enumerate(bm25_scores)]
+            doc_scores = sorted(doc_scores, key=lambda x: x[1], reverse=True)
+            
+            # Lọc kết quả theo sources hoặc file_id nếu được chỉ định
+            filtered_results = []
+            
+            for doc_idx, score in doc_scores:
+                if score <= 0:  # Bỏ qua các kết quả có điểm = 0
+                    continue
+                    
+                # Lấy thông tin tài liệu từ doc_mappings
+                doc_info = self.doc_mappings[doc_idx]
+                doc_id = doc_info.get("id")
+                doc_metadata = doc_info.get("metadata", {})
+                doc_source = doc_metadata.get("source", "unknown")
+                doc_file_id = doc_info.get("file_id", "unknown")
                 
-                result = {
-                    "text": original_text,  # Sử dụng text gốc thay vì tokens
-                    "score": score,
-                    "file_id": self.doc_mappings[idx].get("file_id", "unknown"),
-                    "metadata": self.doc_mappings[idx].get("metadata", {}),
-                }
-                results.append(result)
-
-            # Sắp xếp kết quả theo điểm số
-            results.sort(key=lambda x: x["score"], reverse=True)
-
-            # Trả về kết quả đã sắp xếp
-            return results[:k]
-        except Exception as e_get_scores:
-            print(f"=== BM25 DEBUG === Lỗi nghiêm trọng trong quá trình lấy điểm BM25: {str(e_get_scores)}")
-            import traceback
-            print(f"=== BM25 DEBUG === Stack trace (get_scores): {traceback.format_exc()}")
+                # Lọc theo sources nếu được chỉ định
+                if sources:
+                    source_match = False
+                    for source in sources:
+                        # Kiểm tra cả đường dẫn đầy đủ và tên file
+                        if source in doc_source or os.path.basename(doc_source) == os.path.basename(source):
+                            source_match = True
+                            break
+                    if not source_match:
+                        continue
+                
+                # Lọc theo file_id nếu được chỉ định
+                if file_id and doc_file_id not in file_id:
+                    continue
+                    
+                # Thêm vào kết quả
+                filtered_results.append({
+                    "id": doc_id,
+                    "text": self.corpus[doc_idx],
+                    "metadata": doc_metadata,
+                    "score": float(score),  # Chuyển đổi numpy.float64 thành Python float
+                    "file_id": doc_file_id
+                })
+                
+                # Dừng khi đủ k kết quả
+                if len(filtered_results) >= k:
+                    break
+                    
+            print(f"Số kết quả từ keyword search: {len(filtered_results)}")
+            return filtered_results
+            
+        except Exception as e:
+            print(f"Lỗi trong keyword search: {str(e)}")
             return []
 
     # Phương thức được gọi sau khi indexing tài liệu mới để cập nhật BM25
@@ -633,74 +671,105 @@ class SearchManager:
         
     def set_vector_store_and_reload_bm25(self, new_vector_store):
         """
-        Cập nhật vector_store và tải lại BM25 index phù hợp với user_id mới.
-        Sử dụng khi chuyển đổi giữa các user_id khác nhau trong cùng một SearchManager toàn cục.
+        Cập nhật vector_store và tải lại BM25 index phù hợp với user_id mới
+        
+        Args:
+            new_vector_store: VectorStore mới cần thiết lập
+            
+        Returns:
+            bool: True nếu BM25 index được tải/khởi tạo thành công, False nếu không
         """
-        old_user_id = self.vector_store.user_id if hasattr(self.vector_store, 'user_id') else None
-        new_user_id = new_vector_store.user_id if hasattr(new_vector_store, 'user_id') else None
+        # Lấy user_id cũ và mới để so sánh
+        old_user_id = getattr(self.vector_store, 'user_id', None)
+        new_user_id = getattr(new_vector_store, 'user_id', None)
         
         print(f"=== BM25 DEBUG === set_vector_store_and_reload_bm25: Từ user_id={old_user_id} sang user_id={new_user_id}")
         
-        # Cập nhật vector_store trước, bất kể user_id có thay đổi hay không
-        # để đảm bảo SearchManager luôn tham chiếu đến vector_store đúng
+        # Cập nhật vector_store
         self.vector_store = new_vector_store
         print(f"=== BM25 DEBUG === Đã cập nhật self.vector_store sang user_id={new_user_id}")
-
-        if old_user_id != new_user_id or not self.bm25_initialized: # Cũng reload nếu chưa từng initialized
-            if not new_user_id:
-                print(f"=== BM25 DEBUG === User_id mới là None. Resetting BM25 state.")
-                self.bm25_initialized = False
-                self.bm25 = None
-                self.corpus = []
-                self.doc_mappings = []
-                self.bm25_index_dir = None
-                self.bm25_index_path = None
-                self.corpus_path = None
-                self.doc_mappings_path = None
-                self.metadata_path = None
-                return True # Trạng thái đã được reset
-
-            print(f"Chuyển đổi SearchManager hoặc khởi tạo lần đầu cho user_id={new_user_id}")
+        
+        # Nếu user_id không thay đổi và BM25 đã được khởi tạo, không cần tải lại
+        if old_user_id == new_user_id and self.bm25_initialized and self.bm25 is not None:
+            print(f"=== BM25 DEBUG === User_id không thay đổi ({new_user_id}) và BM25 đã được khởi tạo, không cần tải lại BM25 index")
+            return True
             
-            # Cập nhật đường dẫn BM25 index cho user_id mới
-            data_dir = os.getenv("UPLOAD_DIR", "src/data")
+        # Kiểm tra xem collection có tồn tại và có dữ liệu không
+        collection_exists = False
+        has_points = False
+        
+        try:
+            # Kiểm tra collection có tồn tại không
+            collection_exists = self.vector_store.client.collection_exists(self.vector_store.collection_name)
             
-            user_dir = os.path.join(data_dir, new_user_id)
-            self.bm25_index_dir = os.path.join(user_dir, "bm25_index")
-            print(f"Sử dụng thư mục BM25 index trong thư mục người dùng: {self.bm25_index_dir}")
+            # Nếu collection tồn tại, kiểm tra số lượng points
+            if collection_exists:
+                collection_info = self.vector_store.get_collection_info()
+                points_count = collection_info.get('points_count', 0)
+                has_points = points_count > 0
                 
-            os.makedirs(self.bm25_index_dir, exist_ok=True) # Đảm bảo thư mục của user tồn tại
+                if has_points:
+                    print(f"=== BM25 DEBUG === Collection {self.vector_store.collection_name} tồn tại và có {points_count} points")
+                else:
+                    print(f"=== BM25 DEBUG === Collection {self.vector_store.collection_name} tồn tại nhưng không có points")
+            else:
+                print(f"=== BM25 DEBUG === Collection {self.vector_store.collection_name} chưa tồn tại")
+                
+        except Exception as e:
+            print(f"=== BM25 DEBUG === Lỗi khi kiểm tra collection: {str(e)}")
+        
+        # Nếu collection không tồn tại hoặc không có dữ liệu, chỉ cập nhật đường dẫn BM25 và trả về
+        if not collection_exists or not has_points:
+            print(f"=== BM25 DEBUG === Collection không tồn tại hoặc không có dữ liệu. Chỉ cập nhật đường dẫn BM25 mà không tải/khởi tạo index")
+            # Cập nhật đường dẫn BM25 index cho user_id mới
+            if new_user_id:
+                # Sử dụng thư mục user-specific cho BM25 index
+                self.bm25_index_dir = os.path.join(self.data_dir, new_user_id, "bm25_index")
+                self.bm25_index_path = os.path.join(self.bm25_index_dir, "bm25_index.pkl")
+                self.corpus_path = os.path.join(self.bm25_index_dir, "corpus.pkl")
+                self.doc_mappings_path = os.path.join(self.bm25_index_dir, "doc_mappings.pkl")
+                self.metadata_path = os.path.join(self.bm25_index_dir, "bm25_metadata.json")
+                print(f"=== BM25 DEBUG === Đã cập nhật đường dẫn: {self.bm25_index_path}")
             
-            # Cập nhật đường dẫn file
+            # Đặt lại trạng thái BM25 để tránh sử dụng index cũ
+            self.bm25_initialized = False
+            self.bm25 = None
+            self.corpus = []
+            self.doc_mappings = []
+            print(f"=== BM25 DEBUG === Đã đặt lại trạng thái bm25_initialized=False, bm25=None, corpus/mappings rỗng")
+            
+            return False
+            
+        # Nếu user_id thay đổi hoặc BM25 chưa được khởi tạo, thực hiện chuyển đổi
+        print(f"=== BM25 DEBUG === Chuyển đổi SearchManager hoặc khởi tạo lần đầu cho user_id={new_user_id}")
+        
+        # Cập nhật đường dẫn BM25 index cho user_id mới
+        if new_user_id:
+            # Sử dụng thư mục user-specific cho BM25 index
+            self.bm25_index_dir = os.path.join(self.data_dir, new_user_id, "bm25_index")
             self.bm25_index_path = os.path.join(self.bm25_index_dir, "bm25_index.pkl")
             self.corpus_path = os.path.join(self.bm25_index_dir, "corpus.pkl")
             self.doc_mappings_path = os.path.join(self.bm25_index_dir, "doc_mappings.pkl")
             self.metadata_path = os.path.join(self.bm25_index_dir, "bm25_metadata.json")
-            
             print(f"=== BM25 DEBUG === Đã cập nhật đường dẫn: {self.bm25_index_path}")
             
-             # Đặt lại trạng thái bm25_initialized và bm25 trước khi thử tải/khởi tạo
-            self.bm25_initialized = False
-            self.bm25 = None
-            self.corpus = [] # Quan trọng: reset corpus và doc_mappings
-            self.doc_mappings = []
-            print(f"=== BM25 DEBUG === Đã đặt lại trạng thái bm25_initialized=False, bm25=None, corpus/mappings rỗng")
-
-            # Thử tải BM25 index cho user_id mới
-            loaded = self._try_load_bm25_index()
-            print(f"=== BM25 DEBUG === Kết quả tải BM25 index: {'Thành công' if loaded else 'Thất bại'}")
+        # Đặt lại trạng thái BM25 để tránh sử dụng index cũ
+        self.bm25_initialized = False
+        self.bm25 = None
+        self.corpus = []
+        self.doc_mappings = []
+        print(f"=== BM25 DEBUG === Đã đặt lại trạng thái bm25_initialized=False, bm25=None, corpus/mappings rỗng")
+        
+        # Thử tải BM25 index từ file
+        load_success = self._try_load_bm25_index()
+        
+        # Nếu không tải được, thử khởi tạo mới
+        if not load_success:
+            print(f"=== BM25 DEBUG === Không tải được BM25 index, thử khởi tạo mới...")
+            init_success = self._initialize_bm25()
+            return init_success
             
-            # Nếu không tải được, thử khởi tạo mới
-            if not loaded:
-                print(f"=== BM25 DEBUG === Không tải được BM25 index, thử khởi tạo mới...")
-                initialized = self._initialize_bm25() # _initialize_bm25 sẽ sử dụng user_id từ self.vector_store
-                print(f"=== BM25 DEBUG === Kết quả khởi tạo BM25 index: {'Thành công' if initialized else 'Thất bại'}")
-            
-            return True
-        else:
-            print(f"=== BM25 DEBUG === User_id không thay đổi ({new_user_id}) và BM25 đã được khởi tạo, không cần tải lại BM25 index")
-            # Đảm bảo vector_store được cập nhật ngay cả khi user_id không đổi, đã làm ở trên.
-            return False
+        return load_success
 
     def _detect_query_type(self, query: str) -> str:
         """Phát hiện loại truy vấn: định nghĩa, cú pháp, hoặc ví dụ"""

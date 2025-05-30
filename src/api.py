@@ -25,7 +25,7 @@ from fastapi.responses import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr, validator
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union, Any
 import os
 import uvicorn
 import shutil
@@ -37,6 +37,8 @@ from datetime import datetime
 from os import path
 from dotenv import load_dotenv
 import supabase
+import re
+import asyncio
 
 from src.rag import AdvancedDatabaseRAG
 from src.supabase.conversation_manager import SupabaseConversationManager
@@ -861,9 +863,9 @@ async def upload_document(
         rag_system.vector_store.user_id = user_id
         # Đặt collection_name cho vector store
         rag_system.vector_store.collection_name = "user_" + str(user_id)
-        # QUAN TRỌNG: Cập nhật SearchManager.vector_store và tải BM25 index cho user hiện tại
-        rag_system.search_manager.set_vector_store_and_reload_bm25(rag_system.vector_store)
-        print(f"Đã cập nhật SearchManager vector_store và BM25 index cho user_id={user_id}")
+        
+        # Lưu ý: Không cập nhật SearchManager.vector_store ở đây
+        # Sẽ cập nhật sau khi đã index dữ liệu thành công
 
         with open(file_path, "wb+") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -872,6 +874,7 @@ async def upload_document(
 
         # Xác định loại file
         file_extension = os.path.splitext(file_name)[1].lower()
+        file_type = None
         
         # Đọc nội dung file và xử lý
         documents = None
@@ -931,10 +934,51 @@ async def upload_document(
                 file_id=file_id,
             )
             
+            # Chỉ cập nhật SearchManager và BM25 index SAU KHI đã index dữ liệu thành công
+            print(f"[UPLOAD] Dữ liệu đã được index thành công, bây giờ cập nhật BM25 index")
+            # QUAN TRỌNG: Cập nhật SearchManager.vector_store và tải BM25 index cho user hiện tại
+            rag_system.search_manager.set_vector_store_and_reload_bm25(rag_system.vector_store)
+            
             # Cập nhật BM25 index sau khi index xong
-            print(f"[UPLOAD] Cập nhật BM25 index cho user_id={current_user.id}")
+            print(f"[UPLOAD] Cập nhật BM25 index cho user_id={user_id}")
             rag_system.search_manager.update_bm25_index()
             print(f"[UPLOAD] Hoàn thành cập nhật BM25 index")
+            
+            # Lưu thông tin file vào bảng document_files trong Supabase
+            try:
+                from src.supabase.files_manager import FilesManager
+                from src.supabase.client import SupabaseClient
+                
+                # Lấy kích thước file
+                file_size = os.path.getsize(file_path)
+                
+                # Tạo metadata
+                metadata = {
+                    "category": category,
+                    "file_size": file_size,
+                    "chunks_count": len(processed_chunks),
+                    "is_indexed": True,
+                    "last_indexed": datetime.now().isoformat()
+                }
+                
+                # Lưu thông tin file vào Supabase
+                client = SupabaseClient().get_client()
+                files_manager = FilesManager(client)
+                
+                # Lưu metadata vào Supabase
+                save_result = files_manager.save_file_metadata(
+                    file_id=file_id,
+                    filename=file_name,
+                    file_path=file_path,
+                    user_id=user_id,
+                    file_type=file_type,
+                    metadata=metadata
+                )
+                
+                print(f"[UPLOAD] Đã lưu thông tin file vào Supabase với file_id={file_id}")
+            except Exception as e:
+                print(f"[UPLOAD] Lỗi khi lưu thông tin file vào Supabase: {str(e)}")
+                # Không dừng quá trình nếu lưu vào Supabase thất bại
 
         return {
             "filename": file.filename,
