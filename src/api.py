@@ -24,7 +24,7 @@ from fastapi.responses import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, EmailStr, validator
+from pydantic import BaseModel, EmailStr, field_validator
 from typing import List, Dict, Optional, Union, Any
 import os
 import uvicorn
@@ -33,6 +33,7 @@ from uuid import uuid4
 import time
 import uuid
 import json
+import traceback
 from datetime import datetime
 from os import path
 from dotenv import load_dotenv
@@ -91,11 +92,6 @@ except Exception as e:
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "src/data")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# Đường dẫn lưu phản hồi
-FEEDBACK_DIR = os.getenv("FEEDBACK_DIR", "src/feedback")
-os.makedirs(FEEDBACK_DIR, exist_ok=True)
-
-
 # Hàm để lấy đường dẫn thư mục của user
 def get_user_upload_dir(user_id: str) -> str:
     """Tạo và trả về đường dẫn thư mục upload cho user cụ thể"""
@@ -115,28 +111,6 @@ class QuestionRequest(BaseModel):
         None  # ID phiên hội thoại, tự động tạo nếu không có
     )
 
-
-class AnswerResponse(BaseModel):
-    question_id: str
-    question: str
-    answer: str
-    sources: List[
-        Dict
-    ]  # Sẽ bao gồm source, page, section, score, content_snippet, original_page
-    search_method: str
-    total_reranked: Optional[int] = None  # Thêm trường hiển thị số lượng kết quả rerank
-    filtered_sources: Optional[List[str]] = None  # Danh sách các file nguồn đã được lọc
-    reranker_model: Optional[str] = None  # Model reranker được sử dụng
-    processing_time: Optional[float] = None  # Thời gian xử lý (giây)
-    debug_info: Optional[Dict] = None  # Thông tin debug bổ sung
-    related_questions: Optional[List[str]] = None  # Danh sách các câu hỏi liên quan
-    is_low_confidence: Optional[bool] = None  # Trạng thái độ tin cậy thấp
-    confidence_score: Optional[float] = None  # Điểm tin cậy của câu trả lời
-    query_type: Optional[str] = (
-        None  # Loại câu hỏi: question_from_document, realtime_question, other_question
-    )
-
-
 class SQLAnalysisRequest(BaseModel):
     sql_query: str
     database_context: Optional[str] = None
@@ -147,14 +121,6 @@ class SQLAnalysisResponse(BaseModel):
     analysis: str
     suggestions: List[str]
     optimized_query: Optional[str] = None
-
-
-class FeedbackRequest(BaseModel):
-    question_id: str
-    rating: int  # 1-5
-    comment: Optional[str] = None
-    is_helpful: bool
-    specific_feedback: Optional[Dict] = None
 
 
 class IndexingStatusResponse(BaseModel):
@@ -218,27 +184,6 @@ def indexing_documents():
         indexing_status["is_running"] = False
 
 
-# Lưu phản hồi người dùng
-def save_feedback(feedback: Dict):
-    try:
-        # Tạo tên file dựa vào question_id và timestamp
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        filename = f"{feedback['question_id']}_{timestamp}.json"
-        filepath = os.path.join(FEEDBACK_DIR, filename)
-
-        # Thêm timestamp vào feedback
-        feedback["timestamp"] = datetime.now().isoformat()
-
-        # Lưu feedback vào file
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(feedback, f, ensure_ascii=False, indent=4)
-
-        return True
-    except Exception as e:
-        print(f"Lỗi khi lưu phản hồi: {str(e)}")
-        return False
-
-
 # Thêm model mới cho danh sách file
 class FileInfo(BaseModel):
     filename: str
@@ -295,12 +240,12 @@ class GoogleAuthRequest(BaseModel):
     access_token: Optional[str] = None
     provider: str = "google"
 
-    @validator("code", "access_token")
-    def check_auth_method(cls, v, values, **kwargs):
-        if (
-            not any([values.get("code"), values.get("access_token")])
-            and len(values) == 2
-        ):
+    @field_validator("code", "access_token")
+    @classmethod
+    def check_auth_method(cls, v, info):
+        # Get field values from ValidationInfo
+        data = info.data if hasattr(info, 'data') else {}
+        if not any([data.get("code"), data.get("access_token"), v]):
             raise ValueError("Phải cung cấp một trong hai: code hoặc access_token")
         return v
 
@@ -401,205 +346,6 @@ async def root():
     return {
         "message": "Chào mừng đến với API của hệ thống RAG. Truy cập /docs để xem tài liệu API."
     }
-
-
-@app.post(f"{PREFIX}/ask", response_model=AnswerResponse)
-async def ask_question(
-    request: QuestionRequest,
-    max_sources: Optional[int] = Query(
-        None,
-        description="Số lượng nguồn tham khảo tối đa trả về. Để None để hiển thị tất cả.",
-        ge=1,
-        le=50,
-    ),
-    current_user=Depends(get_current_user),
-):
-    """
-    Đặt câu hỏi và nhận câu trả lời từ hệ thống RAG
-
-    - **question**: Câu hỏi cần trả lời
-    - **search_type**: Loại tìm kiếm ("semantic", "keyword", "hybrid")
-    - **alpha**: Hệ số kết hợp giữa semantic và keyword search (0.7 = 70% semantic + 30% keyword)
-    - **sources**: Danh sách các file nguồn cần tìm kiếm
-    - **conversation_id**: ID phiên hội thoại để duy trì ngữ cảnh cuộc hội thoại
-    """
-    try:
-        # Lấy user_id từ token
-        user_id = current_user.id
-
-        # Đặt collection_name cho vector store
-        rag_system.vector_store.collection_name = "user_" + str(user_id)
-        # Cập nhật user_id cho vector_store trong SearchManager
-        rag_system.vector_store.user_id = user_id
-        # QUAN TRỌNG: Cập nhật SearchManager.vector_store và tải BM25 index cho user hiện tại
-        rag_system.search_manager.set_vector_store_and_reload_bm25(rag_system.vector_store)
-        print(f"Đã cập nhật SearchManager vector_store và BM25 index cho user_id={user_id}")
-        
-        # Lấy hoặc tạo ID phiên hội thoại
-        conversation_id = request.conversation_id
-
-        if not conversation_id:
-            # Tạo ID phiên mới nếu không có
-            conversation_id = f"session_{uuid4().hex[:8]}"
-
-        # Kiểm tra xem người dùng đã chọn nguồn hay chưa
-        if not request.sources or len(request.sources) == 0:
-            # Lấy danh sách các nguồn có sẵn
-            all_docs = rag_system.vector_store.get_all_documents(limit=1000)
-            available_sources = set()
-            available_filenames = set()  # Tập hợp tên file không có đường dẫn
-
-            for doc in all_docs:
-                source = doc.get("metadata", {}).get(
-                    "source", doc.get("source", "unknown")
-                )
-                if source != "unknown":
-                    available_sources.add(source)
-                    # Thêm tên file đơn thuần
-                    if os.path.sep in source:
-                        available_filenames.add(os.path.basename(source))
-                    else:
-                        available_filenames.add(source)
-
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "status": "error",
-                    "message": "Vui lòng chọn ít nhất một nguồn tài liệu để tìm kiếm.",
-                    "available_sources": sorted(list(available_sources)),
-                    "available_filenames": sorted(list(available_filenames)),
-                    "note": "Bạn có thể dùng tên file đơn thuần hoặc đường dẫn đầy đủ",
-                },
-            )
-
-        # Kiểm tra xem sources có tồn tại không nếu đã chỉ định
-        if request.sources and len(request.sources) > 0:
-            # Lấy danh sách các nguồn có sẵn
-            all_docs = rag_system.vector_store.get_all_documents(limit=1000)
-            available_sources = set()
-            available_filenames = (
-                set()
-            )  # Thêm tập hợp để lưu tên file không có đường dẫn
-
-            for doc in all_docs:
-                # Lấy nguồn từ cả metadata và direct
-                source = doc.get("metadata", {}).get(
-                    "source", doc.get("source", "unknown")
-                )
-                if source != "unknown":
-                    available_sources.add(source)
-                    # Thêm tên file đơn thuần
-                    if os.path.sep in source:
-                        available_filenames.add(os.path.basename(source))
-                    else:
-                        available_filenames.add(source)
-
-            # Kiểm tra xem các nguồn được yêu cầu có tồn tại không (tính cả tên file đơn thuần)
-            missing_sources = []
-            for s in request.sources:
-                # Kiểm tra cả đường dẫn đầy đủ và tên file đơn thuần
-                filename = os.path.basename(s) if os.path.sep in s else s
-                if s not in available_sources and filename not in available_filenames:
-                    missing_sources.append(s)
-
-            if missing_sources:
-                return JSONResponse(
-                    status_code=404,
-                    content={
-                        "status": "error",
-                        "message": f"Không tìm thấy các nguồn: {', '.join(missing_sources)}",
-                        "available_sources": sorted(list(available_sources)),
-                        "available_filenames": sorted(list(available_filenames)),
-                        "note": "Bạn có thể dùng tên file đơn thuần hoặc đường dẫn đầy đủ",
-                    },
-                )
-
-        # Tạo ID cho câu hỏi
-        question_id = f"q_{uuid4().hex[:8]}"
-
-        # Gọi hệ thống RAG với số lượng kết quả tăng lên
-        print(f"Xử lý câu hỏi: '{request.question}'")
-        print(f"Phương pháp tìm kiếm: {request.search_type}")
-        print(f"Alpha: {request.alpha}")
-
-        # Lấy thông tin model reranker đang sử dụng
-        reranker_info = getattr(
-            rag_system.search_manager, "reranker_model_name", "unknown"
-        )
-
-        # Bắt đầu đo thời gian xử lý
-        start_time = time.time()
-
-        # Thêm tin nhắn người dùng vào bộ nhớ hội thoại
-        conversation_manager.add_user_message(
-            conversation_id, request.question, user_id=user_id
-        )
-
-        # Lấy lịch sử hội thoại để sử dụng trong prompt
-        conversation_history = conversation_manager.format_for_prompt(conversation_id)
-        print(f"Lịch sử hội thoại: {conversation_history}")
-
-        # Gọi RAG để lấy kết quả, kèm theo lịch sử hội thoại
-        result = rag_system.query_with_sources(
-            request.question,
-            search_type=request.search_type,
-            alpha=request.alpha,
-            sources=request.sources,
-            conversation_history=conversation_history,
-        )
-
-        # Thêm câu trả lời của AI vào bộ nhớ hội thoại
-        conversation_manager.add_ai_message(
-            conversation_id, result["answer"], user_id=user_id
-        )
-
-        # Tạo các câu hỏi liên quan sau khi có kết quả
-        related_questions = await rag_system.generate_related_questions(
-            request.question, result["answer"]
-        )
-
-        # Thêm các câu hỏi liên quan vào kết quả
-        result["related_questions"] = related_questions
-
-        # Kết thúc đo thời gian
-        elapsed_time = time.time() - start_time
-
-        # Thêm question_id và thông tin reranker vào kết quả
-        result["question_id"] = question_id
-        result["reranker_model"] = reranker_info
-        result["processing_time"] = round(elapsed_time, 2)
-        result["conversation_id"] = conversation_id  # Trả về conversation_id cho client
-
-        # Thêm thông tin số lượng kết quả được rerank vào debug info
-        debug_info = {
-            "search_type": request.search_type,
-            "alpha": request.alpha,
-            "reranker_model": reranker_info,
-            "total_reranked": result.get("total_reranked", 0),
-            "elapsed_time_seconds": round(elapsed_time, 2),
-        }
-        result["debug_info"] = debug_info
-
-        # Giới hạn số lượng nguồn trả về theo tham số nếu người dùng yêu cầu
-        if max_sources and result["sources"] and len(result["sources"]) > max_sources:
-            result["sources"] = result["sources"][:max_sources]
-
-        # Lưu vào lịch sử
-        questions_history[question_id] = {
-            "question": request.question,
-            "search_type": request.search_type,
-            "alpha": request.alpha,
-            "sources": request.sources,
-            "timestamp": datetime.now().isoformat(),
-            "answer": result["answer"],
-            "debug_info": debug_info,
-            "conversation_id": conversation_id,  # Lưu conversation_id vào lịch sử
-        }
-
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý câu hỏi: {str(e)}")
-
 
 @app.post(f"{PREFIX}/ask/stream")
 async def ask_question_stream(

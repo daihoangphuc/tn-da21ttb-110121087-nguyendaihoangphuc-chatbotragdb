@@ -21,8 +21,11 @@ ACCESS_TOKEN = None
 
 def test_signup():
     """Kiểm tra API đăng ký tài khoản"""
-    email = input("Nhập email để đăng ký: ")
-    password = getpass.getpass("Nhập mật khẩu: ")
+    # Use environment variables or default test values instead of input()
+    email = os.getenv("TEST_EMAIL", "test@example.com")
+    password = os.getenv("TEST_PASSWORD", "testpassword123")
+    
+    print(f"Testing signup with email: {email}")
 
     # Gửi yêu cầu đăng ký
     response = requests.post(
@@ -45,8 +48,11 @@ def test_login():
     """Kiểm tra API đăng nhập"""
     global ACCESS_TOKEN
 
-    email = input("Nhập email để đăng nhập: ")
-    password = getpass.getpass("Nhập mật khẩu: ")
+    # Use environment variables or default test values instead of input()
+    email = os.getenv("TEST_EMAIL", "test@example.com")
+    password = os.getenv("TEST_PASSWORD", "testpassword123")
+    
+    print(f"Testing login with email: {email}")
 
     # Gửi yêu cầu đăng nhập
     response = requests.post(

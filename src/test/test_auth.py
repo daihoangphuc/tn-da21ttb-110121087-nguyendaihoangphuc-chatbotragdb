@@ -35,83 +35,40 @@ def test_auth():
         print(f"🔌 Đang kết nối đến Supabase URL: {supabase_url}...")
         client = supabase.create_client(supabase_url, supabase_key)
 
-        # Menu chức năng
-        while True:
-            print("\n===== KIỂM TRA ĐĂNG KÝ & ĐĂNG NHẬP =====")
-            print("1. Đăng ký tài khoản mới")
-            print("2. Đăng nhập")
-            print("3. Đăng xuất")
-            print("4. Lấy thông tin người dùng hiện tại")
-            print("5. Thoát")
+        # Use environment variables for testing instead of interactive menu
+        test_email = os.getenv("TEST_EMAIL", "test@example.com")
+        test_password = os.getenv("TEST_PASSWORD", "testpassword123")
+        
+        print(f"Testing with email: {test_email}")
+        
+        # Test signup
+        try:
+            print(f"📝 Đang đăng ký tài khoản với email: {test_email}...")
+            result = client.auth.sign_up({"email": test_email, "password": test_password})
+            print("✅ Đăng ký thành công!")
+            print(f"🔑 User ID: {result.user.id}")
+        except Exception as e:
+            print(f"❌ Lỗi khi đăng ký: {str(e)}")
 
-            choice = input("\nNhập lựa chọn của bạn (1-5): ")
+        # Test login
+        try:
+            print(f"🔐 Đang đăng nhập với email: {test_email}...")
+            result = client.auth.sign_in_with_password(
+                {"email": test_email, "password": test_password}
+            )
+            print("✅ Đăng nhập thành công!")
+            print(f"🔑 User ID: {result.user.id}")
+            print(f"🧾 Access Token: {result.session.access_token[:20]}...")
+        except Exception as e:
+            print(f"❌ Lỗi khi đăng nhập: {str(e)}")
 
-            if choice == "1":
-                # Đăng ký tài khoản mới
-                email = input("Nhập email: ")
-                password = getpass.getpass("Nhập mật khẩu: ")
-
-                try:
-                    print(f"📝 Đang đăng ký tài khoản với email: {email}...")
-                    result = client.auth.sign_up({"email": email, "password": password})
-                    print("✅ Đăng ký thành công!")
-                    print(
-                        f"📧 Vui lòng kiểm tra email để xác nhận tài khoản (nếu được yêu cầu)"
-                    )
-                    print(f"🔑 User ID: {result.user.id}")
-                except Exception as e:
-                    print(f"❌ Lỗi khi đăng ký: {str(e)}")
-
-            elif choice == "2":
-                # Đăng nhập
-                email = input("Nhập email: ")
-                password = getpass.getpass("Nhập mật khẩu: ")
-
-                try:
-                    print(f"🔐 Đang đăng nhập với email: {email}...")
-                    result = client.auth.sign_in_with_password(
-                        {"email": email, "password": password}
-                    )
-                    print("✅ Đăng nhập thành công!")
-                    print(f"🔑 User ID: {result.user.id}")
-                    print(f"🧾 Access Token: {result.session.access_token[:20]}...")
-                except Exception as e:
-                    print(f"❌ Lỗi khi đăng nhập: {str(e)}")
-
-            elif choice == "3":
-                # Đăng xuất
-                try:
-                    print("🚪 Đang đăng xuất...")
-                    client.auth.sign_out()
-                    print("✅ Đăng xuất thành công!")
-                except Exception as e:
-                    print(f"❌ Lỗi khi đăng xuất: {str(e)}")
-
-            elif choice == "4":
-                # Lấy thông tin người dùng hiện tại
-                try:
-                    print("👤 Đang lấy thông tin người dùng hiện tại...")
-                    user = client.auth.get_user()
-                    if user and user.user:
-                        print("✅ Đã đăng nhập!")
-                        print(f"🔑 User ID: {user.user.id}")
-                        print(f"📧 Email: {user.user.email}")
-                        print(f"⏰ Tạo vào: {user.user.created_at}")
-                    else:
-                        print("❌ Không có người dùng nào đang đăng nhập")
-                except Exception as e:
-                    print(f"❌ Lỗi khi lấy thông tin người dùng: {str(e)}")
-
-            elif choice == "5":
-                # Thoát
-                print("👋 Tạm biệt!")
-                break
-
-            else:
-                print("❌ Lựa chọn không hợp lệ. Vui lòng thử lại.")
-
-            # Tạm dừng để người dùng có thể đọc kết quả
-            time.sleep(1)
+        # Test logout
+        try:
+            print("🚪 Đang đăng xuất...")
+            client.auth.sign_out()
+            print("✅ Đăng xuất thành công!")
+        except Exception as e:
+            print(f"❌ Lỗi khi đăng xuất: {str(e)}")
 
         return True
 

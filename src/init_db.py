@@ -48,11 +48,6 @@ def init_database():
         convo_result = db.create_conversation_history_table()
         print(f"Kết quả: {convo_result}")
 
-        # Tạo bảng user_feedback
-        print("\n[2/4] Tạo bảng user_feedback...")
-        feedback_result = db.create_feedback_table()
-        print(f"Kết quả: {feedback_result}")
-
         # Tạo bảng document_metadata
         print("\n[3/4] Tạo bảng document_metadata...")
         doc_result = db.create_document_metadata_table()
