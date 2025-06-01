@@ -23,25 +23,6 @@ Dùng cho việc đặt câu hỏi.
 -   `file_id` (Optional[List[str]], default: None): Danh sách các `file_id` của tài liệu cần tìm kiếm (sử dụng trong API `/ask/stream`).
 -   `conversation_id` (Optional[str], default: None): ID của phiên hội thoại. Nếu không cung cấp, một ID mới sẽ được tạo tự động hoặc sử dụng ID của cuộc hội thoại gần nhất nếu có.
 
-### `AnswerResponse` (Mô tả chung cho dữ liệu trả về từ stream, không phải model cụ thể)
-
-Dùng cho việc trả về câu trả lời cho một câu hỏi qua Server-Sent Events.
-
--   `question_id` (str): ID duy nhất của câu hỏi.
--   `question` (str): Câu hỏi gốc đã được đặt.
--   `answer` (str): Câu trả lời được tạo ra bởi hệ thống (được gửi từng phần qua event `content`).
--   `sources` (List[Dict]): Danh sách các nguồn tài liệu được sử dụng để tạo câu trả lời (gửi qua event `sources`). Mỗi nguồn bao gồm:
-    -   `source` (str): Tên hoặc đường dẫn file nguồn.
-    -   `page` (Optional[int]): Số trang (nếu có).
-    -   `section` (Optional[str]): Tên section (nếu có).
-    -   `score` (float): Điểm relevancy của nguồn.
-    -   `content_snippet` (str): Đoạn trích nội dung từ nguồn.
-    -   `original_page` (Optional[Any]): Thông tin trang gốc (nếu có).
--   `search_method` (str): Phương pháp tìm kiếm đã được sử dụng (thông tin này có thể nằm trong event `end`).
--   `processing_time` (Optional[float]): Thời gian xử lý câu hỏi (tính bằng giây, trong event `end`).
--   `related_questions` (Optional[List[str]]): Danh sách các câu hỏi liên quan được gợi ý (trong event `end`).
--   `conversation_id` (Optional[str]): ID của phiên hội thoại (trong các events `start`, `sources`, `end`).
-
 ### `SQLAnalysisRequest`
 
 Dùng cho việc yêu cầu phân tích một câu lệnh SQL.
@@ -102,6 +83,11 @@ Kết quả sau khi xóa một file.
 -   `message` (str): Thông báo chi tiết về kết quả xóa.
 -   `removed_points` (Optional[int]): Số lượng điểm dữ liệu (index) đã bị xóa khỏi vector store.
 
+### `ConversationRequest`
+Dùng để truyền ID của một cuộc hội thoại.
+- `conversation_id` (str): ID của cuộc hội thoại.
+
+
 ### `CreateConversationResponse`
 
 Kết quả sau khi tạo một cuộc hội thoại mới.
@@ -158,6 +144,23 @@ Kết quả sau khi đăng nhập hoặc đăng ký thành công.
 -   `token_type` (str, default: "bearer"): Loại token.
 -   `expires_in` (Optional[int]): Thời gian hết hạn của access token (tính bằng giây).
 
+### `ForgotPasswordRequest`
+Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
+- `email` (EmailStr): Email của người dùng cần đặt lại mật khẩu.
+- `redirect_to` (Optional[str]): URL để chuyển hướng người dùng sau khi họ nhấp vào liên kết trong email (tùy chọn, Supabase sẽ dùng URL mặc định nếu không cung cấp).
+
+### `ResetPasswordRequest`
+Dùng cho việc đặt lại mật khẩu bằng token nhận từ email.
+- `password` (str): Mật khẩu mới của người dùng.
+  *Validator*: Mật khẩu phải có ít nhất 8 ký tự, 1 chữ hoa, 1 chữ thường, 1 chữ số.
+- `access_token` (str): Token xác thực nhận được từ email.
+
+### `ForgotPasswordResponse`
+Phản hồi sau khi yêu cầu quên mật khẩu.
+- `status` (str): Trạng thái ("success").
+- `message` (str): Thông báo.
+
+
 ### `SuggestionResponse`
 
 Danh sách các câu hỏi gợi ý.
@@ -173,15 +176,6 @@ Thông tin về cuộc hội thoại gần đây nhất.
 -   `conversation_info` (Dict): Thông tin chung về cuộc hội thoại (ví dụ: ID, thời gian cập nhật).
 -   `messages` (List[Dict]): Danh sách các tin nhắn trong cuộc hội thoại.
 -   `found` (bool): `True` nếu tìm thấy cuộc hội thoại, `False` nếu không.
-
-### `ResetPasswordRequest`
-Dùng cho việc đặt lại mật khẩu khi người dùng đã xác thực (ví dụ, sau khi đăng nhập và muốn đổi mật khẩu).
-- `password` (str): Mật khẩu mới của người dùng.
-
-### `ForgotPasswordRequest`
-Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
-- `email` (EmailStr): Email của người dùng cần đặt lại mật khẩu.
-- `redirect_url` (Optional[str]): URL để chuyển hướng người dùng sau khi họ nhấp vào liên kết trong email (tùy chọn, Supabase sẽ dùng URL mặc định nếu không cung cấp).
 
 ## API Endpoints
 
@@ -201,12 +195,12 @@ Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
 ### 2. Đặt câu hỏi (Stream)
 
 -   **Endpoint:** `POST /ask/stream`
--   **Mô tả:** Đặt một câu hỏi và nhận câu trả lời dưới dạng Server-Sent Events (SSE). API này sử dụng `file_id` để xác định tài liệu cần tìm kiếm.
+-   **Mô tả:** Đặt một câu hỏi và nhận câu trả lời dưới dạng Server-Sent Events (SSE). API này sử dụng `file_id` để xác định tài liệu cần tìm kiếm trong collection của người dùng hiện tại.
 -   **Xác thực:** Yêu cầu (Bearer Token - `get_current_user`).
 -   **Đầu vào:**
     -   **Query Parameters:**
         -   `max_sources` (Optional[int], default: None, min: 1, max: 50): Số lượng nguồn tham khảo tối đa trả về.
-    -   **Request Body:** `QuestionRequest` (trong đó `file_id` là bắt buộc).
+    -   **Request Body:** `QuestionRequest` (trong đó `file_id` là bắt buộc nếu người dùng chưa có file nào được upload hoặc không có file_id nào được chọn).
 -   **Đầu ra (Thành công - 200):** `StreamingResponse` (media type: `text/event-stream`).
     Các sự kiện SSE có thể bao gồm:
     -   `event: start`: Bắt đầu quá trình trả lời. Dữ liệu là JSON object chứa `question_id`, `conversation_id`.
@@ -215,7 +209,7 @@ Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
     -   `event: end`: Kết thúc quá trình trả lời. Dữ liệu là JSON object chứa thông tin tổng kết như `question_id`, `conversation_id`, `processing_time`, `related_questions`.
     -   `event: error`: Nếu có lỗi xảy ra trong quá trình stream. Dữ liệu là JSON object chứa `error: true`, `message`, `question_id`, `conversation_id`.
 -   **Lỗi có thể xảy ra (Trước khi stream bắt đầu):**
-    -   `400 Bad Request`: Nếu không cung cấp `file_id`. Nội dung response:
+    -   `400 Bad Request`: Nếu không cung cấp `file_id` và không có file nào khả dụng cho user. Nội dung response:
         ```json
         {
             "status": "error",
@@ -231,7 +225,7 @@ Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
 ### 3. Tải lên Tài liệu (Upload Document)
 
 -   **Endpoint:** `POST /upload`
--   **Mô tả:** Tải lên một tài liệu để thêm vào hệ thống. Tài liệu sẽ được tự động xử lý và index vào collection của người dùng.
+-   **Mô tả:** Tải lên một tài liệu để thêm vào hệ thống. Tài liệu sẽ được tự động xử lý và index vào collection của người dùng hiện tại.
 -   **Xác thực:** Yêu cầu (Bearer Token - `get_current_user`).
 -   **Đầu vào:**
     -   **Form Data:**
@@ -262,25 +256,25 @@ Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
     -   `500 Internal Server Error`: Lỗi khi xử lý hoặc index tài liệu.
     -   `503 Service Unavailable`: Dịch vụ xác thực chưa được cấu hình.
 
-### 4. Reset Collection (Của User)
+### 4. Reset Collection (Của User hiện tại)
 
 -   **Endpoint:** `DELETE /collection/reset`
--   **Mô tả:** Xóa toàn bộ dữ liệu đã index trong collection của người dùng hiện tại (liên kết với `user_id` trong `rag_system.vector_store`) và tạo lại collection mới.
--   **Xác thực:** Yêu cầu (Bearer Token - `get_current_user`). Endpoint này đã được sửa đổi để hoạt động trên collection của người dùng hiện tại.
+-   **Mô tả:** Xóa toàn bộ dữ liệu đã index trong collection của người dùng hiện tại (ví dụ: `user_xxxxxxxx-xxxx`) và tạo lại collection mới.
+-   **Xác thực:** Yêu cầu (Bearer Token - `get_current_user` sẽ được sử dụng để xác định collection của user, mặc dù không được truyền trực tiếp vào hàm `reset_collection`).
 -   **Đầu vào:** Không có.
 -   **Đầu ra (Thành công - 200):**
     ```json
     {
         "status": "success",
-        "message": "Đã xóa và tạo lại collection user_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        "message": "Đã xóa và tạo lại collection YOUR_USER_SPECIFIC_COLLECTION_NAME",
         "vector_size": 768 // Kích thước vector của collection
     }
     ```
-    Hoặc nếu collection không tồn tại:
+    Hoặc nếu collection không tồn tại trước đó:
      ```json
     {
         "status": "warning",
-        "message": "Collection user_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx không tồn tại"
+        "message": "Collection YOUR_USER_SPECIFIC_COLLECTION_NAME không tồn tại"
     }
     ```
 -   **Lỗi có thể xảy ra:**
@@ -315,11 +309,11 @@ Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
     -   `500 Internal Server Error`: Lỗi khi xóa file hoặc index.
     -   `503 Service Unavailable`: Dịch vụ xác thực chưa được cấu hình.
 
-### 7. Xóa Điểm Dữ liệu theo Filter (Trong Collection của User)
+### 7. Xóa Điểm Dữ liệu theo Filter (Trong Collection của User hiện tại)
 
 -   **Endpoint:** `POST /collections/delete-by-filter`
 -   **Mô tả:** Xóa các điểm dữ liệu trong collection của người dùng hiện tại dựa trên một bộ lọc (filter).
--   **Xác thực:** Yêu cầu (Bearer Token - `get_current_user`). Endpoint này đã được sửa đổi để hoạt động trên collection của người dùng hiện tại.
+-   **Xác thực:** Yêu cầu (Bearer Token - `get_current_user` sẽ được sử dụng để xác định collection của user, mặc dù không được truyền trực tiếp vào hàm `delete_points_by_filter`).
 -   **Đầu vào:**
     -   **Request Body:** (Dict)
         ```json
@@ -334,10 +328,10 @@ Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
               }
               // , { ... } // Các điều kiện khác
             ]
+            // Filter sẽ tự động được áp dụng thêm điều kiện user_id của người dùng hiện tại.
           }
         }
         ```
-        Lưu ý: Filter sẽ tự động được áp dụng thêm điều kiện `user_id` của người dùng hiện tại.
 -   **Đầu ra (Thành công - 200):**
     ```json
     {
@@ -370,7 +364,7 @@ Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
                 "user_id": "user_id_1", // Luôn là user_id của người dùng hiện tại
                 "created_at": "2023-10-27T10:00:00Z",
                 "last_updated": "2023-10-27T10:05:00Z",
-                "title": "Optional title", // Hiện tại không có title trong DB
+                "title": null, // Hiện tại không có title trong DB, sẽ là null
                 "first_message": "Xin chào, tôi cần giúp đỡ về...", // Nội dung tin nhắn đầu tiên (user)
                 "message_count": 5 // Tổng số tin nhắn trong hội thoại
             }
@@ -404,7 +398,7 @@ Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
         "message": "Đã tìm thấy chi tiết hội thoại cho phiên XXXXX",
         "data": {
             "conversation_id": "XXXXX",
-            "last_updated": "2023-10-27T10:00:00Z", // Thời gian cuộc hội thoại được cập nhật lần cuối
+            "last_updated": "2023-10-27T10:00:00Z", // Thời gian cuộc hội thoại được cập nhật lần cuối (lấy từ DB hoặc now())
             "messages": [
                 // Danh sách các tin nhắn (role, content, sequence, created_at, ...)
             ]
@@ -414,14 +408,14 @@ Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
     Hoặc nếu không tìm thấy tin nhắn/hội thoại:
     ```json
     {
-        "status": "success", // Vẫn là success nhưng data rỗng hoặc message khác
-        "message": "Không tìm thấy hội thoại với ID XXXXX",
-        "conversation_id": "XXXXX"
+        "status": "success",
+        "message": "Không tìm thấy hội thoại với ID XXXXX", // Hoặc "Không tìm thấy tin nhắn cho hội thoại..."
+        "conversation_id": "XXXXX" // Có thể không có messages trong data
     }
     ```
 -   **Lỗi có thể xảy ra:**
-    -   `401 Unauthorized`: Nếu không có thông tin xác thực hoặc token không hợp lệ.
-    -   `404 Not Found`: Nếu hội thoại không tồn tại hoặc không thuộc về người dùng.
+    -   `401 Unauthorized`: Nếu không có thông tin xác thực hoặc token không hợp lệ, hoặc hội thoại không thuộc user.
+    -   `404 Not Found`: Nếu hội thoại không tồn tại.
     -   `500 Internal Server Error`: Lỗi khi lấy chi tiết hội thoại.
     -   `503 Service Unavailable`: Dịch vụ xác thực chưa được cấu hình.
 
@@ -432,7 +426,7 @@ Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
 -   **Xác thực:** Không yêu cầu.
 -   **Đầu vào:**
     -   **Request Body:** `UserSignUpRequest`
--   **Đầu ra (Thành công - 200):** `AuthResponse`
+-   **Đầu ra (Thành công - 200):** `AuthResponse` (lưu ý: `access_token` có thể rỗng nếu Supabase yêu cầu xác thực email).
 -   **Lỗi có thể xảy ra:**
     -   `400 Bad Request`: Đăng ký thất bại (ví dụ: email đã tồn tại, mật khẩu không đủ mạnh theo rule của Supabase, hoặc lỗi từ Supabase).
     -   `503 Service Unavailable`: Dịch vụ xác thực (Supabase) chưa được cấu hình.
@@ -446,7 +440,13 @@ Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
     -   **Request Body:** `UserLoginRequest`
 -   **Đầu ra (Thành công - 200):** `AuthResponse`
 -   **Lỗi có thể xảy ra:**
-    -   `400 Bad Request` hoặc `401 Unauthorized`: Sai email/mật khẩu ("Email hoặc mật khẩu không chính xác"), email chưa xác nhận ("Email chưa được xác nhận..."), tài khoản không tồn tại ("Không tìm thấy tài khoản..."), hoặc các lỗi đăng nhập khác từ Supabase.
+    -   `400 Bad Request` / `401 Unauthorized` / `429 Too Many Requests`:
+        -   "Email hoặc mật khẩu không chính xác" (401)
+        -   "Email chưa được xác nhận. Vui lòng kiểm tra hộp thư để xác nhận email" (401)
+        -   "Không tìm thấy tài khoản với email này" (401)
+        -   "Email không hợp lệ" (400)
+        -   "Quá nhiều lần đăng nhập thất bại. Vui lòng thử lại sau" (429)
+        -   Hoặc lỗi chung: "Lỗi đăng nhập: [chi tiết lỗi từ Supabase]" (400)
     -   `503 Service Unavailable`: Dịch vụ xác thực (Supabase) chưa được cấu hình.
 
 ### 12. Đăng xuất (Logout)
@@ -480,8 +480,8 @@ Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
 ### 14. Kiểm tra Thông tin Phiên Hiện tại
 
 -   **Endpoint:** `GET /auth/session`
--   **Mô tả:** Kiểm tra thông tin phiên đăng nhập hiện tại dựa trên token.
--   **Xác thực:** Yêu cầu (Bearer Token - `auth_bearer`, nhưng `Optional`).
+-   **Mô tả:** Kiểm tra thông tin phiên đăng nhập hiện tại dựa trên token (nếu được cung cấp).
+-   **Xác thực:** Tùy chọn (Bearer Token - `auth_bearer`).
 -   **Đầu vào:** Không có.
 -   **Đầu ra (Thành công - 200 nếu xác thực thành công):**
     ```json
@@ -524,7 +524,7 @@ Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
     }
     ```
 -   **Lỗi có thể xảy ra:**
-    -   `400 Bad Request`: Thiếu `code` hoặc `access_token`, hoặc lỗi xác thực với Google/Supabase.
+    -   `400 Bad Request`: Thiếu `code` hoặc `access_token`, hoặc lỗi xác thực với Google/Supabase (ví dụ: "Không thể xác thực với code: ...", "Không thể tạo phiên đăng nhập").
     -   `503 Service Unavailable`: Dịch vụ xác thực (Supabase) chưa được cấu hình.
 
 ### 16. Lấy URL Đăng nhập Google
@@ -542,7 +542,7 @@ Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
     }
     ```
 -   **Lỗi có thể xảy ra:**
-    -   `400 Bad Request`: Thiếu `redirect_url` hoặc lỗi khi tạo URL từ Supabase.
+    -   `400 Bad Request`: Thiếu `redirect_url` hoặc lỗi khi tạo URL từ Supabase ("Không thể lấy URL xác thực").
     -   `503 Service Unavailable`: Dịch vụ xác thực (Supabase) chưa được cấu hình.
 
 ### 17. Xử lý Callback từ Google OAuth
@@ -570,7 +570,7 @@ Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
     }
     ```
 -   **Lỗi có thể xảy ra:**
-    -   `400 Bad Request`: Nếu có `error` từ Google, thiếu `code`, hoặc lỗi khi trao đổi code với Supabase.
+    -   `400 Bad Request`: Nếu có `error` từ Google, thiếu `code`, hoặc lỗi khi trao đổi code với Supabase ("Lỗi xác thực OAuth: ...").
     -   `503 Service Unavailable`: Dịch vụ xác thực (Supabase) chưa được cấu hình.
 
 ### 18. Tạo Cuộc Hội thoại Mới
@@ -594,13 +594,6 @@ Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
     -   **Path Parameters:**
         -   `conversation_id` (str): ID của cuộc hội thoại cần xóa.
 -   **Đầu ra (Thành công - 200):** `DeleteConversationResponse`
-    ```json
-    {
-        "status": "success",
-        "message": "Đã xóa hội thoại conv_id_1",
-        "conversation_id": "conv_id_1"
-    }
-    ```
 -   **Lỗi có thể xảy ra:**
     -   `401 Unauthorized`: Nếu không có thông tin xác thực hoặc token không hợp lệ.
     -   `404 Not Found`: Không tìm thấy hội thoại hoặc người dùng không có quyền xóa.
@@ -680,42 +673,14 @@ Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
     -   `503 Service Unavailable`: Dịch vụ xác thực chưa được cấu hình.
     -   (Nếu có lỗi khác, API sẽ trả về `found: false`)
 
-### 22. Đặt lại mật khẩu (Reset Password - Đã xác thực)
-
--   **Endpoint:** `POST /auth/reset-password`
--   **Mô tả:** Đặt lại mật khẩu mới cho người dùng đã xác thực (ví dụ: người dùng đã đăng nhập và muốn thay đổi mật khẩu của họ).
--   **Xác thực:** Yêu cầu (Bearer Token - `auth_bearer`).
--   **Đầu vào:**
-    -   **Request Body:** `ResetPasswordRequest`
--   **Đầu ra (Thành công - 200):**
-    ```json
-    {
-        "status": "success",
-        "message": "Mật khẩu đã được đặt lại thành công.",
-        "user": { // Thông tin user sau khi cập nhật
-            "id": "user_id",
-            "email": "user@example.com",
-            "created_at": "iso_timestamp"
-        }
-    }
-    ```
--   **Lỗi có thể xảy ra:**
-    -   `400 Bad Request`: Không thể đặt lại mật khẩu. Các lý do có thể bao gồm:
-        -   "Mật khẩu mới phải khác mật khẩu cũ. Vui lòng chọn mật khẩu khác."
-        -   "Token không hợp lệ hoặc đã hết hạn." (Mặc dù endpoint này dùng token session, lỗi này có thể xuất hiện nếu có vấn đề với `update_user` của Supabase)
-        -   "Mật khẩu mới không đáp ứng các yêu cầu bảo mật. Vui lòng thử lại với mật khẩu mạnh hơn."
-        -   Hoặc lỗi chung từ Supabase: "Lỗi khi đặt lại mật khẩu: [chi tiết lỗi từ Supabase]"
-    -   `401 Unauthorized`: Yêu cầu xác thực token (nếu `credentials` không được cung cấp hoặc không hợp lệ).
-    -   `503 Service Unavailable`: Dịch vụ xác thực (Supabase) chưa được cấu hình.
-
-### 23. Quên Mật khẩu (Forgot Password)
+### 22. Quên Mật khẩu (Forgot Password)
 
 -   **Endpoint:** `POST /auth/forgot-password`
 -   **Mô tả:** Gửi email đặt lại mật khẩu cho người dùng. Người dùng sẽ nhận email chứa liên kết để đặt lại mật khẩu.
 -   **Xác thực:** Không yêu cầu.
 -   **Đầu vào:**
     -   **Request Body:** `ForgotPasswordRequest`
--   **Đầu ra (Thành công - 200):**
+-   **Đầu ra (Thành công - 200):** `ForgotPasswordResponse` (hoặc JSON tương tự)
     ```json
     {
         "status": "success",
@@ -723,15 +688,40 @@ Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
     }
     ```
 -   **Lỗi có thể xảy ra:**
-    -   `400 Bad Request`: Lỗi khi gửi email. Các lý do có thể bao gồm:
-        -   "Không tìm thấy người dùng với email này."
-        -   "Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau."
-        -   "Tham số không hợp lệ. Vui lòng kiểm tra lại email và URL chuyển hướng."
-        -   Hoặc lỗi chung từ Supabase: "Lỗi khi gửi email đặt lại mật khẩu: [chi tiết lỗi từ Supabase]"
+    -   `400 Bad Request`: Lỗi khi gửi email (ví dụ: email không hợp lệ).
+    -   `500 Internal Server Error`: Lỗi từ Supabase khi gửi email (ví dụ: "Error sending reset password email...").
     -   `503 Service Unavailable`: Dịch vụ xác thực (Supabase) chưa được cấu hình.
+
+### 23. Đặt lại mật khẩu (Reset Password - Qua Email Token)
+
+-   **Endpoint:** `POST /auth/reset-password`
+-   **Mô tả:** Đặt lại mật khẩu mới cho người dùng sử dụng token xác thực nhận được từ email (sau khi yêu cầu qua `/auth/forgot-password`).
+-   **Xác thực:** Không yêu cầu trực tiếp, nhưng `access_token` trong body phải hợp lệ.
+-   **Đầu vào:**
+    -   **Request Body:** `ResetPasswordRequest`
+-   **Đầu ra (Thành công - 200):**
+    ```json
+    {
+        "status": "success",
+        "message": "Mật khẩu đã được đặt lại thành công"
+        // "user": { ... } // API hiện tại không trả về thông tin user ở đây
+    }
+    ```
+-   **Lỗi có thể xảy ra:**
+    -   `400 Bad Request`: Không thể đặt lại mật khẩu. Các lý do có thể bao gồm:
+        -   "Mật khẩu mới phải khác mật khẩu cũ"
+        -   "Lỗi: [chi tiết lỗi từ Supabase, ví dụ: Invalid token, Password should be at least 6 characters, etc.]"
+        -   "Mật khẩu phải có ít nhất 8 ký tự" (Validator của Pydantic)
+        -   "Mật khẩu phải có ít nhất một chữ cái viết hoa" (Validator của Pydantic)
+        -   ... (các validator khác của Pydantic cho mật khẩu)
+    -   `401 Unauthorized`: Nếu `access_token` không hợp lệ hoặc đã hết hạn (ví dụ: "Token không hợp lệ hoặc đã hết hạn").
+    -   `500 Internal Server Error`: Lỗi không xác định khi đặt lại mật khẩu.
+    -   `503 Service Unavailable`: Dịch vụ xác thực (Supabase) chưa được cấu hình.
+
 
 ---
 Lưu ý:
-- Endpoint `/conversations` (GET) đã được làm rõ để chỉ có một phiên bản, lấy danh sách hội thoại của người dùng hiện tại.
-- Các model như `SQLAnalysisRequest`, `SQLAnalysisResponse`, `IndexingStatusResponse`, `CategoryStatsResponse` không có endpoint tương ứng trong `src/api.py` hiện tại, nên không được đưa vào phần API Endpoints.
-- Các mô tả lỗi đã được cập nhật để phản ánh các thông báo lỗi chi tiết hơn từ API.
+- Endpoint `/conversations` (GET) hiện tại có 2 định nghĩa trong `src/api.py`. Tài liệu này mô tả phiên bản `get_user_conversations` (lấy hội thoại của user hiện tại với phân trang, tin nhắn đầu tiên và số lượng tin nhắn). Phiên bản `get_all_conversations` cũng lấy của user hiện tại nhưng cách phân trang và lấy dữ liệu hơi khác. Cần làm rõ hoặc hợp nhất hai endpoint này trong code. Hiện tại, tài liệu ưu tiên mô tả `get_user_conversations` vì có vẻ đầy đủ hơn.
+- Các model như `SQLAnalysisRequest`, `SQLAnalysisResponse`, `IndexingStatusResponse`, `CategoryStatsResponse`, `ConversationRequest` tuy được định nghĩa trong `src/api.py` nhưng không có endpoint nào sử dụng chúng trực tiếp như request body hoặc response model chính thức, nên chúng không được đưa vào phần "API Endpoints" chi tiết, chỉ được liệt kê trong "Các Model Dữ liệu".
+- Các mô tả lỗi đã được cập nhật để phản ánh các thông báo lỗi chi tiết hơn từ API và các validator của Pydantic.
+- Endpoint "Reset Collection" và "Xóa Điểm Dữ liệu theo Filter" đã được làm rõ là chúng hoạt động trên collection của người dùng hiện tại, được xác định thông qua `get_current_user`.

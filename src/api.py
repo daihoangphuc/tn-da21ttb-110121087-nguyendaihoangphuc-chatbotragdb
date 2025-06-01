@@ -1581,8 +1581,37 @@ async def reset_password(
                     }
                 else:
                     print(f"Lỗi khi cập nhật mật khẩu. Status code: {response.status_code}, Response: {response.text}")
-                    raise ValueError(f"Lỗi khi cập nhật mật khẩu: {response.text}")
                     
+                    # Xử lý các loại lỗi cụ thể từ Supabase
+                    error_detail = "Lỗi khi đặt lại mật khẩu"
+                    error_status = status.HTTP_400_BAD_REQUEST
+                    
+                    try:
+                        error_data = response.json()
+                        
+                        # Xử lý trường hợp mật khẩu mới giống mật khẩu cũ
+                        if error_data.get("error_code") == "same_password":
+                            error_detail = "Mật khẩu mới phải khác mật khẩu cũ"
+                        # Xử lý các lỗi khác
+                        elif "msg" in error_data:
+                            error_detail = f"Lỗi: {error_data['msg']}"
+                        elif "message" in error_data:
+                            error_detail = f"Lỗi: {error_data['message']}"
+                        elif "error" in error_data:
+                            error_detail = f"Lỗi: {error_data['error']}"
+                        else:
+                            error_detail = f"Lỗi khi đặt lại mật khẩu: {response.text}"
+                    except Exception:
+                        # Nếu không parse được JSON, sử dụng response text
+                        error_detail = f"Lỗi khi đặt lại mật khẩu: {response.text}"
+                    
+                    raise HTTPException(
+                        status_code=error_status,
+                        detail=error_detail
+                    )
+                    
+        except HTTPException:
+            raise
         except Exception as e:
             print(f"Lỗi khi cập nhật mật khẩu: {str(e)}")
             if "invalid JWT" in str(e) or "JWT expired" in str(e) or "session" in str(e).lower() or "invalid token" in str(e).lower():
