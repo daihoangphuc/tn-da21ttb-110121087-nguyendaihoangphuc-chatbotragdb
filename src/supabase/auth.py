@@ -108,3 +108,4 @@ class SupabaseAuth:
         """Generate a signup or magic link"""
         admin_auth = self.auth.admin
         return admin_auth.generate_link({"email": email, "type": link_type})
+    

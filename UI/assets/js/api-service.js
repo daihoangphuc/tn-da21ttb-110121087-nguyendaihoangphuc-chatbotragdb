@@ -548,7 +548,28 @@ class APIService {
             return result;
         } catch (error) {
             console.error('Lỗi đăng nhập:', error);
-            throw error;
+            
+            // Trích xuất thông báo lỗi chi tiết từ API nếu có
+            let errorMessage = 'Đăng nhập thất bại';
+            
+            // Kiểm tra nếu có thông báo lỗi chi tiết từ API
+            if (error.message && error.message.includes('API error')) {
+                try {
+                    // Trích xuất phần JSON từ thông báo lỗi
+                    const jsonStr = error.message.substring(error.message.indexOf('{'), error.message.lastIndexOf('}') + 1);
+                    const errorData = JSON.parse(jsonStr);
+                    
+                    if (errorData && errorData.detail) {
+                        errorMessage = errorData.detail;
+                    }
+                } catch (e) {
+                    console.error('Không thể phân tích thông báo lỗi:', e);
+                }
+            }
+            
+            // Tạo lỗi mới với thông báo chi tiết
+            const enhancedError = new Error(errorMessage);
+            throw enhancedError;
         }
     }
 
@@ -897,6 +918,29 @@ class APIService {
                 } 
             };
         }
+    }
+
+    // Thêm phương thức quên mật khẩu
+    async forgotPassword(email, redirectTo = null) {
+        const data = { email };
+        if (redirectTo) {
+            data.redirect_to = redirectTo;
+        }
+        return this.fetchApi('/api/auth/forgot-password', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+    }
+
+    // Thêm phương thức đặt lại mật khẩu
+    async resetPassword(password, accessToken) {
+        return this.fetchApi('/api/auth/reset-password', {
+            method: 'POST',
+            body: JSON.stringify({ 
+                password,
+                access_token: accessToken
+            })
+        });
     }
 }
 

@@ -28,14 +28,11 @@ class SupabaseConversationManager:
 
     def __init__(self, client=None):
         """Khởi tạo manager với client Supabase"""
-        from .database import SupabaseDatabase
-
         try:
             if client:
                 self.supabase_client = client
             else:
-                from .client import SupabaseClient
-
+                # Sử dụng SupabaseClient đã import ở cấp module
                 self.supabase_client = SupabaseClient().get_client()
 
             # Khởi tạo đối tượng Database để sử dụng các phương thức hỗ trợ

@@ -19,35 +19,28 @@ Dùng cho việc đặt câu hỏi.
 -   `question` (str): Câu hỏi cần trả lời.
 -   `search_type` (Optional[str], default: "hybrid"): Loại tìm kiếm. Các giá trị hợp lệ: "semantic", "keyword", "hybrid".
 -   `alpha` (Optional[float], default: 0.7): Hệ số kết hợp giữa semantic và keyword search (ví dụ: 0.7 nghĩa là 70% semantic, 30% keyword).
--   `sources` (Optional[List[str]], default: None): Danh sách các tên file hoặc đường dẫn file nguồn cần tìm kiếm.
--   `file_id` (Optional[List[str]], default: None): Danh sách các `file_id` của tài liệu cần tìm kiếm (sử dụng trong API stream).
--   `conversation_id` (Optional[str], default: None): ID của phiên hội thoại. Nếu không cung cấp, một ID mới sẽ được tạo tự động.
+-   `sources` (Optional[List[str]], default: None): Danh sách các tên file hoặc đường dẫn file nguồn cần tìm kiếm. (Lưu ý: API `/ask/stream` ưu tiên `file_id`).
+-   `file_id` (Optional[List[str]], default: None): Danh sách các `file_id` của tài liệu cần tìm kiếm (sử dụng trong API `/ask/stream`).
+-   `conversation_id` (Optional[str], default: None): ID của phiên hội thoại. Nếu không cung cấp, một ID mới sẽ được tạo tự động hoặc sử dụng ID của cuộc hội thoại gần nhất nếu có.
 
-### `AnswerResponse`
+### `AnswerResponse` (Mô tả chung cho dữ liệu trả về từ stream, không phải model cụ thể)
 
-Dùng cho việc trả về câu trả lời cho một câu hỏi.
+Dùng cho việc trả về câu trả lời cho một câu hỏi qua Server-Sent Events.
 
 -   `question_id` (str): ID duy nhất của câu hỏi.
 -   `question` (str): Câu hỏi gốc đã được đặt.
--   `answer` (str): Câu trả lời được tạo ra bởi hệ thống.
--   `sources` (List[Dict]): Danh sách các nguồn tài liệu được sử dụng để tạo câu trả lời. Mỗi nguồn bao gồm:
+-   `answer` (str): Câu trả lời được tạo ra bởi hệ thống (được gửi từng phần qua event `content`).
+-   `sources` (List[Dict]): Danh sách các nguồn tài liệu được sử dụng để tạo câu trả lời (gửi qua event `sources`). Mỗi nguồn bao gồm:
     -   `source` (str): Tên hoặc đường dẫn file nguồn.
     -   `page` (Optional[int]): Số trang (nếu có).
     -   `section` (Optional[str]): Tên section (nếu có).
     -   `score` (float): Điểm relevancy của nguồn.
     -   `content_snippet` (str): Đoạn trích nội dung từ nguồn.
     -   `original_page` (Optional[Any]): Thông tin trang gốc (nếu có).
--   `search_method` (str): Phương pháp tìm kiếm đã được sử dụng.
--   `total_reranked` (Optional[int]): Số lượng kết quả đã được rerank.
--   `filtered_sources` (Optional[List[str]]): Danh sách các file nguồn đã được lọc (nếu có).
--   `reranker_model` (Optional[str]): Tên model reranker đã được sử dụng.
--   `processing_time` (Optional[float]): Thời gian xử lý câu hỏi (tính bằng giây).
--   `debug_info` (Optional[Dict]): Thông tin debug bổ sung.
--   `related_questions` (Optional[List[str]]): Danh sách các câu hỏi liên quan được gợi ý.
--   `is_low_confidence` (Optional[bool]): `True` nếu câu trả lời có độ tin cậy thấp.
--   `confidence_score` (Optional[float]): Điểm tin cậy của câu trả lời.
--   `query_type` (Optional[str]): Loại câu hỏi (ví dụ: "question_from_document", "realtime_question", "other_question").
--   `conversation_id` (Optional[str]): ID của phiên hội thoại.
+-   `search_method` (str): Phương pháp tìm kiếm đã được sử dụng (thông tin này có thể nằm trong event `end`).
+-   `processing_time` (Optional[float]): Thời gian xử lý câu hỏi (tính bằng giây, trong event `end`).
+-   `related_questions` (Optional[List[str]]): Danh sách các câu hỏi liên quan được gợi ý (trong event `end`).
+-   `conversation_id` (Optional[str]): ID của phiên hội thoại (trong các events `start`, `sources`, `end`).
 
 ### `SQLAnalysisRequest`
 
@@ -64,16 +57,6 @@ Kết quả phân tích câu lệnh SQL.
 - `analysis` (str): Kết quả phân tích chi tiết.
 - `suggestions` (List[str]): Danh sách các đề xuất cải thiện.
 - `optimized_query` (Optional[str], default: None): Câu lệnh SQL đã được tối ưu hóa (nếu có).
-
-### `FeedbackRequest`
-
-Dùng cho việc gửi phản hồi về câu trả lời.
-
-- `question_id` (str): ID của câu hỏi liên quan đến phản hồi.
-- `rating` (int): Đánh giá của người dùng (từ 1 đến 5).
-- `comment` (Optional[str], default: None): Bình luận chi tiết.
-- `is_helpful` (bool): Đánh dấu câu trả lời có hữu ích hay không.
-- `specific_feedback` (Optional[Dict], default: None): Phản hồi cụ thể về các khía cạnh của câu trả lời.
 
 ### `IndexingStatusResponse`
 
@@ -95,11 +78,11 @@ Thống kê tài liệu theo danh mục.
 
 Thông tin chi tiết về một file đã upload.
 
--   `filename` (str): Tên file.
--   `path` (str): Đường dẫn đến file trên server.
+-   `filename` (str): Tên file (thường là tên file gốc khi upload).
+-   `path` (str): Đường dẫn đến file trên server (có thể là đường dẫn file đã chuyển đổi).
 -   `size` (int): Kích thước file (bytes).
--   `upload_date` (Optional[str]): Thời gian upload file (ISO format).
--   `extension` (str): Phần mở rộng của file (ví dụ: ".pdf").
+-   `upload_date` (Optional[str]): Thời gian upload file (ISO format, lấy từ database hoặc thời gian tạo file).
+-   `extension` (str): Phần mở rộng của file (thường là phần mở rộng của file gốc).
 -   `category` (Optional[str]): Danh mục của file (nếu có).
 -   `id` (Optional[str]): `file_id` duy nhất của file trong hệ thống (thường là UUID).
 
@@ -118,12 +101,6 @@ Kết quả sau khi xóa một file.
 -   `status` (str): Trạng thái xóa ("success" hoặc "error").
 -   `message` (str): Thông báo chi tiết về kết quả xóa.
 -   `removed_points` (Optional[int]): Số lượng điểm dữ liệu (index) đã bị xóa khỏi vector store.
-
-### `ConversationRequest` (Không được sử dụng trực tiếp làm request body, nhưng dùng làm path parameter)
-
-Dùng để xác định một cuộc hội thoại.
-
-- `conversation_id` (str): ID của cuộc hội thoại.
 
 ### `CreateConversationResponse`
 
@@ -197,6 +174,15 @@ Thông tin về cuộc hội thoại gần đây nhất.
 -   `messages` (List[Dict]): Danh sách các tin nhắn trong cuộc hội thoại.
 -   `found` (bool): `True` nếu tìm thấy cuộc hội thoại, `False` nếu không.
 
+### `ResetPasswordRequest`
+Dùng cho việc đặt lại mật khẩu khi người dùng đã xác thực (ví dụ, sau khi đăng nhập và muốn đổi mật khẩu).
+- `password` (str): Mật khẩu mới của người dùng.
+
+### `ForgotPasswordRequest`
+Dùng cho việc yêu cầu gửi email đặt lại mật khẩu.
+- `email` (EmailStr): Email của người dùng cần đặt lại mật khẩu.
+- `redirect_url` (Optional[str]): URL để chuyển hướng người dùng sau khi họ nhấp vào liên kết trong email (tùy chọn, Supabase sẽ dùng URL mặc định nếu không cung cấp).
+
 ## API Endpoints
 
 ### 1. Root
@@ -212,50 +198,15 @@ Thông tin về cuộc hội thoại gần đây nhất.
     }
     ```
 
-### 2. Đặt câu hỏi (Ask Question)
-
--   **Endpoint:** `POST /ask`
--   **Mô tả:** Đặt một câu hỏi và nhận câu trả lời từ hệ thống RAG.
--   **Xác thực:** Yêu cầu (Bearer Token).
--   **Đầu vào:**
-    -   **Query Parameters:**
-        -   `max_sources` (Optional[int], default: None, min: 1, max: 50): Số lượng nguồn tham khảo tối đa trả về.
-    -   **Request Body:** `QuestionRequest`
--   **Đầu ra (Thành công - 200):** `AnswerResponse`
--   **Lỗi có thể xảy ra:**
-    -   `400 Bad Request`:
-        -   Nếu không chọn nguồn tài liệu (`request.sources` rỗng). Nội dung response:
-            ```json
-            {
-                "status": "error",
-                "message": "Vui lòng chọn ít nhất một nguồn tài liệu để tìm kiếm.",
-                "available_sources": ["source1.pdf", "source2.txt"],
-                "available_filenames": ["source1.pdf", "source2.txt"],
-                "note": "Bạn có thể dùng tên file đơn thuần hoặc đường dẫn đầy đủ"
-            }
-            ```
-    -   `401 Unauthorized`: Nếu không có thông tin xác thực hoặc token không hợp lệ.
-    -   `404 Not Found`: Nếu một hoặc nhiều nguồn tài liệu trong `request.sources` không tồn tại. Nội dung response:
-        ```json
-        {
-            "status": "error",
-            "message": "Không tìm thấy các nguồn: missing_source.pdf",
-            "available_sources": ["source1.pdf", "source2.txt"],
-            "available_filenames": ["source1.pdf", "source2.txt"],
-            "note": "Bạn có thể dùng tên file đơn thuần hoặc đường dẫn đầy đủ"
-        }
-        ```
-    -   `500 Internal Server Error`: Lỗi xử lý câu hỏi.
-
-### 3. Đặt câu hỏi (Stream)
+### 2. Đặt câu hỏi (Stream)
 
 -   **Endpoint:** `POST /ask/stream`
--   **Mô tả:** Đặt một câu hỏi và nhận câu trả lời dưới dạng Server-Sent Events (SSE). API này sử dụng `file_id` thay vì `sources`.
--   **Xác thực:** Yêu cầu (Bearer Token).
+-   **Mô tả:** Đặt một câu hỏi và nhận câu trả lời dưới dạng Server-Sent Events (SSE). API này sử dụng `file_id` để xác định tài liệu cần tìm kiếm.
+-   **Xác thực:** Yêu cầu (Bearer Token - `get_current_user`).
 -   **Đầu vào:**
     -   **Query Parameters:**
         -   `max_sources` (Optional[int], default: None, min: 1, max: 50): Số lượng nguồn tham khảo tối đa trả về.
-    -   **Request Body:** `QuestionRequest` (trong đó `file_id` được ưu tiên sử dụng thay vì `sources`).
+    -   **Request Body:** `QuestionRequest` (trong đó `file_id` là bắt buộc).
 -   **Đầu ra (Thành công - 200):** `StreamingResponse` (media type: `text/event-stream`).
     Các sự kiện SSE có thể bao gồm:
     -   `event: start`: Bắt đầu quá trình trả lời. Dữ liệu là JSON object chứa `question_id`, `conversation_id`.
@@ -269,18 +220,19 @@ Thông tin về cuộc hội thoại gần đây nhất.
         {
             "status": "error",
             "message": "Vui lòng chọn ít nhất một file_id để tìm kiếm.",
-            "available_file_ids": ["uuid1", "uuid2"],
-            "available_files": [["filename1.pdf", "uuid1"], ["filename2.txt", "uuid2"]]
+            "available_file_ids": ["uuid1", "uuid2"], // Danh sách file_id có sẵn của user
+            "available_files": [["filename1.pdf", "uuid1"], ["filename2.txt", "uuid2"]] // Danh sách (tên file, file_id)
         }
         ```
     -   `401 Unauthorized`: Nếu không có thông tin xác thực hoặc token không hợp lệ.
     -   `500 Internal Server Error`: Lỗi xử lý câu hỏi ban đầu.
+    -   `503 Service Unavailable`: Dịch vụ xác thực chưa được cấu hình.
 
-### 4. Tải lên Tài liệu (Upload Document)
+### 3. Tải lên Tài liệu (Upload Document)
 
 -   **Endpoint:** `POST /upload`
--   **Mô tả:** Tải lên một tài liệu để thêm vào hệ thống. Tài liệu sẽ được tự động xử lý và index.
--   **Xác thực:** Yêu cầu (Bearer Token).
+-   **Mô tả:** Tải lên một tài liệu để thêm vào hệ thống. Tài liệu sẽ được tự động xử lý và index vào collection của người dùng.
+-   **Xác thực:** Yêu cầu (Bearer Token - `get_current_user`).
 -   **Đầu vào:**
     -   **Form Data:**
         -   `file` (UploadFile): File tài liệu cần tải lên (Hỗ trợ: .pdf, .docx, .txt, .sql, .md).
@@ -288,12 +240,12 @@ Thông tin về cuộc hội thoại gần đây nhất.
 -   **Đầu ra (Thành công - 200):**
     ```json
     {
-        "filename": "example.pdf",
+        "filename": "example.pdf", // Tên file gốc đã upload
         "status": "success",
-        "message": "Đã tải lên và index thành công 10 chunks từ tài liệu",
-        "chunks_count": 10,
-        "category": "general",
-        "file_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        "message": "Đã tải lên và index thành công X chunks từ tài liệu", // X là số chunks
+        "chunks_count": X, // Số chunks
+        "category": "general", // Danh mục (nếu có)
+        "file_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" // file_id của tài liệu trong hệ thống
     }
     ```
     Hoặc nếu lỗi:
@@ -301,102 +253,109 @@ Thông tin về cuộc hội thoại gần đây nhất.
     {
         "filename": "unsupported.zip",
         "status": "error",
-        "message": "Không hỗ trợ định dạng file .zip"
+        "message": "Không hỗ trợ định dạng file .zip" // Hoặc lỗi đọc file, lỗi index
     }
     ```
 -   **Lỗi có thể xảy ra:**
     -   `400 Bad Request`: Định dạng file không được hỗ trợ hoặc lỗi đọc file.
     -   `401 Unauthorized`: Nếu không có thông tin xác thực hoặc token không hợp lệ.
-    -   `500 Internal Server Error`: Lỗi khi xử lý tài liệu.
+    -   `500 Internal Server Error`: Lỗi khi xử lý hoặc index tài liệu.
+    -   `503 Service Unavailable`: Dịch vụ xác thực chưa được cấu hình.
 
-### 5. Reset Collection
+### 4. Reset Collection (Của User)
 
 -   **Endpoint:** `DELETE /collection/reset`
--   **Mô tả:** Xóa toàn bộ dữ liệu đã index trong collection hiện tại của vector store (collection của user_id hiện tại nếu có, hoặc collection mặc định) và tạo lại collection mới.
--   **Xác thực:** **Không** yêu cầu.
+-   **Mô tả:** Xóa toàn bộ dữ liệu đã index trong collection của người dùng hiện tại (liên kết với `user_id` trong `rag_system.vector_store`) và tạo lại collection mới.
+-   **Xác thực:** Yêu cầu (Bearer Token - `get_current_user`). Endpoint này đã được sửa đổi để hoạt động trên collection của người dùng hiện tại.
 -   **Đầu vào:** Không có.
 -   **Đầu ra (Thành công - 200):**
     ```json
     {
         "status": "success",
-        "message": "Đã xóa và tạo lại collection my_collection",
-        "vector_size": 768
+        "message": "Đã xóa và tạo lại collection user_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        "vector_size": 768 // Kích thước vector của collection
     }
     ```
     Hoặc nếu collection không tồn tại:
      ```json
     {
         "status": "warning",
-        "message": "Collection my_collection không tồn tại"
+        "message": "Collection user_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx không tồn tại"
     }
     ```
 -   **Lỗi có thể xảy ra:**
+    -   `401 Unauthorized`: Xác thực thất bại.
     -   `500 Internal Server Error`: Lỗi khi reset collection.
+    -   `503 Service Unavailable`: Dịch vụ xác thực chưa được cấu hình.
 
-### 6. Lấy Danh sách Files Đã Upload
+### 5. Lấy Danh sách Files Đã Upload
 
 -   **Endpoint:** `GET /files`
--   **Mô tả:** Lấy danh sách các file đã được người dùng hiện tại upload vào hệ thống.
--   **Xác thực:** Yêu cầu (Bearer Token).
+-   **Mô tả:** Lấy danh sách các file đã được người dùng hiện tại upload vào hệ thống. Thông tin được lấy từ database (Supabase).
+-   **Xác thực:** Yêu cầu (Bearer Token - `get_current_user`).
 -   **Đầu vào:** Không có.
 -   **Đầu ra (Thành công - 200):** `FileListResponse`
 -   **Lỗi có thể xảy ra:**
     -   `401 Unauthorized`: Nếu không có thông tin xác thực hoặc token không hợp lệ.
     -   `500 Internal Server Error`: Lỗi khi lấy danh sách file.
+    -   `503 Service Unavailable`: Dịch vụ xác thực chưa được cấu hình.
 
-### 7. Xóa File
+### 6. Xóa File
 
 -   **Endpoint:** `DELETE /files/{filename}`
--   **Mô tả:** Xóa một file đã upload (cả file vật lý và các index liên quan trong vector store, đồng thời xóa thông tin file trong database).
--   **Xác thực:** Yêu cầu (Bearer Token).
+-   **Mô tả:** Xóa một file đã upload (xóa file vật lý, các index liên quan trong vector store của người dùng, và thông tin file trong database).
+-   **Xác thực:** Yêu cầu (Bearer Token - `get_current_user`).
 -   **Đầu vào:**
     -   **Path Parameters:**
-        -   `filename` (str): Tên file cần xóa.
+        -   `filename` (str): Tên file cần xóa (tên file gốc khi upload).
 -   **Đầu ra (Thành công - 200):** `FileDeleteResponse`
 -   **Lỗi có thể xảy ra:**
     -   `401 Unauthorized`: Nếu không có thông tin xác thực hoặc token không hợp lệ.
-    -   `404 Not Found`: Nếu file không tồn tại.
-    -   `500 Internal Server Error`: Lỗi khi xóa file.
+    -   `404 Not Found`: Nếu file không tồn tại trong thư mục của người dùng hoặc trong database.
+    -   `500 Internal Server Error`: Lỗi khi xóa file hoặc index.
+    -   `503 Service Unavailable`: Dịch vụ xác thực chưa được cấu hình.
 
-### 8. Xóa Điểm Dữ liệu theo Filter
+### 7. Xóa Điểm Dữ liệu theo Filter (Trong Collection của User)
 
 -   **Endpoint:** `POST /collections/delete-by-filter`
--   **Mô tả:** Xóa các điểm dữ liệu trong collection của vector store dựa trên một bộ lọc (filter) được cung cấp.
--   **Xác thực:** **Không** yêu cầu.
+-   **Mô tả:** Xóa các điểm dữ liệu trong collection của người dùng hiện tại dựa trên một bộ lọc (filter).
+-   **Xác thực:** Yêu cầu (Bearer Token - `get_current_user`). Endpoint này đã được sửa đổi để hoạt động trên collection của người dùng hiện tại.
 -   **Đầu vào:**
     -   **Request Body:** (Dict)
         ```json
         {
           "filter": {
-            "must": [ // Hoặc "should"
+            "must": [ // Hoặc "should", "must_not"
               {
-                "key": "metadata.source", // Hoặc "source", "user_id", ...
+                "key": "metadata.source", // Hoặc "source", "metadata.file_id", ...
                 "match": {
-                  "value": "tên_file.pdf"
+                  "value": "tên_file.pdf" // Hoặc file_id
                 }
               }
               // , { ... } // Các điều kiện khác
             ]
-            // , // "should": [ ... ], "must_not": [ ... ]
           }
         }
         ```
+        Lưu ý: Filter sẽ tự động được áp dụng thêm điều kiện `user_id` của người dùng hiện tại.
 -   **Đầu ra (Thành công - 200):**
     ```json
     {
         "status": "success",
-        "message": "Đã xóa 5 điểm dữ liệu thành công."
+        "message": "Đã xóa X điểm dữ liệu thành công." // X là số điểm đã xóa
     }
     ```
 -   **Lỗi có thể xảy ra:**
     -   `400 Bad Request`: Filter không hợp lệ hoặc lỗi khi thực hiện xóa.
+    -   `401 Unauthorized`: Xác thực thất bại.
     -   `500 Internal Server Error`: Lỗi không xác định.
+    -   `503 Service Unavailable`: Dịch vụ xác thực chưa được cấu hình.
 
-### 9. Lấy Danh sách Cuộc Hội thoại (của User hiện tại)
+### 8. Lấy Danh sách Cuộc Hội thoại (của User hiện tại)
 
--   **Endpoint:** `GET /conversations` (Endpoint này có hai định nghĩa, đây là phiên bản có phân trang và lấy tin nhắn đầu tiên, có vẻ là phiên bản được ưu tiên).
--   **Mô tả:** Lấy danh sách tất cả các cuộc hội thoại của người dùng hiện tại, có phân trang và thông tin tin nhắn đầu tiên.
--   **Xác thực:** Yêu cầu (Bearer Token).
+-   **Endpoint:** `GET /conversations`
+-   **Mô tả:** Lấy danh sách tất cả các cuộc hội thoại của người dùng hiện tại, có phân trang. Thông tin bao gồm tin nhắn đầu tiên và số lượng tin nhắn.
+-   **Xác thực:** Yêu cầu (Bearer Token - `get_current_user`).
 -   **Đầu vào:**
     -   **Query Parameters:**
         -   `page` (int, default: 1, min: 1): Trang hiện tại.
@@ -408,17 +367,19 @@ Thông tin về cuộc hội thoại gần đây nhất.
         "data": [
             {
                 "conversation_id": "conv_id_1",
-                "user_id": "user_id_1",
+                "user_id": "user_id_1", // Luôn là user_id của người dùng hiện tại
                 "created_at": "2023-10-27T10:00:00Z",
                 "last_updated": "2023-10-27T10:05:00Z",
-                "first_message": "Xin chào, tôi cần giúp đỡ về...",
-                "message_count": 5
+                "title": "Optional title", // Hiện tại không có title trong DB
+                "first_message": "Xin chào, tôi cần giúp đỡ về...", // Nội dung tin nhắn đầu tiên (user)
+                "message_count": 5 // Tổng số tin nhắn trong hội thoại
             }
+            // ... các hội thoại khác
         ],
         "pagination": {
             "page": 1,
             "page_size": 10,
-            "total_items": 25,
+            "total_items": 25, // Tổng số hội thoại của user
             "total_pages": 3
         }
     }
@@ -426,12 +387,13 @@ Thông tin về cuộc hội thoại gần đây nhất.
 -   **Lỗi có thể xảy ra:**
     -   `401 Unauthorized`: Nếu không có thông tin xác thực hoặc token không hợp lệ.
     -   `500 Internal Server Error`: Lỗi khi lấy danh sách hội thoại.
+    -   `503 Service Unavailable`: Dịch vụ xác thực chưa được cấu hình.
 
-### 10. Lấy Chi tiết Cuộc Hội thoại
+### 9. Lấy Chi tiết Cuộc Hội thoại
 
 -   **Endpoint:** `GET /conversations/{conversation_id}`
--   **Mô tả:** Lấy chi tiết tin nhắn của một cuộc hội thoại cụ thể.
--   **Xác thực:** Yêu cầu (Bearer Token).
+-   **Mô tả:** Lấy chi tiết tin nhắn của một cuộc hội thoại cụ thể, thuộc về người dùng hiện tại.
+-   **Xác thực:** Yêu cầu (Bearer Token - `get_current_user`).
 -   **Đầu vào:**
     -   **Path Parameters:**
         -   `conversation_id` (str): ID của cuộc hội thoại.
@@ -442,18 +404,28 @@ Thông tin về cuộc hội thoại gần đây nhất.
         "message": "Đã tìm thấy chi tiết hội thoại cho phiên XXXXX",
         "data": {
             "conversation_id": "XXXXX",
-            "last_updated": "2023-10-27T10:00:00Z",
+            "last_updated": "2023-10-27T10:00:00Z", // Thời gian cuộc hội thoại được cập nhật lần cuối
             "messages": [
+                // Danh sách các tin nhắn (role, content, sequence, created_at, ...)
             ]
         }
     }
     ```
+    Hoặc nếu không tìm thấy tin nhắn/hội thoại:
+    ```json
+    {
+        "status": "success", // Vẫn là success nhưng data rỗng hoặc message khác
+        "message": "Không tìm thấy hội thoại với ID XXXXX",
+        "conversation_id": "XXXXX"
+    }
+    ```
 -   **Lỗi có thể xảy ra:**
     -   `401 Unauthorized`: Nếu không có thông tin xác thực hoặc token không hợp lệ.
-    -   `404 Not Found`: Nếu không tìm thấy hội thoại với ID cung cấp.
+    -   `404 Not Found`: Nếu hội thoại không tồn tại hoặc không thuộc về người dùng.
     -   `500 Internal Server Error`: Lỗi khi lấy chi tiết hội thoại.
+    -   `503 Service Unavailable`: Dịch vụ xác thực chưa được cấu hình.
 
-### 11. Đăng ký Tài khoản (Sign Up)
+### 10. Đăng ký Tài khoản (Sign Up)
 
 -   **Endpoint:** `POST /auth/signup`
 -   **Mô tả:** Đăng ký tài khoản mới bằng email và mật khẩu.
@@ -462,10 +434,10 @@ Thông tin về cuộc hội thoại gần đây nhất.
     -   **Request Body:** `UserSignUpRequest`
 -   **Đầu ra (Thành công - 200):** `AuthResponse`
 -   **Lỗi có thể xảy ra:**
-    -   `400 Bad Request`: Đăng ký thất bại (ví dụ: email đã tồn tại, mật khẩu không đủ mạnh theo rule của Supabase).
+    -   `400 Bad Request`: Đăng ký thất bại (ví dụ: email đã tồn tại, mật khẩu không đủ mạnh theo rule của Supabase, hoặc lỗi từ Supabase).
     -   `503 Service Unavailable`: Dịch vụ xác thực (Supabase) chưa được cấu hình.
 
-### 12. Đăng nhập (Login)
+### 11. Đăng nhập (Login)
 
 -   **Endpoint:** `POST /auth/login`
 -   **Mô tả:** Đăng nhập bằng email và mật khẩu.
@@ -474,15 +446,14 @@ Thông tin về cuộc hội thoại gần đây nhất.
     -   **Request Body:** `UserLoginRequest`
 -   **Đầu ra (Thành công - 200):** `AuthResponse`
 -   **Lỗi có thể xảy ra:**
-    -   `400 Bad Request`: Lỗi khi đăng nhập (thường là do `401` từ Supabase được catch và re-raise).
-    -   `401 Unauthorized`: Sai email hoặc mật khẩu.
+    -   `400 Bad Request` hoặc `401 Unauthorized`: Sai email/mật khẩu ("Email hoặc mật khẩu không chính xác"), email chưa xác nhận ("Email chưa được xác nhận..."), tài khoản không tồn tại ("Không tìm thấy tài khoản..."), hoặc các lỗi đăng nhập khác từ Supabase.
     -   `503 Service Unavailable`: Dịch vụ xác thực (Supabase) chưa được cấu hình.
 
-### 13. Đăng xuất (Logout)
+### 12. Đăng xuất (Logout)
 
 -   **Endpoint:** `POST /auth/logout`
 -   **Mô tả:** Đăng xuất khỏi hệ thống, vô hiệu hóa token hiện tại của người dùng.
--   **Xác thực:** Yêu cầu (Bearer Token, nhưng nếu không có token cũng sẽ trả về message "Đã đăng xuất").
+-   **Xác thực:** Yêu cầu (Bearer Token - `auth_bearer`).
 -   **Đầu vào:** Không có.
 -   **Đầu ra (Thành công - 200):**
     ```json
@@ -492,24 +463,25 @@ Thông tin về cuộc hội thoại gần đây nhất.
     ```
 -   **Lỗi có thể xảy ra:**
     -   `400 Bad Request`: Lỗi khi đăng xuất từ Supabase.
+    -   `401 Unauthorized`: Yêu cầu xác thực token (nếu `credentials` không được cung cấp hoặc không hợp lệ).
     -   `503 Service Unavailable`: Dịch vụ xác thực (Supabase) chưa được cấu hình.
 
-### 14. Lấy Thông tin Người dùng Hiện tại
+### 13. Lấy Thông tin Người dùng Hiện tại
 
 -   **Endpoint:** `GET /auth/user`
 -   **Mô tả:** Lấy thông tin của người dùng đang đăng nhập (dựa trên token).
--   **Xác thực:** Yêu cầu (Bearer Token).
+-   **Xác thực:** Yêu cầu (Bearer Token - `get_current_user`).
 -   **Đầu vào:** Không có.
 -   **Đầu ra (Thành công - 200):** `UserResponse`
 -   **Lỗi có thể xảy ra:**
     -   `401 Unauthorized`: Nếu không có thông tin xác thực hoặc token không hợp lệ.
     -   `503 Service Unavailable`: Dịch vụ xác thực (Supabase) chưa được cấu hình.
 
-### 15. Kiểm tra Thông tin Phiên Hiện tại
+### 14. Kiểm tra Thông tin Phiên Hiện tại
 
 -   **Endpoint:** `GET /auth/session`
 -   **Mô tả:** Kiểm tra thông tin phiên đăng nhập hiện tại dựa trên token.
--   **Xác thực:** Yêu cầu (Bearer Token).
+-   **Xác thực:** Yêu cầu (Bearer Token - `auth_bearer`, nhưng `Optional`).
 -   **Đầu vào:** Không có.
 -   **Đầu ra (Thành công - 200 nếu xác thực thành công):**
     ```json
@@ -520,17 +492,17 @@ Thông tin về cuộc hội thoại gần đây nhất.
         "created_at": "2023-10-27T10:00:00Z"
     }
     ```
--   **Đầu ra (Thất bại - 401 nếu không xác thực được):**
+-   **Đầu ra (Thất bại - 401 nếu không xác thực được hoặc token không hợp lệ/hết hạn):**
     ```json
     {
         "is_authenticated": false,
-        "message": "Không có thông tin xác thực"
+        "message": "Không có thông tin xác thực" // Hoặc "Phiên không hợp lệ hoặc đã hết hạn" hoặc lỗi khác
     }
     ```
 -   **Lỗi có thể xảy ra:**
     -   `503 Service Unavailable`: Dịch vụ xác thực (Supabase) chưa được cấu hình.
 
-### 16. Đăng nhập/Đăng ký với Google
+### 15. Đăng nhập/Đăng ký với Google
 
 -   **Endpoint:** `POST /auth/google`
 -   **Mô tả:** Xử lý đăng nhập hoặc đăng ký người dùng thông qua Google OAuth. Cần cung cấp `code` (authorization code) hoặc `access_token` từ Google.
@@ -543,11 +515,11 @@ Thông tin về cuộc hội thoại gần đây nhất.
         "user": {
             "id": "google_user_id_from_supabase",
             "email": "user@gmail.com",
-            "name": "User Name",
-            "avatar_url": "url_to_avatar.jpg"
+            "name": "User Name", // Lấy từ user_metadata
+            "avatar_url": "url_to_avatar.jpg" // Lấy từ user_metadata
         },
         "access_token": "supabase_access_token",
-        "refresh_token": "supabase_refresh_token",
+        "refresh_token": "supabase_refresh_token", // Nếu có
         "provider": "google"
     }
     ```
@@ -555,7 +527,7 @@ Thông tin về cuộc hội thoại gần đây nhất.
     -   `400 Bad Request`: Thiếu `code` hoặc `access_token`, hoặc lỗi xác thực với Google/Supabase.
     -   `503 Service Unavailable`: Dịch vụ xác thực (Supabase) chưa được cấu hình.
 
-### 17. Lấy URL Đăng nhập Google
+### 16. Lấy URL Đăng nhập Google
 
 -   **Endpoint:** `GET /auth/google/url`
 -   **Mô tả:** Lấy URL để chuyển hướng người dùng đến trang đăng nhập của Google.
@@ -573,7 +545,7 @@ Thông tin về cuộc hội thoại gần đây nhất.
     -   `400 Bad Request`: Thiếu `redirect_url` hoặc lỗi khi tạo URL từ Supabase.
     -   `503 Service Unavailable`: Dịch vụ xác thực (Supabase) chưa được cấu hình.
 
-### 18. Xử lý Callback từ Google OAuth
+### 17. Xử lý Callback từ Google OAuth
 
 -   **Endpoint:** `GET /auth/callback`
 -   **Mô tả:** Endpoint này được Google chuyển hướng về sau khi người dùng xác thực. Nó nhận `code` từ Google và đổi lấy session/token từ Supabase.
@@ -589,11 +561,11 @@ Thông tin về cuộc hội thoại gần đây nhất.
         "user": {
             "id": "supabase_user_id",
             "email": "user@gmail.com",
-            "name": "User Name",
-            "avatar_url": "url_to_avatar.jpg"
+            "name": "User Name", // Lấy từ user_metadata
+            "avatar_url": "url_to_avatar.jpg" // Lấy từ user_metadata
         },
         "access_token": "supabase_access_token",
-        "refresh_token": "supabase_refresh_token",
+        "refresh_token": "supabase_refresh_token", // Nếu có
         "provider": "google"
     }
     ```
@@ -601,26 +573,23 @@ Thông tin về cuộc hội thoại gần đây nhất.
     -   `400 Bad Request`: Nếu có `error` từ Google, thiếu `code`, hoặc lỗi khi trao đổi code với Supabase.
     -   `503 Service Unavailable`: Dịch vụ xác thực (Supabase) chưa được cấu hình.
 
-### 19. Tạo Cuộc Hội thoại Mới
+### 18. Tạo Cuộc Hội thoại Mới
 
 -   **Endpoint:** `POST /conversations/create`
 -   **Mô tả:** Tạo một cuộc hội thoại mới cho người dùng hiện tại.
--   **Xác thực:** Yêu cầu (Bearer Token).
+-   **Xác thực:** Yêu cầu (Bearer Token - `get_current_user`).
 -   **Đầu vào:** Không có.
 -   **Đầu ra (Thành công - 200):** `CreateConversationResponse`
 -   **Lỗi có thể xảy ra:**
     -   `401 Unauthorized`: Nếu không có thông tin xác thực hoặc token không hợp lệ.
     -   `500 Internal Server Error`: Không thể tạo hội thoại mới.
+    -   `503 Service Unavailable`: Dịch vụ xác thực chưa được cấu hình.
 
-### 20. Lấy Danh sách Cuộc Hội thoại của Người dùng (Đã được mô tả ở mục 9)
-
-(Endpoint này trùng lặp với mục 9, nên thông tin chi tiết đã có ở trên)
-
-### 21. Xóa Cuộc Hội thoại
+### 19. Xóa Cuộc Hội thoại
 
 -   **Endpoint:** `DELETE /conversations/{conversation_id}`
--   **Mô tả:** Xóa một cuộc hội thoại và tất cả các tin nhắn liên quan của nó.
--   **Xác thực:** Yêu cầu (Bearer Token).
+-   **Mô tả:** Xóa một cuộc hội thoại và tất cả các tin nhắn liên quan của nó, thuộc về người dùng hiện tại.
+-   **Xác thực:** Yêu cầu (Bearer Token - `get_current_user`).
 -   **Đầu vào:**
     -   **Path Parameters:**
         -   `conversation_id` (str): ID của cuộc hội thoại cần xóa.
@@ -636,12 +605,13 @@ Thông tin về cuộc hội thoại gần đây nhất.
     -   `401 Unauthorized`: Nếu không có thông tin xác thực hoặc token không hợp lệ.
     -   `404 Not Found`: Không tìm thấy hội thoại hoặc người dùng không có quyền xóa.
     -   `500 Internal Server Error`: Không thể xóa hội thoại.
+    -   `503 Service Unavailable`: Dịch vụ xác thực chưa được cấu hình.
 
-### 22. Lấy Gợi ý Câu hỏi
+### 20. Lấy Gợi ý Câu hỏi
 
 -   **Endpoint:** `GET /suggestions`
 -   **Mô tả:** Lấy các câu hỏi gợi ý dựa trên cuộc hội thoại gần đây nhất có tin nhắn của người dùng, hoặc trả về các gợi ý mặc định nếu không có hội thoại phù hợp.
--   **Xác thực:** Yêu cầu (Bearer Token).
+-   **Xác thực:** Yêu cầu (Bearer Token - `get_current_user`).
 -   **Đầu vào:**
     -   **Query Parameters:**
         -   `num_suggestions` (int, default: 3, min: 1, max: 10): Số lượng câu hỏi gợi ý muốn nhận.
@@ -653,7 +623,7 @@ Thông tin về cuộc hội thoại gần đây nhất.
             "Câu hỏi gợi ý 1 dựa trên lịch sử?",
             "Câu hỏi gợi ý 2 dựa trên lịch sử?"
         ],
-        "conversation_id": "conv_id_xyz",
+        "conversation_id": "conv_id_xyz", // ID của hội thoại dùng để tạo gợi ý
         "from_history": true
     }
     ```
@@ -671,13 +641,14 @@ Thông tin về cuộc hội thoại gần đây nhất.
     ```
 -   **Lỗi có thể xảy ra:**
     -   `401 Unauthorized`: Nếu không có thông tin xác thực hoặc token không hợp lệ.
+    -   `503 Service Unavailable`: Dịch vụ xác thực chưa được cấu hình.
     -   (Nếu có lỗi khác, API sẽ cố gắng trả về các gợi ý mặc định)
 
-### 23. Lấy Cuộc Hội thoại Gần đây Nhất
+### 21. Lấy Cuộc Hội thoại Gần đây Nhất
 
 -   **Endpoint:** `GET /latest-conversation`
 -   **Mô tả:** Lấy thông tin và tin nhắn của cuộc hội thoại gần đây nhất có tin nhắn của người dùng hiện tại.
--   **Xác thực:** Yêu cầu (Bearer Token).
+-   **Xác thực:** Yêu cầu (Bearer Token - `get_current_user`).
 -   **Đầu vào:** Không có.
 -   **Đầu ra (Thành công - 200):** `LatestConversationResponse`
     Ví dụ (nếu tìm thấy):
@@ -687,10 +658,11 @@ Thông tin về cuộc hội thoại gần đây nhất.
             "conversation_id": "conv_id_recent",
             "user_id": "user_id_1",
             "last_updated": "2023-10-28T12:00:00Z"
+            // ... các thông tin khác của conversation
         },
         "messages": [
-            {"role": "user", "content": "Câu hỏi cuối cùng của tôi là gì?", "sequence": 1},
-            {"role": "ai", "content": "Đây là câu trả lời...", "sequence": 2}
+            {"role": "user", "content": "Câu hỏi cuối cùng của tôi là gì?", "sequence": 1 /* ... các trường khác */},
+            {"role": "ai", "content": "Đây là câu trả lời...", "sequence": 2 /* ... các trường khác */}
         ],
         "found": true
     }
@@ -705,4 +677,61 @@ Thông tin về cuộc hội thoại gần đây nhất.
     ```
 -   **Lỗi có thể xảy ra:**
     -   `401 Unauthorized`: Nếu không có thông tin xác thực hoặc token không hợp lệ.
+    -   `503 Service Unavailable`: Dịch vụ xác thực chưa được cấu hình.
     -   (Nếu có lỗi khác, API sẽ trả về `found: false`)
+
+### 22. Đặt lại mật khẩu (Reset Password - Đã xác thực)
+
+-   **Endpoint:** `POST /auth/reset-password`
+-   **Mô tả:** Đặt lại mật khẩu mới cho người dùng đã xác thực (ví dụ: người dùng đã đăng nhập và muốn thay đổi mật khẩu của họ).
+-   **Xác thực:** Yêu cầu (Bearer Token - `auth_bearer`).
+-   **Đầu vào:**
+    -   **Request Body:** `ResetPasswordRequest`
+-   **Đầu ra (Thành công - 200):**
+    ```json
+    {
+        "status": "success",
+        "message": "Mật khẩu đã được đặt lại thành công.",
+        "user": { // Thông tin user sau khi cập nhật
+            "id": "user_id",
+            "email": "user@example.com",
+            "created_at": "iso_timestamp"
+        }
+    }
+    ```
+-   **Lỗi có thể xảy ra:**
+    -   `400 Bad Request`: Không thể đặt lại mật khẩu. Các lý do có thể bao gồm:
+        -   "Mật khẩu mới phải khác mật khẩu cũ. Vui lòng chọn mật khẩu khác."
+        -   "Token không hợp lệ hoặc đã hết hạn." (Mặc dù endpoint này dùng token session, lỗi này có thể xuất hiện nếu có vấn đề với `update_user` của Supabase)
+        -   "Mật khẩu mới không đáp ứng các yêu cầu bảo mật. Vui lòng thử lại với mật khẩu mạnh hơn."
+        -   Hoặc lỗi chung từ Supabase: "Lỗi khi đặt lại mật khẩu: [chi tiết lỗi từ Supabase]"
+    -   `401 Unauthorized`: Yêu cầu xác thực token (nếu `credentials` không được cung cấp hoặc không hợp lệ).
+    -   `503 Service Unavailable`: Dịch vụ xác thực (Supabase) chưa được cấu hình.
+
+### 23. Quên Mật khẩu (Forgot Password)
+
+-   **Endpoint:** `POST /auth/forgot-password`
+-   **Mô tả:** Gửi email đặt lại mật khẩu cho người dùng. Người dùng sẽ nhận email chứa liên kết để đặt lại mật khẩu.
+-   **Xác thực:** Không yêu cầu.
+-   **Đầu vào:**
+    -   **Request Body:** `ForgotPasswordRequest`
+-   **Đầu ra (Thành công - 200):**
+    ```json
+    {
+        "status": "success",
+        "message": "Yêu cầu đặt lại mật khẩu đã được gửi đến email của bạn."
+    }
+    ```
+-   **Lỗi có thể xảy ra:**
+    -   `400 Bad Request`: Lỗi khi gửi email. Các lý do có thể bao gồm:
+        -   "Không tìm thấy người dùng với email này."
+        -   "Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau."
+        -   "Tham số không hợp lệ. Vui lòng kiểm tra lại email và URL chuyển hướng."
+        -   Hoặc lỗi chung từ Supabase: "Lỗi khi gửi email đặt lại mật khẩu: [chi tiết lỗi từ Supabase]"
+    -   `503 Service Unavailable`: Dịch vụ xác thực (Supabase) chưa được cấu hình.
+
+---
+Lưu ý:
+- Endpoint `/conversations` (GET) đã được làm rõ để chỉ có một phiên bản, lấy danh sách hội thoại của người dùng hiện tại.
+- Các model như `SQLAnalysisRequest`, `SQLAnalysisResponse`, `IndexingStatusResponse`, `CategoryStatsResponse` không có endpoint tương ứng trong `src/api.py` hiện tại, nên không được đưa vào phần API Endpoints.
+- Các mô tả lỗi đã được cập nhật để phản ánh các thông báo lỗi chi tiết hơn từ API.

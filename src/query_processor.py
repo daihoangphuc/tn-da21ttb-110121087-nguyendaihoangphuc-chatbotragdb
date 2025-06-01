@@ -59,7 +59,7 @@ class QueryProcessor:
         4. Nếu câu hỏi đã rõ ràng và không có đại từ cần thay thế, giữ nguyên câu hỏi
         5. Đảm bảo câu hỏi mở rộng vẫn giữ được ngữ cảnh của cuộc trò chuyện
         6. Nếu không thể xác định được đối tượng tham chiếu, giữ nguyên câu hỏi gốc
-        
+        QUAN TRỌNG: NẾU CÂU HỎI LÀ MỘT CÂU MỚI HOÀN TOÀN KHÔNG LIÊN QUAN GÌ ĐẾN conversation_history THÌ GIỮ NGUYÊN CÂU HỎI GỐC
         Chỉ trả về câu hỏi đã viết lại, không thêm giải thích hay bất kỳ nội dung nào khác.
         """
 

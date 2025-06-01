@@ -321,6 +321,7 @@ class VectorStore:
 
         # Nếu không có danh sách nguồn hoặc file_id, sử dụng search thông thường
         if not sources and not file_id:
+            print(f"Không có sources hoặc file_id được chỉ định, tìm kiếm trong tất cả các tài liệu.")
             return self.search(query_vector, limit, user_id)
 
         # Tạo các điều kiện lọc dựa vào tham số đầu vào

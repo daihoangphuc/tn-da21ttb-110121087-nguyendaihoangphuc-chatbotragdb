@@ -317,9 +317,27 @@ class AdvancedDatabaseRAG:
         sources: List[str] = None,
         file_id: List[str] = None,
     ) -> List[Dict]:
-        """Tìm kiếm ngữ nghĩa"""
-        # Loại bỏ hoàn toàn chức năng mở rộng truy vấn
-        return self.search_manager.semantic_search(query, k, sources, file_id)
+        """
+        Tìm kiếm ngữ nghĩa (semantic search) dựa trên embeddings
+
+        Args:
+            query: Câu hỏi người dùng
+            k: Số lượng kết quả trả về
+            sources: Danh sách các file nguồn cần tìm kiếm (cách cũ)
+            file_id: Danh sách các file_id cần tìm kiếm (cách mới). Nếu là None, sẽ tìm kiếm trong tất cả các file
+
+        Returns:
+            Danh sách các kết quả tìm kiếm
+        """
+        # Embed câu truy vấn
+        query_embedding = self.embedding_model.get_embedding(query)
+        
+        # Tìm kiếm trong vector store với filter theo nguồn hoặc file_id
+        results = self.vector_store.search_with_filter(
+            query_embedding, sources, file_id, limit=k
+        )
+        
+        return results
 
     def _hybrid_search_task(self, query_to_use, k, alpha, sources, file_id, results):
         """Task chạy song song để thực hiện hybrid search"""
@@ -373,55 +391,36 @@ class AdvancedDatabaseRAG:
         sources: List[str] = None,
         file_id: List[str] = None,
     ) -> List[Dict]:
-        """Tìm kiếm kết hợp ngữ nghĩa và keyword (ưu tiên ngữ nghĩa nhiều hơn với alpha=0.7)"""
-        # Sử dụng alpha mặc định từ biến môi trường nếu không được chỉ định
+        """
+        Tìm kiếm hybrid kết hợp cả keyword và semantic search
+
+        Args:
+            query: Câu hỏi người dùng
+            k: Số lượng kết quả trả về
+            alpha: Hệ số kết hợp giữa semantic và keyword search (0.7 = 70% semantic + 30% keyword)
+            sources: Danh sách các file nguồn cần tìm kiếm (cách cũ, sử dụng file_id thay thế)
+            file_id: Danh sách các file_id cần tìm kiếm (cách mới). Nếu là None, sẽ tìm kiếm trong tất cả các file
+
+        Returns:
+            Danh sách các kết quả tìm kiếm
+        """
         if alpha is None:
-            alpha = self.default_alpha
+            alpha = self.default_alpha  # Sử dụng alpha mặc định nếu không được chỉ định
 
-        # Nhận biết loại truy vấn để điều chỉnh alpha
-        query_lower = query.lower()
+        print(f"Đang thực hiện tìm kiếm hybrid với alpha={alpha}")
+        
+        if file_id is None or len(file_id) == 0:
+            print("file_id là None hoặc danh sách rỗng. Sẽ tìm kiếm trong tất cả các tài liệu.")
+        else:
+            print(f"Tìm kiếm với file_id: {file_id}")
 
-        # Phát hiện các truy vấn liên quan đến cú pháp, định nghĩa để tăng trọng số cho keyword search
-        is_syntax_or_definition_query = False
-
-        syntax_patterns = [
-            r"\b(cú pháp|syntax|format|statement)\b",
-            r"\b(SELECT|CREATE|ALTER|DROP|INSERT|UPDATE|DELETE)\b",
-            r"\bcách\s+(viết|sử dụng|dùng)\b",
-        ]
-
-        definition_patterns = [
-            r"\b(định nghĩa|khái niệm|là gì|what is|define)\b",
-            r"\bnghĩa của\b",
-        ]
-
-        # Kiểm tra các pattern cú pháp
-        for pattern in syntax_patterns:
-            if re.search(pattern, query_lower):
-                is_syntax_or_definition_query = True
-                print(f"Phát hiện truy vấn liên quan đến CÚ PHÁP: '{query}'")
-                # Giảm alpha để tăng trọng số cho keyword search
-                alpha = 0.5  # 50% semantic + 50% keyword
-                break
-
-        # Kiểm tra các pattern định nghĩa nếu chưa phát hiện được cú pháp
-        if not is_syntax_or_definition_query:
-            for pattern in definition_patterns:
-                if re.search(pattern, query_lower):
-                    is_syntax_or_definition_query = True
-                    print(f"Phát hiện truy vấn liên quan đến ĐỊNH NGHĨA: '{query}'")
-                    # Giảm alpha một chút để tăng trọng số cho keyword search
-                    alpha = 0.6  # 60% semantic + 40% keyword
-                    break
-
-        print(f"=== Bắt đầu hybrid search song song với alpha={alpha} ===")
+        # Tạo một dictionary để lưu kết quả từ các phương pháp tìm kiếm
+        results = {}
 
         # Tăng số lượng kết quả tìm kiếm đầu vào để có nhiều hơn cho reranking
         initial_k = max(10, k * 2)  # Giảm từ k * 3 xuống k * 2
 
         # Thực hiện song song tìm kiếm bằng ThreadPoolExecutor thay vì asyncio
-        results = {"semantic": None, "keyword": None}
-        
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             # Thực hiện hybrid search trong một luồng riêng biệt
             executor.submit(
@@ -882,7 +881,7 @@ class AdvancedDatabaseRAG:
             alpha: Hệ số kết hợp giữa semantic và keyword search
             k: Số lượng kết quả trả về
             sources: Danh sách các file nguồn cần tìm kiếm (cách cũ, sử dụng file_id thay thế)
-            file_id: Danh sách các file_id cần tìm kiếm (cách mới)
+            file_id: Danh sách các file_id cần tìm kiếm (cách mới). Nếu là None, sẽ tìm kiếm trong tất cả các file
             conversation_history: Lịch sử hội thoại
 
         Returns:
@@ -891,7 +890,11 @@ class AdvancedDatabaseRAG:
         print(f"Đang xử lý câu hỏi (stream): '{query}'")
         print(f"Phương pháp tìm kiếm: {search_type}")
         print(f"Alpha: {alpha if alpha is not None else self.default_alpha}")
-        print(f"Tìm kiếm với file_id: {file_id}")
+        
+        if file_id is None or len(file_id) == 0:
+            print("file_id là None hoặc danh sách rỗng. Sẽ tìm kiếm trong tất cả các tài liệu.")
+        else:
+            print(f"Tìm kiếm với file_id: {file_id}")
 
         # Bắt đầu đo thời gian xử lý
         start_time = time.time()
