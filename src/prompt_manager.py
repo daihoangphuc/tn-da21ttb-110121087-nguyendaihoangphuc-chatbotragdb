@@ -57,7 +57,7 @@ NGUYÊN TẮC TRÍCH DẪN NGUỒN (QUAN TRỌNG):
 NGUYÊN TẮC LUÔN PHẢI TUÂN THỦ ĐỊNH DẠNG MARKDOWN CHO PHẢN HỒI TỪ LLM (QUAN TRỌNG KHI STREAMING):
 - Sử dụng ## cho tiêu đề chính, ### cho tiêu đề phụ.
 - Sử dụng **văn bản** để làm nổi bật, *văn bản* cho in nghiêng.
-- Sử dụng ```sql ... ``` cho khối mã SQL.
+- Sử dụng ```sql ... ``` cho khối mã SQL. Và có thể format lại cho dễ nhìn (không được sửa code gốc)
 - Sử dụng danh sách với `-` hoặc `1.`
 
 

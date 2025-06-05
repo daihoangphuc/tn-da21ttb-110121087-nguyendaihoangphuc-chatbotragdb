@@ -417,118 +417,8 @@ class SearchManager:
         file_id: List[str] = None,
     ) -> List[Dict]:
         """Tìm kiếm từ khóa sử dụng BM25"""
-        print(f"=== BM25 DEBUG === Bắt đầu tìm kiếm từ khóa với query: '{query}'")
-
-        current_user_id = self.vector_store.user_id if hasattr(self.vector_store, 'user_id') else None
-        print(f"=== BM25 DEBUG === user_id trong vector_store TRONG keyword_search: {current_user_id}")
-        
-        # Kiểm tra xem collection có tồn tại và có dữ liệu không
-        collection_exists = False
-        has_points = False
-        
-        try:
-            # Kiểm tra collection có tồn tại không
-            collection_exists = self.vector_store.client.collection_exists(self.vector_store.collection_name)
-            
-            # Nếu collection tồn tại, kiểm tra số lượng points
-            if collection_exists:
-                collection_info = self.vector_store.get_collection_info()
-                points_count = collection_info.get('points_count', 0)
-                has_points = points_count > 0
-        except Exception:
-            pass
-            
-        # Nếu collection không tồn tại hoặc không có dữ liệu, trả về danh sách rỗng
-        if not collection_exists or not has_points:
-            print(f"=== BM25 DEBUG === Collection không tồn tại hoặc không có dữ liệu. Bỏ qua keyword search.")
-            return []
-        
-        if not current_user_id:
-            print(f"=== BM25 DEBUG === Không có user_id trong vector_store, không thể thực hiện keyword search.")
-            return []
-            
-        # Kiểm tra trạng thái BM25
-        print(f"=== BM25 DEBUG === Trạng thái BM25: bm25_initialized={self.bm25_initialized}, bm25 is None={self.bm25 is None}")
-        
-        # Nếu BM25 chưa được khởi tạo, thử khởi tạo
-        if not self.bm25_initialized or self.bm25 is None:
-            print(f"=== BM25 DEBUG === BM25 chưa được khởi tạo, thử tải hoặc khởi tạo...")
-            load_success = self._try_load_bm25_index()
-            
-            if not load_success:
-                init_success = self._initialize_bm25()
-                
-                if not init_success:
-                    print(f"=== BM25 DEBUG === Không thể tải hoặc khởi tạo BM25. Bỏ qua keyword search.")
-                    return []
-
-        # Tiền xử lý query
-        preprocessed_query = self._preprocess_text(query)
-        print(f"=== BM25 DEBUG === Câu truy vấn sau khi tiền xử lý: '{preprocessed_query}'")
-        
-        # Tokenize query
-        query_tokens = preprocessed_query.split()
-        print(f"=== BM25 DEBUG === Tokens của câu truy vấn: {query_tokens}")
-        
-        # Tìm kiếm BM25
-        print(f"=== BM25 DEBUG === Bắt đầu lấy điểm BM25 với {len(query_tokens)} query tokens và {len(self.corpus)} tài liệu trong corpus.")
-        
-        try:
-            # Lấy điểm BM25 cho mỗi tài liệu
-            bm25_scores = self.bm25.get_scores(query_tokens)
-            
-            # Tạo danh sách (index, score) và sắp xếp theo điểm giảm dần
-            doc_scores = [(i, score) for i, score in enumerate(bm25_scores)]
-            doc_scores = sorted(doc_scores, key=lambda x: x[1], reverse=True)
-            
-            # Lọc kết quả theo sources hoặc file_id nếu được chỉ định
-            filtered_results = []
-            
-            for doc_idx, score in doc_scores:
-                if score <= 0:  # Bỏ qua các kết quả có điểm = 0
-                    continue
-                    
-                # Lấy thông tin tài liệu từ doc_mappings
-                doc_info = self.doc_mappings[doc_idx]
-                doc_id = doc_info.get("id")
-                doc_metadata = doc_info.get("metadata", {})
-                doc_source = doc_metadata.get("source", "unknown")
-                doc_file_id = doc_info.get("file_id", "unknown")
-                
-                # Lọc theo sources nếu được chỉ định
-                if sources:
-                    source_match = False
-                    for source in sources:
-                        # Kiểm tra cả đường dẫn đầy đủ và tên file
-                        if source in doc_source or os.path.basename(doc_source) == os.path.basename(source):
-                            source_match = True
-                            break
-                    if not source_match:
-                        continue
-                
-                # Lọc theo file_id nếu được chỉ định
-                if file_id and doc_file_id not in file_id:
-                    continue
-                    
-                # Thêm vào kết quả
-                filtered_results.append({
-                    "id": doc_id,
-                    "text": self.corpus[doc_idx],
-                    "metadata": doc_metadata,
-                    "score": float(score),  # Chuyển đổi numpy.float64 thành Python float
-                    "file_id": doc_file_id
-                })
-                
-                # Dừng khi đủ k kết quả
-                if len(filtered_results) >= k:
-                    break
-                    
-            print(f"Số kết quả từ keyword search: {len(filtered_results)}")
-            return filtered_results
-            
-        except Exception as e:
-            print(f"Lỗi trong keyword search: {str(e)}")
-            return []
+        print(f"=== BM25 DEBUG === KHÔNG CẦN DÙNG")
+        return []
 
     # Phương thức được gọi sau khi indexing tài liệu mới để cập nhật BM25
     def update_bm25_index(self):
@@ -605,7 +495,7 @@ class SearchManager:
             return results
 
         # Đọc batch_size từ biến môi trường hoặc sử dụng giá trị mặc định cao hơn
-        batch_size = int(os.getenv("RERANK_BATCH_SIZE", "16"))
+        batch_size = int(os.getenv("RERANK_BATCH_SIZE", "32"))
         print(f"Đang rerank với batch_size={batch_size}")
 
         # Sử dụng model reranker đã được tải trước đó

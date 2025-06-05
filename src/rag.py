@@ -386,7 +386,7 @@ class AdvancedDatabaseRAG:
     def hybrid_search(
         self,
         query: str,
-        k: int = 15,
+        k: int = 10,
         alpha: float = None,
         sources: List[str] = None,
         file_id: List[str] = None,
@@ -418,7 +418,7 @@ class AdvancedDatabaseRAG:
         results = {}
 
         # Tăng số lượng kết quả tìm kiếm đầu vào để có nhiều hơn cho reranking
-        initial_k = max(10, k * 2)  # Giảm từ k * 3 xuống k * 2
+        initial_k = max(10, int(k * 1.2))  # Giảm từ k * 3 xuống k * 2
 
         # Thực hiện song song tìm kiếm bằng ThreadPoolExecutor thay vì asyncio
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -434,8 +434,13 @@ class AdvancedDatabaseRAG:
             )
             
         # Lấy kết quả từ biến chung
-        semantic = results["semantic"] or []
-        keyword = results["keyword"] or []
+        try:
+            semantic = results["semantic"] or []
+            keyword = results["keyword"] or []
+        except KeyError:
+            print("Cảnh báo: Không tìm thấy kết quả tìm kiếm trong dictionary results")
+            semantic = []
+            keyword = []
 
         print(f"Đã tìm được {len(semantic)} kết quả từ semantic search")
         print(f"Đã tìm được {len(keyword)} kết quả từ keyword search")
@@ -640,7 +645,7 @@ class AdvancedDatabaseRAG:
                 print("Chuyển sang phương pháp tìm kiếm thông thường")
 
         # Tăng số lượng kết quả ban đầu để có nhiều hơn cho reranking
-        search_k = 15
+        search_k = 10
 
         # Xác định loại tìm kiếm
         if search_type == "semantic":
@@ -867,7 +872,7 @@ class AdvancedDatabaseRAG:
         query: str,
         search_type: str = "hybrid",
         alpha: float = None,
-        k: int = 15,
+        k: int = 10,
         sources: List[str] = None,
         file_id: List[str] = None,
         conversation_history: str = None,
@@ -1232,7 +1237,7 @@ class AdvancedDatabaseRAG:
 
         # Chuẩn bị context từ các kết quả đã rerank
         context_docs = []
-        for i, result in enumerate(reranked_results[:15]):  
+        for i, result in enumerate(reranked_results[:10]):  
             # Chuẩn bị metadata
             metadata = result.get("metadata", {})
             source = metadata.get("source", "unknown")
