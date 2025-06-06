@@ -2,6 +2,7 @@ import React from 'react'
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
+import { CopyButton } from "@/components/ui/copy-button"
 
 interface StreamingContentProps {
   content: string
@@ -41,26 +42,35 @@ export const StreamingContent = React.memo(({ content }: StreamingContentProps) 
         ),
         
         // Code
-        code: ({node, inline, className, children, ...props}) => {
-          const match = /language-(\w+)/.exec(className || "")
-          const language = match ? match[1] : ""
-          const value = String(children).replace(/\n$/, "")
-          
-          if (!inline && language) {
-            return (
-              <div className="overflow-x-auto my-2 max-w-full">
-                <pre className={cn(
-                  "relative group",
-                  language.toLowerCase() === "sql" ? "language-sql" : "bg-muted/50 rounded"
-                )}>
-                  <code className={className} {...props}>
-                    {value}
-                  </code>
-                </pre>
+        pre: ({node, children, ...props}) => {
+          // children sẽ là <code ...>...</code>
+          // Lấy className và code string từ children
+          const codeElement = React.Children.toArray(children)[0] as React.ReactElement;
+          const value = codeElement?.props?.children || "";
+          const className = codeElement?.props?.className || "";
+          const match = /language-(\w+)/.exec(className);
+          const language = match ? match[1] : "";
+          return (
+            <pre className={cn(
+              "relative group bg-muted/50 rounded p-4 text-sm font-mono overflow-x-auto my-2 max-w-full",
+              language.toLowerCase() === "sql" ? "language-sql" : ""
+            )} {...props}>
+              {children}
+              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <CopyButton text={typeof value === 'string' ? value : Array.isArray(value) ? value.join('') : ''} />
               </div>
+            </pre>
+          )
+        },
+        code: ({node, inline, className, children, ...props}) => {
+          if (!inline) {
+            // Đã được bọc bởi <pre> custom ở trên
+            return (
+              <code className={className} {...props}>
+                {children}
+              </code>
             )
           }
-          
           return (
             <code 
               className="px-1.5 py-0.5 bg-muted/70 rounded text-xs font-mono" 

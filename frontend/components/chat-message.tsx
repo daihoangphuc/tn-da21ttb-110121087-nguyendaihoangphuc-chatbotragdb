@@ -81,10 +81,9 @@ export function ChatMessage({
       </Avatar>
       <div
         className={cn(
-          "rounded-lg p-4 shadow-md transition-all overflow-hidden",
           message.role === "assistant"
-            ? "bg-card text-card-foreground border border-border/30 hover:border-border/60 w-full"
-            : "bg-primary text-primary-foreground inline-block"
+            ? "p-0 w-full"
+            : "bg-primary text-primary-foreground inline-block p-4 rounded-lg shadow-md overflow-hidden"
         )}
       >
         {message.role === "user" ? (
