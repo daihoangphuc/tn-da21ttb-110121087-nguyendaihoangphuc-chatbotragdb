@@ -12,7 +12,7 @@
   cp .env.example .env
   ```
 - Cập nhật các biến môi trường trong file `.env`, đặc biệt là:
-  - `GOOGLE_API_KEY`: API key của Google Generative AI
+  - `GEMINI_API_KEY`: API key của Google Generative AI
   - `QDRANT_URL`: URL của Qdrant (mặc định là `http://qdrant:6333` khi sử dụng Docker Compose)
   - `SUPABASE_URL` và `SUPABASE_KEY` (nếu sử dụng Supabase)
 

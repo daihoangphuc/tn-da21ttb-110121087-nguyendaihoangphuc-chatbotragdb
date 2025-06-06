@@ -14,9 +14,9 @@ tavily_api_key = os.getenv('TAVILY_API_KEY')
 
 # Kiểm tra và thông báo nếu API key không tồn tại
 if not google_api_key:
-    print("GOOGLE_API_KEY không được tìm thấy trong biến môi trường")
+    print("GEMINI_API_KEY không được tìm thấy trong biến môi trường")
 else:
-    os.environ["GOOGLE_API_KEY"] = google_api_key
+    os.environ["GEMINI_API_KEY"] = google_api_key
 
 if not tavily_api_key:
     print("TAVILY_API_KEY không được tìm thấy trong biến môi trường")

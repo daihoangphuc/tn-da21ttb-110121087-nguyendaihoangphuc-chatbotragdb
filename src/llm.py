@@ -38,7 +38,7 @@ class GeminiLLM:
             self.api_keys = [api_key]
         else:
             # Lấy và xử lý danh sách keys từ biến môi trường
-            env_keys = os.getenv("GOOGLE_API_KEY", "")
+            env_keys = os.getenv("GEMINI_API_KEY", "")
             if "," in env_keys:
                 # Nhiều keys được phân tách bằng dấu phẩy
                 self.api_keys = [
@@ -49,7 +49,7 @@ class GeminiLLM:
                 self.api_keys = [env_keys] if env_keys else []
 
         if not self.api_keys:
-            raise ValueError("GOOGLE_API_KEY không được cung cấp")
+            raise ValueError("GEMINI_API_KEY không được cung cấp")
 
         print(f"Đã tải {len(self.api_keys)} API keys")
 
