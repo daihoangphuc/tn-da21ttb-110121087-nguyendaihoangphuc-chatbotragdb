@@ -222,7 +222,7 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
     const decoder = new TextDecoder();
 
     try {
-      const url = `http://localhost:8000/api/ask/stream`;
+      const url = `${process.env.NEXT_PUBLIC_API_URL}/ask/stream`;
       
       const requestBody = JSON.stringify({
         question: input,
@@ -446,7 +446,7 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
         return;
       }
 
-      const response = await fetch('http://localhost:8000/api/suggestions?num_suggestions=3', {
+      const response = await fetch('process.env.NEXT_PUBLIC_API_URL/suggestions?num_suggestions=3', {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -644,7 +644,7 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
     sqlKeywords.forEach(pattern => {
       sanitized = sanitized.replace(pattern, (match) => {
         // Kiểm tra xem từ khóa đã nằm trong code block chưa
-        if ([...existingCodeBlocks].some(block => block.includes(match))) {
+        if (existingCodeBlocks.has(match)) {
           return match; // Đã nằm trong code block, giữ nguyên
         }
         return '`' + match + '`';
@@ -695,7 +695,7 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
     // 6. Xử lý trường hợp lặp lại dòng hoặc câu
     // Tách nội dung thành các dòng
     const lines = sanitized.split('\n');
-    const uniqueLines = [];
+    const uniqueLines: string[] = [];
     
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();

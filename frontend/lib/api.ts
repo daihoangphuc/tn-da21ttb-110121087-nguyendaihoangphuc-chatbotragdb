@@ -8,7 +8,7 @@ import {
 } from '@/types/auth';
 
 // Định nghĩa URL cơ sở cho API
-export const API_BASE_URL = 'http://localhost:8000/api';
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
 // Hàm tiện ích để truy cập localStorage an toàn
 const getLocalStorage = (key: string): string | null => {
