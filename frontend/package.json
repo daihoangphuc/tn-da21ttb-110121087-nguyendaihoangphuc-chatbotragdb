@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "webpack": "^5.91.0",
     "@babel/runtime": "latest",
     "@codemirror/lang-sql": "latest",
     "@codemirror/state": "latest",
