@@ -1,0 +1,1539 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+    --radius: 0.75rem;
+    --sql: 200 98% 39%;
+    --sql-foreground: 0 0% 100%;
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+    --code-inline: 221.2 83.2% 53.3%;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 6.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 6.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 224.3 76.5% 48%;
+    --sql: 200 98% 39%;
+    --sql-foreground: 0 0% 100%;
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+    --code-inline: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+.prose {
+  @apply text-sm leading-normal;
+  line-height: 1.3 !important;
+}
+
+.prose > * {
+  margin-top: 0 !important;
+  margin-bottom: 0.25rem !important;
+}
+
+.prose p {
+  margin-top: 0 !important;
+  margin-bottom: 0.25rem !important;
+  line-height: 1.3 !important;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
+  @apply font-bold;
+  margin-top: 0.75rem !important;
+  margin-bottom: 0.25rem !important;
+}
+
+.prose h1 {
+  @apply text-2xl;
+}
+
+.prose h2 {
+  @apply text-xl;
+}
+
+.prose h3 {
+  @apply text-lg;
+}
+
+.prose ul,
+.prose ol {
+  @apply pl-6;
+  margin-top: 0.25rem !important;
+  margin-bottom: 0.25rem !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.prose ul {
+  @apply list-disc;
+}
+
+.prose ol {
+  @apply list-decimal;
+}
+
+.prose li {
+  margin-top: 0 !important;
+  margin-bottom: 0.125rem !important;
+  line-height: 1.3;
+}
+
+.prose pre {
+  margin-top: 0.5rem !important;
+  margin-bottom: 0.5rem !important;
+  @apply p-3 bg-muted rounded-md overflow-auto;
+}
+
+.prose code {
+  @apply px-1 py-0.5 bg-muted rounded text-xs;
+}
+
+.prose pre {
+  @apply p-3 bg-muted rounded-md overflow-auto my-3;
+}
+
+.prose pre code {
+  @apply bg-transparent p-0;
+}
+
+.prose blockquote {
+  @apply pl-4 border-l-4 border-muted italic;
+}
+
+.prose a {
+  @apply text-primary underline;
+}
+
+.dark .prose code {
+  @apply bg-secondary;
+}
+
+.dark .prose pre {
+  @apply bg-secondary;
+}
+
+/* SQL Editor Styles */
+.sql-editor {
+  @apply font-mono text-sm;
+  min-height: 150px;
+}
+
+.sql-editor .cm-editor {
+  @apply border rounded-md bg-card;
+  height: 100%;
+}
+
+.sql-editor .cm-editor.cm-focused {
+  @apply outline-none ring-2 ring-ring;
+}
+
+.sql-editor .cm-scroller {
+  @apply p-3;
+}
+
+.sql-editor .cm-content {
+  @apply text-foreground;
+}
+
+.sql-editor .cm-line {
+  @apply py-0.5;
+}
+
+/* SQL Syntax Highlighting */
+.sql-editor .cm-keyword {
+  @apply text-blue-600 dark:text-blue-400 font-medium;
+}
+
+.sql-editor .cm-operator {
+  @apply text-zinc-500 dark:text-zinc-400;
+}
+
+.sql-editor .cm-number {
+  @apply text-amber-600 dark:text-amber-400;
+}
+
+.sql-editor .cm-string {
+  @apply text-emerald-600 dark:text-emerald-400;
+}
+
+.sql-editor .cm-comment {
+  @apply text-zinc-400 dark:text-zinc-500 italic;
+}
+
+/* Animations */
+.animate-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Toast Styles */
+.success {
+  --tw-border-opacity: 1;
+  --tw-bg-opacity: 1;
+  border-color: rgb(34 197 94 / var(--tw-border-opacity));
+  background-color: rgb(34 197 94 / var(--tw-bg-opacity));
+  color: white;
+}
+
+.warning {
+  --tw-border-opacity: 1;
+  --tw-bg-opacity: 1;
+  border-color: rgb(234 179 8 / var(--tw-border-opacity));
+  background-color: rgb(234 179 8 / var(--tw-bg-opacity));
+  color: white;
+}
+
+.dark .success {
+  --tw-border-opacity: 1;
+  --tw-bg-opacity: 1;
+  border-color: rgb(22 163 74 / var(--tw-border-opacity));
+  background-color: rgb(22 163 74 / var(--tw-bg-opacity));
+}
+
+.dark .warning {
+  --tw-border-opacity: 1;
+  --tw-bg-opacity: 1;
+  border-color: rgb(202 138 4 / var(--tw-border-opacity));
+  background-color: rgb(202 138 4 / var(--tw-bg-opacity));
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-muted-foreground/20 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground/30;
+}
+
+/* Table Styles for SQL Results */
+.sql-result-table {
+  @apply w-full border-collapse text-sm;
+}
+
+.sql-result-table th {
+  @apply bg-muted text-muted-foreground font-medium text-left p-2 border-b;
+}
+
+.sql-result-table td {
+  @apply p-2 border-b border-border;
+}
+
+.sql-result-table tr:nth-child(even) {
+  @apply bg-muted/50;
+}
+
+.sql-result-table tr:hover {
+  @apply bg-muted;
+}
+
+/* Resizable Panel */
+.resizer {
+  @apply absolute top-0 left-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/20 transition-colors;
+  z-index: 10;
+}
+
+.gutter {
+  @apply bg-border;
+}
+
+.gutter:hover {
+  @apply bg-primary/30;
+}
+
+.gutter.gutter-horizontal {
+  @apply cursor-col-resize;
+}
+
+/* Citation Link Styles */
+.citation-link {
+  @apply text-primary hover:underline cursor-pointer relative;
+}
+
+.citation-link sup {
+  @apply ml-0.5 text-xs bg-primary/10 px-1 py-0.5 rounded-full;
+}
+
+.citation-link:hover sup {
+  @apply bg-primary/20;
+}
+
+/* Source Highlight Styles */
+mark {
+  @apply transition-colors duration-300;
+}
+
+/* Đảm bảo layout đúng cho chat interface */
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.chat-input {
+  border-top: 1px solid var(--border);
+  background-color: hsl(var(--muted) / 0.3);
+  padding: 1rem;
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+}
+
+/* Đảm bảo file uploader không vượt quá panel */
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.file-name {
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 150px;
+}
+
+/* Đảm bảo tabs content chiếm toàn bộ chiều cao */
+.tabs-content-full-height {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Định dạng cơ bản cho tin nhắn */
+.message-content {
+  font-size: 16px;
+  line-height: 1.6;
+  color: hsl(var(--foreground));
+}
+
+/* Headings */
+.message-content .heading-1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin: 1.5rem 0 1rem;
+  line-height: 1.3;
+}
+
+.message-content .heading-2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 1.5rem 0 1rem;
+  line-height: 1.3;
+}
+
+.message-content .heading-3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 1.25rem 0 0.75rem;
+  line-height: 1.4;
+}
+
+.message-content .heading-4 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 1rem 0 0.5rem;
+  line-height: 1.4;
+}
+
+/* Paragraphs */
+.message-content .paragraph {
+  margin: 0.75rem 0;
+}
+
+/* Lists */
+.message-content .unordered-list {
+  list-style-type: disc;
+  margin: 0.75rem 0;
+  padding-left: 1.5rem;
+}
+
+.message-content .ordered-list {
+  list-style-type: decimal;
+  margin: 0.75rem 0;
+  padding-left: 1.5rem;
+}
+
+.message-content .list-item {
+  margin: 0.25rem 0;
+}
+
+/* Code */
+.message-content .inline-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.875rem;
+  background-color: hsl(var(--muted));
+  color: hsl(var(--code-inline));
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  white-space: nowrap;
+}
+
+.message-content .code-block-wrapper {
+  position: relative;
+  margin: 1rem 0;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.message-content .code-block {
+  margin: 0 !important;
+  padding: 1rem !important;
+  border-radius: 0.5rem !important;
+  font-size: 0.875rem !important;
+  line-height: 1.5 !important;
+}
+
+.message-content .copy-button-container {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.message-content .code-block-wrapper:hover .copy-button-container {
+  opacity: 1;
+}
+
+/* Blockquotes */
+.message-content .blockquote {
+  margin: 1rem 0;
+  padding: 0.75rem 1.25rem;
+  border-left: 4px solid hsl(var(--primary));
+  background-color: hsl(var(--muted) / 0.5);
+  font-style: italic;
+  border-radius: 0 0.25rem 0.25rem 0;
+}
+
+/* Links */
+.message-content .link {
+  color: hsl(var(--primary));
+  text-decoration: none;
+  transition: text-decoration 0.2s;
+}
+
+.message-content .link:hover {
+  text-decoration: underline;
+}
+
+/* Images */
+.message-content .image {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  margin: 1rem 0;
+}
+
+/* Tables */
+.message-content .table-wrapper {
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+
+.message-content .table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+.message-content .table-heading {
+  background-color: hsl(var(--muted));
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.message-content .table-cell {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+}
+
+/* Đảm bảo element đầu tiên và cuối cùng không có margin */
+.message-content > *:first-child {
+  margin-top: 0;
+}
+
+.message-content > *:last-child {
+  margin-bottom: 0;
+}
+
+/* Syntax highlighting */
+.message-content pre[class*="language-"] {
+  @apply !mt-0 !mb-0 !bg-muted/50 !rounded-md;
+}
+
+.message-content code[class*="language-"] {
+  @apply !text-sm !leading-relaxed;
+}
+
+/* Copy button */
+.copy-button {
+  @apply absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity;
+}
+
+.dark .message-content {
+  color: #ffffff;
+}
+
+/* Định dạng tiêu đề */
+.message-content h2 {
+  @apply text-xl font-bold mt-6 mb-4;
+}
+
+.message-content h3 {
+  @apply text-lg font-semibold mt-4 mb-2;
+}
+
+.dark .message-content h2,
+.dark .message-content h3 {
+  color: #ffffff;
+}
+
+/* Định dạng đoạn văn */
+.message-content p {
+  @apply my-2 leading-relaxed;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+/* Định dạng văn bản in đậm */
+.message-content strong {
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.dark .message-content strong {
+  color: #ffffff;
+}
+
+/* Định dạng danh sách */
+.message-content ul,
+.message-content ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.message-content li {
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
+.message-content ul {
+  @apply pl-6 my-2;
+}
+
+.message-content ul li {
+  @apply relative;
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
+.message-content ul li::before {
+  content: "•";
+  @apply absolute -left-4 text-primary;
+  top: 0;
+}
+
+/* Định dạng khối mã SQL */
+.message-content pre {
+  margin: 12px 0;
+  padding: 0;
+  background: #1e1e1e;
+  border-radius: 6px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  word-break: break-all;
+}
+
+.message-content pre code {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #ffffff;
+  display: block;
+  padding: 16px;
+}
+
+.message-content pre code .sql-keyword {
+  color: #ff79c6;
+  font-weight: 600;
+}
+
+.message-content pre code .sql-function {
+  color: #8be9fd;
+}
+
+.message-content pre code .sql-string {
+  color: #f1fa8c;
+}
+
+.message-content pre code .sql-number {
+  color: #bd93f9;
+}
+
+.message-content pre code .sql-operator {
+  color: #ff79c6;
+}
+
+.message-content pre code .sql-comment {
+  color: #6272a4;
+  font-style: italic;
+}
+
+.message-content a:hover {
+  color: hsl(var(--primary) / 0.8);
+}
+
+.message-content strong {
+  font-weight: 600;
+  color: hsl(var(--primary) / 0.9);
+}
+
+.dark .message-content strong {
+  color: hsl(var(--primary) / 0.9);
+}
+
+/* Kiểu dáng cho bảng */
+.message-content table {
+  width: 100%;
+  margin: 1.5rem 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+}
+
+.message-content table th {
+  background-color: hsl(var(--primary) / 0.1);
+  color: hsl(var(--foreground));
+  font-weight: 600;
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.dark .message-content table th {
+  background-color: hsl(var(--primary) / 0.2);
+  color: #ffffff;
+  border-bottom: 1px solid hsl(var(--border) / 0.7);
+}
+
+.message-content table tr {
+  transition: background-color 0.2s;
+}
+
+.message-content table tr:nth-child(even) {
+  background-color: hsl(var(--muted) / 0.3);
+}
+
+.dark .message-content table tr:nth-child(even) {
+  background-color: hsl(var(--muted) / 0.2);
+}
+
+.message-content table tr:hover {
+  background-color: hsl(var(--accent) / 0.1);
+}
+
+.dark .message-content table tr:hover {
+  background-color: hsl(var(--accent) / 0.2);
+}
+
+.message-content table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+}
+
+.dark .message-content table td {
+  color: #ffffff;
+  border-bottom: 1px solid hsl(var(--border) / 0.2);
+}
+
+.message-content table tr:last-child td {
+  border-bottom: none;
+}
+
+/* SQL Editor trong dark mode */
+.dark .sql-editor .cm-gutters {
+  background-color: #0f1629 !important;
+  color: hsl(var(--muted-foreground));
+  border-right: 1px solid hsl(var(--border));
+}
+
+.dark .sql-editor .cm-lineNumbers .cm-gutterElement {
+  color: hsl(var(--muted-foreground));
+}
+
+/* Gutter trong SQL Playground dark mode */
+.dark .cm-gutters {
+  background-color: #0f1629 !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dark .cm-lineNumbers {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.dark .cm-activeLineGutter {
+  background-color: rgba(66, 133, 244, 0.1);
+}
+
+/* Mã SQL trong SQL Playground dark mode */
+.dark .sql-editor .cm-content {
+  @apply bg-[#0f172a];
+}
+
+.dark .sql-playground {
+  background-color: #0f172a;
+}
+
+/* Hiển thị cho các kiểu dữ liệu SQL */
+.message-content .sql-type {
+  color: #ff79c6;
+  font-weight: 600;
+}
+
+.dark .message-content .sql-type {
+  color: #bd93f9;
+}
+
+/* Xử lý hiển thị cho markdown kiểu CHAR, VARCHAR, etc. */
+.message-content p code,
+.message-content li code,
+.message-content td code {
+  background-color: hsl(var(--muted) / 0.7);
+  color: hsl(var(--primary));
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.2rem;
+  font-size: 0.9em;
+}
+
+.dark .message-content p code,
+.dark .message-content li code,
+.dark .message-content td code {
+  background-color: hsl(var(--muted) / 0.4);
+  color: hsl(var(--primary-foreground));
+}
+
+/* Kiểu dáng mới cho blockquote và các phần trích dẫn */
+.message-content blockquote {
+  background-color: hsl(var(--primary) / 0.05);
+  border-left: 4px solid hsl(var(--primary) / 0.5);
+  padding: 1rem 1.5rem;
+  margin: 1.5rem 0;
+  border-radius: 0.25rem;
+  font-style: italic;
+  position: relative;
+}
+
+.dark .message-content blockquote {
+  background-color: hsl(var(--primary) / 0.1);
+}
+
+.message-content blockquote::before {
+  content: "\201C";
+  font-size: 2.5rem;
+  color: hsl(var(--primary) / 0.2);
+  position: absolute;
+  left: 0.5rem;
+  top: -0.5rem;
+  font-family: serif;
+}
+
+.message-content .citation {
+  position: relative;
+  display: inline;
+}
+
+.message-content .citation-link {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.25rem;
+  color: hsl(var(--primary));
+  cursor: pointer;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+/* Cải thiện hiển thị cho các nguồn tài liệu */
+.message-content .source-container {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid hsl(var(--border) / 0.4);
+  font-size: 0.875rem;
+}
+
+.message-content .source-title {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: hsl(var(--primary) / 0.9);
+  margin-bottom: 0.75rem;
+}
+
+.message-content .source-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background-color: hsl(var(--muted) / 0.6);
+  border-radius: 0.375rem;
+  transition: background-color 0.2s;
+  margin-right: 0.5rem;
+  margin-bottom: 0.5rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.message-content .source-item:hover {
+  background-color: hsl(var(--muted));
+}
+
+.message-content .source-page {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+}
+
+/* Định dạng cho inline code */
+.message-content code:not(pre code),
+.whitespace-pre-wrap code:not(pre code) {
+  @apply px-1.5 py-0.5 rounded text-[13px] font-mono;
+  background-color: rgba(0, 0, 0, 0.05);
+  color: inherit !important;
+}
+
+.dark .message-content code:not(pre code),
+.dark .whitespace-pre-wrap code:not(pre code) {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: inherit !important;
+}
+
+/* Override any syntax highlighting for inline code */
+.message-content code:not(pre code) *,
+.whitespace-pre-wrap code:not(pre code) * {
+  color: inherit !important;
+}
+
+/* Chỉ áp dụng syntax highlighting cho code blocks */
+.message-content pre code .sql-keyword,
+.whitespace-pre-wrap pre code .sql-keyword {
+  color: #ff79c6;
+}
+
+/* Định dạng cho code blocks */
+.message-content pre {
+  position: relative;
+}
+
+.message-content pre.group {
+  display: block;
+  width: 100%;
+}
+
+.message-content pre code {
+  @apply block p-4 text-[13px] leading-relaxed font-mono text-zinc-100 overflow-x-auto;
+}
+
+/* Nút copy code */
+.message-content pre .copy-button {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  padding: 6px;
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.message-content pre .copy-button:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.message-content pre .copy-button.copied {
+  background-color: rgba(34, 197, 94, 0.2);
+  color: rgb(34, 197, 94);
+}
+
+/* Định dạng cho SQL code blocks */
+.message-content pre.language-sql {
+  @apply bg-[#1a1b26];
+}
+
+.message-content pre.language-sql code {
+  @apply text-[#a9b1d6];
+}
+
+/* Định dạng Markdown cho tin nhắn */
+.whitespace-pre-wrap h2,
+.whitespace-pre-wrap h3,
+.whitespace-pre-wrap h4 {
+  margin: 0.75rem 0 0.5rem;
+}
+
+.whitespace-pre-wrap ul {
+  list-style-type: disc;
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+.whitespace-pre-wrap ol {
+  list-style-type: decimal;
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+.whitespace-pre-wrap li {
+  margin: 0.125rem 0;
+  line-height: 1.4;
+}
+
+.whitespace-pre-wrap code {
+  font-family: monospace;
+  background-color: #f0f0f0;
+  padding: 0.15rem 0.3rem;
+  border-radius: 0.25rem;
+  font-size: 0.9rem;
+}
+
+.whitespace-pre-wrap pre {
+  background-color: #1e1e1e;
+  color: white;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+
+.whitespace-pre-wrap blockquote {
+  border-left: 4px solid #a3a3a3;
+  padding-left: 1rem;
+  margin: 1rem 0;
+  font-style: italic;
+}
+
+.whitespace-pre-wrap table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1rem 0;
+}
+
+.whitespace-pre-wrap th, 
+.whitespace-pre-wrap td {
+  border: 1px solid #e2e8f0;
+  padding: 0.5rem;
+  text-align: left;
+}
+
+.whitespace-pre-wrap th {
+  background-color: #f7f7f7;
+  font-weight: bold;
+}
+
+.whitespace-pre-wrap a {
+  color: #3b82f6;
+  text-decoration: none;
+}
+
+.whitespace-pre-wrap a:hover {
+  text-decoration: underline;
+}
+
+.whitespace-pre-wrap strong {
+  font-weight: 600;
+  color: inherit;
+}
+
+.whitespace-pre-wrap em {
+  font-style: italic;
+}
+
+/* Dark mode styles */
+.dark .whitespace-pre-wrap code {
+  background-color: #2d3748;
+  color: #e2e8f0;
+}
+
+.dark .whitespace-pre-wrap th {
+  background-color: #2d3748;
+}
+
+.dark .whitespace-pre-wrap th,
+.dark .whitespace-pre-wrap td {
+  border-color: #4a5568;
+}
+
+.dark .whitespace-pre-wrap a {
+  color: #90cdf4;
+}
+
+.dark .whitespace-pre-wrap blockquote {
+  border-color: #718096;
+  color: #a0aec0;
+}
+
+/* SQL Code Block Styling */
+.prose pre[class*="language-sql"] {
+  background-color: #1a1b26 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.prose pre[class*="language-sql"] code {
+  color: #a9b1d6 !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+}
+
+.prose code {
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* Syntax highlighting for SQL */
+.prose .language-sql .keyword {
+  color: #ff7b72 !important;
+  font-weight: 600;
+}
+
+.prose .language-sql .function {
+  color: #79c0ff !important;
+}
+
+.prose .language-sql .string {
+  color: #a5d6ff !important;
+}
+
+.prose .language-sql .number {
+  color: #ffa657 !important;
+}
+
+.prose .language-sql .operator {
+  color: #ff7b72 !important;
+}
+
+/* Thiết lập lại spacing cho tất cả các danh sách trong ứng dụng */
+ul, ol {
+  margin-top: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+
+li {
+  margin-top: 0.2rem;
+  margin-bottom: 0.2rem;
+}
+
+li > p {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+.prose ul li, 
+.whitespace-pre-wrap ul li,
+.message-content ul li {
+  position: relative;
+}
+
+.prose ul li::before,
+.whitespace-pre-wrap ul li::before,
+.message-content ul li::before {
+  content: "•";
+  position: absolute;
+  left: -1rem;
+  top: 0;
+  color: currentColor;
+}
+
+/* Đảm bảo các dòng trong danh sách có khoảng cách nhỏ */
+.prose li,
+.whitespace-pre-wrap li,
+.message-content li {
+  line-height: 1.3;
+}
+
+/* Điều chỉnh khoảng cách cho bảng trong ReactMarkdown */
+.prose table {
+  margin-top: 0.25rem !important;
+  margin-bottom: 0.25rem !important;
+}
+
+.prose table th,
+.prose table td {
+  padding: 0.25rem 0.5rem !important;
+}
+
+/* Điều chỉnh khoảng cách cho message-content */
+.message-content p {
+  margin-top: 0 !important;
+  margin-bottom: 0.25rem !important;
+  line-height: 1.3 !important;
+}
+
+.message-content h1, 
+.message-content h2, 
+.message-content h3, 
+.message-content h4 {
+  margin-top: 0.5rem !important;
+  margin-bottom: 0.25rem !important;
+}
+
+.message-content ul, 
+.message-content ol {
+  margin-top: 0.25rem !important;
+  margin-bottom: 0.25rem !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.message-content li {
+  margin-top: 0 !important;
+  margin-bottom: 0.125rem !important;
+  line-height: 1.3 !important;
+}
+
+.message-content table {
+  margin-top: 0.25rem !important;
+  margin-bottom: 0.25rem !important;
+}
+
+/* Điều chỉnh khoảng cách cho bảng trong ReactMarkdown */
+
+/* Markdown Content Styling */
+.markdown-content {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+  width: 100%;
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4 {
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.markdown-content h1 {
+  font-size: 1.5rem;
+  border-bottom: 1px solid hsl(var(--border));
+  padding-bottom: 0.3rem;
+}
+
+.markdown-content h2 {
+  font-size: 1.3rem;
+}
+
+.markdown-content h3 {
+  font-size: 1.15rem;
+}
+
+.markdown-content h4 {
+  font-size: 1rem;
+}
+
+.markdown-content p {
+  margin: 0.75rem 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  margin: 0.75rem 0;
+  padding-left: 1.5rem;
+}
+
+.markdown-content ul {
+  list-style-type: disc;
+}
+
+.markdown-content ol {
+  list-style-type: decimal;
+}
+
+.markdown-content li {
+  margin: 0.25rem 0;
+}
+
+.markdown-content a {
+  color: hsl(var(--primary));
+  text-decoration: none;
+}
+
+.markdown-content a:hover {
+  text-decoration: underline;
+}
+
+.markdown-content blockquote {
+  border-left: 3px solid hsl(var(--primary)/0.5);
+  padding-left: 1rem;
+  margin: 1rem 0;
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
+
+.markdown-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+  background-color: hsl(var(--muted)/0.7);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Improved table styling */
+.markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  table-layout: auto;
+  min-width: 100%;
+}
+
+.markdown-content table th,
+.markdown-content table td {
+  padding: 0.5rem;
+  border: 1px solid hsl(var(--border));
+  text-align: left;
+}
+
+.markdown-content table th {
+  background-color: hsl(var(--muted)/0.5);
+  font-weight: 600;
+}
+
+.markdown-content table tr:nth-child(even) {
+  background-color: hsl(var(--muted)/0.2);
+}
+
+/* Improved code block styling */
+.markdown-content pre {
+  margin: 1rem 0;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background-color: hsl(var(--muted));
+  overflow-x: auto;
+  max-width: 100%;
+  white-space: pre;
+}
+
+.markdown-content pre code {
+  background-color: transparent;
+  padding: 0;
+  font-size: 0.9rem;
+  color: inherit;
+  line-height: 1.4;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+/* Ensure proper scrolling for overflow content */
+.overflow-x-auto {
+  overflow-x: auto;
+  max-width: 100%;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground)/0.3) transparent;
+}
+
+.overflow-x-auto::-webkit-scrollbar {
+  height: 6px;
+}
+
+.overflow-x-auto::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.overflow-x-auto::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground)/0.3);
+  border-radius: 3px;
+}
+
+.overflow-x-auto::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--muted-foreground)/0.5);
+}
+
+/* Định dạng đặc biệt cho code SQL */
+.markdown-content pre.language-sql,
+.markdown-content pre.language-SQL {
+  background-color: rgba(239, 246, 255, 0.7);
+  padding: 0.75rem;
+  margin: 0.75rem 0;
+  border: 1px solid rgba(59, 130, 246, 0.1);
+  border-radius: 0.5rem;
+}
+
+.dark .markdown-content pre.language-sql,
+.dark .markdown-content pre.language-SQL {
+  background-color: rgba(30, 58, 138, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.markdown-content pre.language-sql code,
+.markdown-content pre.language-SQL code {
+  color: #1e40af;
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+.dark .markdown-content pre.language-sql code,
+.dark .markdown-content pre.language-SQL code {
+  color: #93c5fd;
+}
+
+.markdown-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.375rem;
+  margin: 1rem 0;
+}
+
+.markdown-content hr {
+  border: 0;
+  border-top: 1px solid hsl(var(--border));
+  margin: 1.5rem 0;
+}
+
+.markdown-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1rem 0;
+}
+
+.markdown-content table th,
+.markdown-content table td {
+  border: 1px solid hsl(var(--border));
+  padding: 0.5rem;
+}
+
+.markdown-content table th {
+  background-color: hsl(var(--muted)/0.5);
+  font-weight: 600;
+}
+
+.markdown-content table tr:nth-child(even) {
+  background-color: hsl(var(--muted)/0.2);
+}
+
+/* Dark mode adjustments */
+.dark .markdown-content pre {
+  background-color: hsl(var(--muted)/0.8);
+}
+
+.dark .markdown-content code {
+  background-color: hsl(var(--muted)/0.5);
+}
+
+.dark .markdown-content blockquote {
+  border-color: hsl(var(--primary)/0.7);
+}
+
+/* Điều chỉnh khoảng cách cho ReactMarkdown */
+
+/* Syntax highlighting cho SQL */
+.markdown-content .token.keyword,
+.language-sql .token.keyword {
+  color: #0550ae;
+  font-weight: bold;
+}
+
+.markdown-content .token.operator,
+.language-sql .token.operator {
+  color: #374151;
+}
+
+.markdown-content .token.string,
+.language-sql .token.string {
+  color: #0e7490;
+}
+
+.markdown-content .token.number,
+.language-sql .token.number {
+  color: #0e7490;
+}
+
+.markdown-content .token.function,
+.language-sql .token.function {
+  color: #0550ae;
+}
+
+.markdown-content .token.comment,
+.language-sql .token.comment {
+  color: #6b7280;
+  font-style: italic;
+}
+
+/* Dark mode syntax highlighting */
+.dark .markdown-content .token.keyword,
+.dark .language-sql .token.keyword {
+  color: #60a5fa;
+}
+
+.dark .markdown-content .token.operator,
+.dark .language-sql .token.operator {
+  color: #e5e7eb;
+}
+
+.dark .markdown-content .token.string,
+.dark .language-sql .token.string {
+  color: #67e8f9;
+}
+
+.dark .markdown-content .token.number,
+.dark .language-sql .token.number {
+  color: #67e8f9;
+}
+
+.dark .markdown-content .token.function,
+.dark .language-sql .token.function {
+  color: #60a5fa;
+}
+
+.dark .markdown-content .token.comment,
+.dark .language-sql .token.comment {
+  color: #9ca3af;
+}
+
+/* Improved inline code styling */
+.markdown-content code:not(pre code) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+  background-color: hsl(var(--muted)/0.7);
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: hsl(var(--primary));
+  font-weight: 500;
+}
+
+.dark .markdown-content code:not(pre code) {
+  background-color: hsl(var(--muted)/0.4);
+  color: hsl(var(--primary-foreground));
+}
+
+/* Ensure SQL keywords and column names are properly highlighted */
+.markdown-content code:not(pre code).sql-keyword,
+.markdown-content code:not(pre code).column-name {
+  color: hsl(var(--primary));
+  font-weight: 600;
+}
+
+.dark .markdown-content code:not(pre code).sql-keyword,
+.dark .markdown-content code:not(pre code).column-name {
+  color: hsl(var(--primary-foreground));
+  font-weight: 600;
+}
+
+/* Fix for incomplete rendering of inline code */
+.markdown-content p {
+  overflow-wrap: break-word;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+/* Ensure proper spacing around inline code */
+.markdown-content code:not(pre code) {
+  margin: 0 0.2em;
+}
+
+/* Fix for broken backticks in streaming responses */
+.markdown-content .broken-backtick {
+  display: none;
+}
+
+/* Ensure proper display of SQL keywords */
+.markdown-content .sql-keyword {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 600;
+  color: hsl(var(--primary));
+}
+
+.dark .markdown-content .sql-keyword {
+  color: hsl(var(--primary-foreground));
+}

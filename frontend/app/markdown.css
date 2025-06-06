@@ -1,0 +1,16 @@
+/* Hiển thị nội dung nguyên mẫu */
+.raw-content {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  color: hsl(var(--foreground));
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.raw-content pre {
+  margin: 0;
+  padding: 0;
+  white-space: pre-wrap;
+  overflow-x: auto;
+} 

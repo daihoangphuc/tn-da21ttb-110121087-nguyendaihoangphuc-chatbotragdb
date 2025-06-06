@@ -32,6 +32,8 @@ import shutil
 from uuid import uuid4
 import time
 import uuid
+import httpx
+from urllib.parse import urljoin
 import json
 import traceback
 from datetime import datetime
@@ -133,6 +135,40 @@ class CategoryStatsResponse(BaseModel):
     total_documents: int
     documents_by_category: Dict[str, int]
     categories: List[str]
+
+# Model cho quên mật khẩu
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+    redirect_to: Optional[str] = None  # URL chuyển hướng sau khi đặt lại mật khẩuAdd commentMore actions
+
+
+# Model cho đặt lại mật khẩu
+class ResetPasswordRequest(BaseModel):
+    password: str
+    access_token: str  # Thêm trường access_token từ body request
+    
+    @field_validator("password")
+    @classmethod
+    def password_must_be_strong(cls, v):
+        # Kiểm tra độ dài mật khẩu
+        if len(v) < 8:
+            raise ValueError("Mật khẩu phải có ít nhất 8 ký tự")
+        # Kiểm tra có ít nhất một chữ hoa
+        if not any(c.isupper() for c in v):
+            raise ValueError("Mật khẩu phải có ít nhất một chữ cái viết hoa")
+        # Kiểm tra có ít nhất một chữ thường
+        if not any(c.islower() for c in v):
+            raise ValueError("Mật khẩu phải có ít nhất một chữ cái viết thường")
+        # Kiểm tra có ít nhất một chữ số
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Mật khẩu phải có ít nhất một chữ số")
+        return v
+
+
+# Model cho phản hồi quên mật khẩu
+class ForgotPasswordResponse(BaseModel):
+    status: str
+    message: str
 
 
 # Biến lưu trạng thái quá trình indexing
@@ -1398,15 +1434,38 @@ async def login(request: UserLoginRequest, response: Response):
             "expires_in": result.session.expires_in,
         }
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Lỗi khi đăng nhập: {str(e)}",
-        )
+        print(f"Lỗi khi đăng nhập: {str(e)}")
+        error_message = "Lỗi khi đăng nhập"
+        
+        # Xác định loại lỗi để trả về thông báo phù hợp
+        if "Invalid login credentials" in str(e):
+            error_message = "Email hoặc mật khẩu không chính xác"
+            error_status = status.HTTP_401_UNAUTHORIZED
+        elif "Email not confirmed" in str(e):
+            error_message = "Email chưa được xác nhận. Vui lòng kiểm tra hộp thư để xác nhận email"
+            error_status = status.HTTP_401_UNAUTHORIZED
+        elif "User not found" in str(e):
+            error_message = "Không tìm thấy tài khoản với email này"
+            error_status = status.HTTP_401_UNAUTHORIZED
+        elif "Invalid email" in str(e):
+            error_message = "Email không hợp lệ"
+            error_status = status.HTTP_400_BAD_REQUEST
+        elif "rate limit" in str(e).lower():
+            error_message = "Quá nhiều lần đăng nhập thất bại. Vui lòng thử lại sau"
+            error_status = status.HTTP_429_TOO_MANY_REQUESTS
+        else:
+            # Trả về lỗi chi tiết từ Supabase nếu không khớp với các trường hợp trên
+            error_message = f"Lỗi đăng nhập: {str(e)}"
+            error_status = status.HTTP_400_BAD_REQUEST
+    raise HTTPException(
+            status_code=error_status,
+            detail=error_message,
+            )
 
 
 @app.post(f"{PREFIX}/auth/logout")
 async def logout(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(auth_bearer),
+    credentials: HTTPAuthorizationCredentials = Depends(auth_bearer),
 ):
     """
     Đăng xuất khỏi hệ thống, vô hiệu hóa token hiện tại
@@ -1430,6 +1489,165 @@ async def logout(
             detail=f"Lỗi khi đăng xuất: {str(e)}",
         )
 
+@app.post(f"{PREFIX}/auth/forgot-password")
+async def forgot_password(request: ForgotPasswordRequest):
+    """
+    Gửi yêu cầu đặt lại mật khẩu đến email của người dùng
+    
+    - **email**: Email của người dùng cần đặt lại mật khẩu
+    - **redirect_to**: URL chuyển hướng sau khi nhấp vào liên kết trong email
+    """
+    if not supabase_client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dịch vụ xác thực chưa được cấu hình",
+        )
+
+    try:
+        print(f"Đang gửi yêu cầu đặt lại mật khẩu cho email: {request.email}")
+        print(f"URL chuyển hướng: {request.redirect_to}")
+        
+        # Chuẩn bị options
+        options = {}
+        if request.redirect_to:
+            options["redirect_to"] = request.redirect_to
+            print(f"Đã thiết lập redirect_to: {options['redirect_to']}")
+        
+        # Gọi API Supabase để gửi email đặt lại mật khẩu
+        supabase_client.auth.reset_password_for_email(request.email, options)
+        
+        return {
+            "status": "success",
+            "message": "Yêu cầu đặt lại mật khẩu đã được gửi đến email của bạn."
+        }
+    except Exception as e:
+        print(f"Lỗi khi gửi yêu cầu đặt lại mật khẩu: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi gửi yêu cầu đặt lại mật khẩu: {str(e)}"
+        )
+
+
+@app.post(f"{PREFIX}/auth/reset-password")
+async def reset_password(
+    request: ResetPasswordRequest,
+):
+    """
+    Đặt lại mật khẩu với token xác thực
+    - **password**: Mật khẩu mới
+    - **access_token**: Token xác thực nhận được từ email
+    """
+    if not supabase_client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dịch vụ xác thực chưa được cấu hình",
+        )
+    
+    try:
+        print(f"Đang đặt lại mật khẩu cho người dùng")
+        
+        # Cập nhật mật khẩu mới
+        try:
+            import httpx
+            import json
+            from urllib.parse import urljoin
+            
+            # Sử dụng phương pháp gọi API trực tiếp đến Supabase Auth API
+            supabase_url = os.getenv("SUPABASE_URL")
+            supabase_key = os.getenv("SUPABASE_KEY")
+            
+            if not supabase_url or not supabase_key:
+                raise ValueError("Thiếu cấu hình Supabase URL hoặc Key")
+                
+            # Tạo URL endpoint cho API đặt lại mật khẩu
+            auth_endpoint = urljoin(supabase_url, "auth/v1/user")
+            
+            # Tạo headers với token
+            headers = {
+                "apikey": supabase_key,
+                "Authorization": f"Bearer {request.access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            # Tạo payload cho request
+            payload = {
+                "password": request.password
+            }
+            
+            # Gửi request đến Supabase Auth API
+            print(f"Gửi request PUT đến {auth_endpoint} để cập nhật mật khẩu")
+            async with httpx.AsyncClient() as client:
+                response = await client.put(
+                    auth_endpoint,
+                    headers=headers,
+                    json=payload
+                )
+                
+                # Kiểm tra kết quả
+                if response.status_code >= 200 and response.status_code < 300:
+                    print(f"Cập nhật mật khẩu thành công với status code: {response.status_code}")
+                    response_data = response.json()
+                    return {
+                        "status": "success",
+                        "message": "Mật khẩu đã được đặt lại thành công"
+                    }
+                else:
+                    print(f"Lỗi khi cập nhật mật khẩu. Status code: {response.status_code}, Response: {response.text}")
+                    # Xử lý lỗi trả về từ Supabase
+                    try:
+                        error_json = response.json()
+                        error_code = error_json.get("error_code") or error_json.get("code")
+                        error_msg = error_json.get("msg") or error_json.get("message") or str(error_json)
+                    except Exception:
+                        error_code = None
+                        error_msg = response.text
+                    
+                    # Xử lý từng trường hợp lỗi cụ thể
+                    if error_code == "same_password":
+                        raise HTTPException(
+                            status_code=422,
+                            detail="Mật khẩu mới phải khác mật khẩu cũ."
+                        )
+                    elif error_code == "password_too_weak":
+                        raise HTTPException(
+                            status_code=422,
+                            detail="Mật khẩu mới quá yếu. Vui lòng chọn mật khẩu mạnh hơn."
+                        )
+                    elif error_code == "invalid_token" or "invalid JWT" in error_msg or "JWT expired" in error_msg:
+                        raise HTTPException(
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Token không hợp lệ hoặc đã hết hạn",
+                            headers={"WWW-Authenticate": "Bearer"},
+                        )
+                    else:
+                        # Trả về thông báo lỗi gốc nếu không xác định được mã lỗi
+                        raise HTTPException(
+                            status_code=400,
+                            detail=error_msg
+                        )
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Lỗi khi cập nhật mật khẩu: {str(e)}")
+            if "invalid JWT" in str(e) or "JWT expired" in str(e) or "session" in str(e).lower() or "invalid token" in str(e).lower():
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token không hợp lệ hoặc đã hết hạn",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Lỗi khi cập nhật mật khẩu: {str(e)}"
+                )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Lỗi không xác định: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi đặt lại mật khẩu: {str(e)}",
+        )
 
 @app.get(f"{PREFIX}/auth/user", response_model=UserResponse)
 async def get_user(current_user=Depends(get_current_user)):

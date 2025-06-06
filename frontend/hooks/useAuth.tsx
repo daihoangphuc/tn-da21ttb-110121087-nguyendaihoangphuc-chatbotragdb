@@ -1,0 +1,370 @@
+"use client";
+
+import { createContext, useContext, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { authApi, conversationsApi } from "@/lib/api";
+import { toast } from "@/components/ui/use-toast";
+import type { AuthResponse, ForgotPasswordResponse } from "@/types/auth";
+
+// Định nghĩa kiểu dữ liệu cho User
+export interface User {
+  id: string;
+  email: string;
+  created_at?: string;
+  name?: string;
+  avatar_url?: string;
+}
+
+// Định nghĩa kiểu dữ liệu cho AuthContext
+interface AuthContextType {
+  user: User | null;
+  loading: boolean;
+  login: (email: string, password: string) => Promise<AuthResponse>;
+  signup: (email: string, password: string) => Promise<AuthResponse>;
+  logout: () => Promise<void>;
+  checkAuth: () => Promise<boolean>;
+  loginWithGoogle: (code: string) => Promise<void>;
+  forgotPassword: (email: string, redirectUrl?: string) => Promise<ForgotPasswordResponse>;
+  resetPassword: (access_token: string, password: string) => Promise<{ status: string; message: string }>;
+}
+
+// Hàm tiện ích để truy cập localStorage an toàn
+const getLocalStorage = (key: string): string | null => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem(key);
+  }
+  return null;
+};
+
+const setLocalStorage = (key: string, value: string): void => {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(key, value);
+  }
+};
+
+const removeLocalStorage = (key: string): void => {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(key);
+  }
+};
+
+// Tạo context
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// Provider component
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const router = useRouter();
+
+  // Kiểm tra trạng thái xác thực khi component mount
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        const token = getLocalStorage("auth_token");
+        if (!token) {
+          setLoading(false);
+          return;
+        }
+
+        try {
+          const userData = await authApi.getUser();
+          if (userData) {
+            setUser(userData);
+          }
+        } catch (error: any) {
+          // Xóa token nếu không hợp lệ
+          removeLocalStorage("auth_token");
+          removeLocalStorage("user_info");
+          
+          // Không hiển thị toast cho lỗi này vì đây là quá trình tự động kiểm tra
+          // và có thể gây phiền nhiễu cho người dùng
+        }
+      } catch (error) {
+        // Không cần xử lý lỗi ở đây
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initAuth();
+  }, []);
+
+  // Hàm đăng nhập
+  const login = async (email: string, password: string) => {
+    setLoading(true);
+    try {
+      const response = await authApi.login({ email, password });
+      
+      // Lưu token và thông tin người dùng
+      setLocalStorage("auth_token", response.access_token);
+      setLocalStorage("user_info", JSON.stringify(response.user));
+      
+      setUser(response.user);
+      
+      // Tạo hội thoại mới
+      try {
+        const conversationResponse = await conversationsApi.createConversation();
+        if (conversationResponse && conversationResponse.conversation_id) {
+          // Lưu conversation_id vào localStorage để MainLayout có thể sử dụng
+          setLocalStorage("current_conversation_id", conversationResponse.conversation_id);
+        }
+      } catch (error) {
+        // Không log lỗi khi tạo hội thoại mới
+      }
+      
+      toast({
+        variant: "success",
+        title: "Thành công",
+        description: "Đăng nhập thành công. Chào mừng bạn quay trở lại!",
+      });
+
+      // Chuyển hướng trực tiếp đến trang chủ bằng cách thay đổi location.href
+      // Bọc trong setTimeout để đảm bảo toast message được hiển thị
+      setTimeout(() => {
+        window.location.href = "/";
+      }, 0);
+      
+      return response;
+    } catch (error: any) {
+      // Xử lý lỗi từ backend
+      let errorMessage = "Vui lòng kiểm tra lại email và mật khẩu";
+      
+      // Kiểm tra nếu có thông báo lỗi cụ thể từ backend
+      if (error instanceof Error && error.message) {
+        errorMessage = error.message;
+      }
+      
+      // Hiển thị toast thông báo lỗi - đảm bảo toast hiển thị
+      setTimeout(() => {
+      toast({
+        variant: "destructive",
+        title: "Đăng nhập thất bại",
+          description: errorMessage,
+      });
+      }, 0);
+      
+      // Ném lỗi để component gọi có thể xử lý
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Hàm đăng ký
+  const signup = async (email: string, password: string) => {
+    setLoading(true);
+    try {
+      const response = await authApi.signup(email, password);
+      
+      // Lưu token và thông tin người dùng
+      setLocalStorage("auth_token", response.access_token);
+      setLocalStorage("user_info", JSON.stringify(response.user));
+      
+      setUser(response.user);
+      
+      toast({
+        variant: "success",
+        title: "Thành công",
+        description: "Tài khoản của bạn đã được tạo thành công!",
+      });
+      
+      return response;
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Đăng ký thất bại",
+        description: error.message || "Vui lòng thử lại sau",
+      });
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Hàm đăng xuất
+  const logout = async () => {
+    setLoading(true);
+    try {
+      await authApi.logout();
+      
+      // Xóa token và thông tin người dùng
+      removeLocalStorage("auth_token");
+      removeLocalStorage("user_info");
+      
+      setUser(null);
+      
+      toast({
+        variant: "success",
+        title: "Thành công",
+        description: "Đăng xuất thành công",
+      });
+      
+      // Chuyển hướng về trang đăng nhập
+      router.push("/auth/login");
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Đăng xuất thất bại",
+        description: error.message || "Có lỗi xảy ra khi đăng xuất",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Hàm kiểm tra trạng thái xác thực
+  const checkAuth = async (): Promise<boolean> => {
+    try {
+      const token = getLocalStorage("auth_token");
+      if (!token) {
+        return false;
+      }
+      
+      const response = await authApi.checkSession();
+      return response.is_authenticated === true;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  // Hàm đăng nhập với Google
+  const loginWithGoogle = async (code: string) => {
+    setLoading(true);
+    try {
+      const response = await fetch("http://localhost:8000/api/auth/google", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ code, provider: 'google' })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        // Nếu không có access_token trong phản hồi, đây thực sự là lỗi
+        if (!data.access_token) {
+          throw new Error(data.message || "Lỗi xác thực với Google");
+        }
+      }
+      
+      // Nếu có access_token, coi như đăng nhập thành công
+      if (data.access_token) {
+        // Lưu token và thông tin người dùng
+        setLocalStorage("auth_token", data.access_token);
+        if (data.user) {
+          setLocalStorage("user_info", JSON.stringify(data.user));
+          setUser(data.user);
+        }
+        
+        toast({
+          title: "Đăng nhập thành công",
+          description: "Chào mừng bạn quay trở lại!",
+        });
+        
+        return data;
+      } else {
+        throw new Error("Không nhận được token xác thực");
+      }
+    } catch (error: any) {
+      // Hiển thị thông báo lỗi
+      toast({
+        variant: "destructive",
+        title: "Đăng nhập thất bại",
+        description: error.message || "Không thể đăng nhập với Google. Vui lòng thử lại sau.",
+      });
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Hàm quên mật khẩu
+  const forgotPassword = async (email: string, redirectUrl?: string) => {
+    setLoading(true);
+    try {
+      const response = await authApi.forgotPassword(email, redirectUrl);
+      
+      toast({
+        variant: "success",
+        title: "Thành công",
+        description: "Vui lòng kiểm tra email của bạn để đặt lại mật khẩu.",
+      });
+      
+      return response;
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Lỗi",
+        description: error.message || "Không thể gửi yêu cầu đặt lại mật khẩu. Vui lòng thử lại sau.",
+      });
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Hàm đặt lại mật khẩu
+  const resetPassword = async (access_token: string, password: string) => {
+    setLoading(true);
+    try {
+      const response = await authApi.resetPassword(access_token, password);
+      
+      toast({
+        variant: "success",
+        title: "Thành công",
+        description: "Mật khẩu của bạn đã được đặt lại thành công.",
+      });
+      
+      return response;
+    } catch (error: any) {
+      let errorMessage = "Không thể đặt lại mật khẩu. Vui lòng thử lại sau.";
+      let variant: "destructive" | "warning" = "destructive";
+      let title = "Lỗi";
+      
+      if (error instanceof Error && error.message) {
+        errorMessage = error.message;
+        
+        // Xử lý trường hợp mật khẩu mới giống mật khẩu cũ
+        if (errorMessage.includes("Mật khẩu mới phải khác mật khẩu cũ")) {
+          variant = "warning";
+          title = "Cảnh báo";
+        }
+      }
+      
+      toast({
+        variant,
+        title,
+        description: errorMessage,
+      });
+      
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const value = {
+        user,
+        loading,
+        login,
+        signup,
+        logout,
+        checkAuth,
+        loginWithGoogle,
+    forgotPassword,
+    resetPassword,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+// Hook để sử dụng AuthContext
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return context;
+} 

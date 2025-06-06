@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Công cụ SQL cơ bản với sql.js</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Light gray background */
+        }
+        .container {
+            max-width: 960px;
+            margin: 2rem auto;
+            padding: 1.5rem;
+            background-color: #ffffff;
+            border-radius: 0.75rem; /* rounded-xl */
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); /* shadow-lg */
+        }
+        textarea {
+            resize: vertical;
+            min-height: 120px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb; /* border-gray-200 */
+        }
+        th {
+            background-color: #f9fafb; /* bg-gray-50 */
+            font-weight: 600; /* font-semibold */
+            color: #374151; /* text-gray-700 */
+        }
+        .error {
+            color: #ef4444; /* text-red-500 */
+            font-weight: 500; /* font-medium */
+        }
+        .loading {
+            color: #1d4ed8; /* text-blue-700 */
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+    <div class="container p-6 space-y-6">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">Công cụ SQL cơ bản với sql.js</h1>
+
+        <div class="space-y-4">
+            <label for="sqlInput" class="block text-lg font-medium text-gray-700">Nhập câu lệnh SQL:</label>
+            <textarea id="sqlInput" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150 ease-in-out" placeholder="Ví dụ: SELECT * FROM users;"></textarea>
+            <button id="executeBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg shadow-md transition duration-200 ease-in-out transform hover:scale-105">
+                Thực thi SQL
+            </button>
+        </div>
+
+        <div id="resultContainer" class="mt-8">
+            <h2 class="text-2xl font-semibold text-gray-800 mb-4">Kết quả:</h2>
+            <div id="output" class="bg-gray-50 p-4 border border-gray-200 rounded-lg min-h-[100px] overflow-auto">
+                <p class="text-gray-500">Đang tải cơ sở dữ liệu...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.6.2/sql-wasm.js"></script>
+    <script>
+        let db; // Global variable to store the SQLite database object
+
+        const sqlInput = document.getElementById('sqlInput');
+        const executeBtn = document.getElementById('executeBtn');
+        const outputDiv = document.getElementById('output');
+
+        // Initialize the database when the page loads
+        window.onload = async function() {
+            outputDiv.innerHTML = '<p class="loading">Đang tải cơ sở dữ liệu...</p>';
+            try {
+                // Load sql.js WASM module
+                const SQL = await initSqlJs({
+                    locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.6.2/${file}`
+                });
+                db = new SQL.Database(); // Create an in-memory database
+
+                // Sample data for users table
+                const usersData = [
+                    { id: 1, name: 'Nguyễn Văn A', email: 'nguyenvana@example.com', age: 30 },
+                    { id: 2, name: 'Trần Thị B', email: 'tranthib@example.com', age: 24 },
+                    { id: 3, name: 'Lê Văn C', email: 'levanc@example.com', age: 35 },
+                    { id: 4, name: 'Phạm Thị D', email: 'phamthid@example.com', age: 28 },
+                    { id: 5, name: 'Hoàng Văn E', email: 'hoangvane@example.com', age: 42 }
+                ];
+                // Sample data for products table
+                const productsData = [
+                    { product_id: 101, product_name: 'Laptop', price: 1200, stock: 50, category_id: 1 },
+                    { product_id: 102, product_name: 'Điện thoại', price: 800, stock: 120, category_id: 1 },
+                    { product_id: 103, product_name: 'Bàn phím', price: 75, stock: 200, category_id: 2 },
+                    { product_id: 104, product_name: 'Chuột', price: 25, stock: 300, category_id: 2 },
+                    { product_id: 105, product_name: 'Màn hình', price: 300, stock: 80, category_id: 1 }
+                ];
+                // Sample data for orders table
+                const ordersData = [
+                    { order_id: 1, user_id: 1, product_id: 101, quantity: 1, order_date: '2023-01-15' },
+                    { order_id: 2, user_id: 2, product_id: 103, quantity: 2, order_date: '2023-01-16' },
+                    { order_id: 3, user_id: 1, product_id: 102, quantity: 1, order_date: '2023-02-01' },
+                    { order_id: 4, user_id: 3, product_id: 104, quantity: 3, order_date: '2023-02-05' },
+                    { order_id: 5, user_id: 4, product_id: 101, quantity: 1, order_date: '2023-02-10' }
+                ];
+                // Sample data for categories table
+                const categoriesData = [
+                    { category_id: 1, category_name: 'Điện tử' },
+                    { category_id: 2, category_name: 'Phụ kiện máy tính' },
+                    { category_id: 3, category_name: 'Sách' }
+                ];
+                // Sample data for employees table
+                const employeesData = [
+                    { employee_id: 1, first_name: 'Mai', last_name: 'Linh', department_id: 1, salary: 60000 },
+                    { employee_id: 2, first_name: 'Quang', last_name: 'Minh', department_id: 2, salary: 55000 },
+                    { employee_id: 3, first_name: 'Thanh', last_name: 'Tùng', department_id: 3, salary: 70000 },
+                    { employee_id: 4, first_name: 'Hương', last_name: 'Giang', department_id: 4, salary: 50000 }
+                ];
+                // Sample data for departments table
+                const departmentsData = [
+                    { department_id: 1, department_name: 'Sales', location: 'Hanoi' },
+                    { department_id: 2, department_name: 'Marketing', location: 'HCM' },
+                    { department_id: 3, department_name: 'IT', location: 'Hanoi' },
+                    { department_id: 4, department_name: 'HR', location: 'Danang' }
+                ];
+                // Sample data for projects table
+                const projectsData = [
+                    { project_id: 1, project_name: 'Website Redesign', start_date: '2023-03-01', end_date: '2023-06-30', department_id: 3 },
+                    { project_id: 2, project_name: 'Marketing Campaign', start_date: '2023-04-10', end_date: '2023-07-20', department_id: 2 },
+                    { project_id: 3, project_name: 'New Product Launch', start_date: '2023-05-01', end_date: '2023-09-30', department_id: 1 }
+                ];
+                // Sample data for customers table
+                const customersData = [
+                    { customer_id: 1, customer_name: 'Công ty A', city: 'Hanoi', country: 'Vietnam' },
+                    { customer_id: 2, customer_name: 'Công ty B', city: 'HCM', country: 'Vietnam' },
+                    { customer_id: 3, customer_name: 'Công ty C', city: 'Danang', country: 'Vietnam' }
+                ];
+
+
+                // Create users table and insert data
+                db.run("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT, age INTEGER);");
+                usersData.forEach(user => {
+                    db.run("INSERT INTO users (id, name, email, age) VALUES (?, ?, ?, ?);", [user.id, user.name, user.email, user.age]);
+                });
+
+                // Create products table and insert data
+                db.run("CREATE TABLE products (product_id INTEGER PRIMARY KEY, product_name TEXT, price REAL, stock INTEGER, category_id INTEGER);");
+                productsData.forEach(product => {
+                    db.run("INSERT INTO products (product_id, product_name, price, stock, category_id) VALUES (?, ?, ?, ?, ?);", [product.product_id, product.product_name, product.price, product.stock, product.category_id]);
+                });
+
+                // Create orders table and insert data
+                db.run("CREATE TABLE orders (order_id INTEGER PRIMARY KEY, user_id INTEGER, product_id INTEGER, quantity INTEGER, order_date TEXT);");
+                ordersData.forEach(order => {
+                    db.run("INSERT INTO orders (order_id, user_id, product_id, quantity, order_date) VALUES (?, ?, ?, ?, ?);", [order.order_id, order.user_id, order.product_id, order.quantity, order.order_date]);
+                });
+
+                // Create categories table and insert data
+                db.run("CREATE TABLE categories (category_id INTEGER PRIMARY KEY, category_name TEXT);");
+                categoriesData.forEach(category => {
+                    db.run("INSERT INTO categories (category_id, category_name) VALUES (?, ?);", [category.category_id, category.category_name]);
+                });
+
+                // Create employees table and insert data
+                db.run("CREATE TABLE employees (employee_id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, department_id INTEGER, salary REAL);");
+                employeesData.forEach(employee => {
+                    db.run("INSERT INTO employees (employee_id, first_name, last_name, department_id, salary) VALUES (?, ?, ?, ?, ?);", [employee.employee_id, employee.first_name, employee.last_name, employee.department_id, employee.salary]);
+                });
+
+                // Create departments table and insert data
+                db.run("CREATE TABLE departments (department_id INTEGER PRIMARY KEY, department_name TEXT, location TEXT);");
+                departmentsData.forEach(dept => {
+                    db.run("INSERT INTO departments (department_id, department_name, location) VALUES (?, ?, ?);", [dept.department_id, dept.department_name, dept.location]);
+                });
+
+                // Create projects table and insert data
+                db.run("CREATE TABLE projects (project_id INTEGER PRIMARY KEY, project_name TEXT, start_date TEXT, end_date TEXT, department_id INTEGER);");
+                projectsData.forEach(project => {
+                    db.run("INSERT INTO projects (project_id, project_name, start_date, end_date, department_id) VALUES (?, ?, ?, ?, ?);", [project.project_id, project.project_name, project.start_date, project.end_date, project.department_id]);
+                });
+
+                // Create customers table and insert data
+                db.run("CREATE TABLE customers (customer_id INTEGER PRIMARY KEY, customer_name TEXT, city TEXT, country TEXT);");
+                customersData.forEach(customer => {
+                    db.run("INSERT INTO customers (customer_id, customer_name, city, country) VALUES (?, ?, ?, ?);", [customer.customer_id, customer.customer_name, customer.city, customer.country]);
+                });
+
+
+                outputDiv.innerHTML = '<p class="text-gray-500">Cơ sở dữ liệu đã sẵn sàng. Vui lòng nhập câu lệnh SQL.</p>';
+                executeBtn.disabled = false; // Enable button after DB is ready
+
+            } catch (err) {
+                outputDiv.innerHTML = `<p class="error">Lỗi khi khởi tạo cơ sở dữ liệu: ${err.message}</p>`;
+                console.error("Database initialization error:", err);
+            }
+        };
+
+        executeBtn.addEventListener('click', executeSql);
+        executeBtn.disabled = true; // Disable button until DB is ready
+
+        async function executeSql() {
+            const query = sqlInput.value.trim();
+            outputDiv.innerHTML = ''; // Clear previous output
+
+            if (!query) {
+                outputDiv.innerHTML = '<p class="error">Vui lòng nhập câu lệnh SQL.</p>';
+                return;
+            }
+
+            if (!db) {
+                outputDiv.innerHTML = '<p class="error">Cơ sở dữ liệu chưa được khởi tạo. Vui lòng thử lại sau.</p>';
+                return;
+            }
+
+            outputDiv.innerHTML = '<p class="loading">Đang thực thi...</p>';
+
+            try {
+                // Execute the SQL statement
+                const res = db.exec(query);
+
+                if (res.length === 0) {
+                    // If no results (e.g., INSERT, UPDATE, DELETE)
+                    outputDiv.innerHTML = '<p class="text-gray-500">Câu lệnh đã được thực thi thành công (không có kết quả trả về).</p>';
+                } else {
+                    // Process and display SELECT query results
+                    const result = res[0]; // Get the first result (if multiple statements)
+                    const columns = result.columns;
+                    const values = result.values;
+
+                    let tableHtml = '<table class="min-w-full divide-y divide-gray-200 rounded-lg overflow-hidden">';
+                    tableHtml += '<thead class="bg-gray-50">';
+                    tableHtml += '<tr>';
+                    columns.forEach(col => {
+                        tableHtml += `<th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${col}</th>`;
+                    });
+                    tableHtml += '</tr>';
+                    tableHtml += '</thead>';
+                    tableHtml += '<tbody class="bg-white divide-y divide-gray-200">';
+
+                    if (values.length === 0) {
+                        tableHtml += '<tr><td colspan="' + columns.length + '" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Không tìm thấy dữ liệu.</td></tr>';
+                    } else {
+                        values.forEach(row => {
+                            tableHtml += '<tr>';
+                            row.forEach(cell => {
+                                const value = cell !== undefined && cell !== null ? cell : 'NULL';
+                                tableHtml += `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${value}</td>`;
+                            });
+                            tableHtml += '</tr>';
+                        });
+                    }
+
+                    tableHtml += '</tbody>';
+                    tableHtml += '</table>';
+                    outputDiv.innerHTML = tableHtml;
+                }
+
+            } catch (error) {
+                let errorMessage = `Lỗi SQL: ${error.message}`;
+                if (error.message.includes("no such table:")) {
+                    errorMessage += "<br>Gợi ý: Vui lòng kiểm tra lại tên bảng. Các bảng hiện có là: <code>users</code>, <code>products</code>, <code>orders</code>, <code>categories</code>, <code>employees</code>, <code>departments</code>, <code>projects</code>, và <code>customers</code>.";
+                }
+                outputDiv.innerHTML = `<p class="error">${errorMessage}</p>`;
+                console.error("SQL Execution Error:", error);
+            }
+        }
+    </script>
+</body>
+</html>
