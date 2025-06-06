@@ -76,10 +76,10 @@ def initialize_global_resources():
         # Tạo search manager dùng chung với VectorStore không có user_id
         # Điều này đảm bảo không tạo hay tải BM25 index không cần thiết khi khởi tạo
         # BM25 index phù hợp sẽ được tải khi user_id thực sử dụng
-        empty_vector_store = VectorStore()  # VectorStore không có user_id
-        global_search_manager = SearchManager(empty_vector_store, global_embedding_model)
-        print("Đã khởi tạo Search Manager toàn cục (BM25, reranker)")
-        print("SearchManager toàn cục sẽ tải BM25 index phù hợp khi được gán cho user_id cụ thể")
+        # empty_vector_store = VectorStore()  # VectorStore không có user_id
+        # global_search_manager = SearchManager(empty_vector_store, global_embedding_model)
+        # print("Đã khởi tạo Search Manager toàn cục (BM25, reranker)")
+        # print("SearchManager toàn cục sẽ tải BM25 index phù hợp khi được gán cho user_id cụ thể")
 
         global_resources_initialized = True
         print("Hoàn thành khởi tạo tất cả tài nguyên toàn cục")
@@ -148,9 +148,9 @@ class AdvancedDatabaseRAG:
         if search_manager is not None:
             # Gán search_manager toàn cục và cập nhật vector_store (cùng với BM25 index tương ứng)
             self.search_manager = search_manager
-            # Thay vì chỉ gán vector_store, gọi phương thức để cập nhật và tải lại BM25 index phù hợp
-            self.search_manager.set_vector_store_and_reload_bm25(self.vector_store)
-            print("Sử dụng Search Manager toàn cục (đã cập nhật vector_store và BM25 index cho user)")
+            # # Thay vì chỉ gán vector_store, gọi phương thức để cập nhật và tải lại BM25 index phù hợp
+            # self.search_manager.set_vector_store_and_reload_bm25(self.vector_store)
+            # print("Sử dụng Search Manager toàn cục (đã cập nhật vector_store và BM25 index cho user)")
         else:
             print("Khởi tạo Search Manager mới")
             self.search_manager = SearchManager(self.vector_store, self.embedding_model)
@@ -347,30 +347,30 @@ class AdvancedDatabaseRAG:
     def _hybrid_search_task(self, query_to_use, k, alpha, sources, file_id, results):
         """Task chạy song song để thực hiện hybrid search"""
         try:
-            # Hybrid search cần cả tìm kiếm ngữ nghĩa và từ khóa
-            print(f"=== BM25 DEBUG === Bắt đầu hybrid_search với query: '{query_to_use}'")
+            # # Hybrid search cần cả tìm kiếm ngữ nghĩa và từ khóa
+            # print(f"=== BM25 DEBUG === Bắt đầu hybrid_search với query: '{query_to_use}'")
             
-            # Kiểm tra user_id trong SearchManager.vector_store
-            sm_user_id = self.search_manager.vector_store.user_id if hasattr(self.search_manager.vector_store, 'user_id') else "N/A"
-            print(f"=== BM25 DEBUG === SearchManager.vector_store.user_id TRƯỚC KHI TÌM KIẾM: {sm_user_id}")
-            vs_user_id = self.vector_store.user_id if hasattr(self.vector_store, 'user_id') else "N/A"
-            print(f"=== BM25 DEBUG === self.vector_store.user_id: {vs_user_id}")
+            # # Kiểm tra user_id trong SearchManager.vector_store
+            # sm_user_id = self.search_manager.vector_store.user_id if hasattr(self.search_manager.vector_store, 'user_id') else "N/A"
+            # print(f"=== BM25 DEBUG === SearchManager.vector_store.user_id TRƯỚC KHI TÌM KIẾM: {sm_user_id}")
+            # vs_user_id = self.vector_store.user_id if hasattr(self.vector_store, 'user_id') else "N/A"
+            # print(f"=== BM25 DEBUG === self.vector_store.user_id: {vs_user_id}")
             
-            keyword_results = self.search_manager.keyword_search(
-                query_to_use, k=k, sources=sources, file_id=file_id
-            )
+            # keyword_results = self.search_manager.keyword_search(
+            #     query_to_use, k=k, sources=sources, file_id=file_id
+            # )
             
-            # Ghi log số lượng kết quả từ BM25
-            print(f"=== BM25 DEBUG === Số kết quả từ BM25: {len(keyword_results)}")
-            if not keyword_results:
-                print("Không tìm thấy kết quả với BM25, quay lại tìm kiếm ngữ nghĩa")
-                # Không có kết quả từ tìm kiếm keyword, chỉ dùng tìm kiếm ngữ nghĩa
-                semantic_results = self.search_manager.semantic_search(
-                    query_to_use, k=k, sources=sources, file_id=file_id
-                )
-                results["semantic"] = semantic_results
-                results["keyword"] = []  # Danh sách rỗng vẫn được lưu để biết BM25 đã được thử
-                return
+            # # Ghi log số lượng kết quả từ BM25
+            # print(f"=== BM25 DEBUG === Số kết quả từ BM25: {len(keyword_results)}")
+            # if not keyword_results:
+            #     print("Không tìm thấy kết quả với BM25, quay lại tìm kiếm ngữ nghĩa")
+            #     # Không có kết quả từ tìm kiếm keyword, chỉ dùng tìm kiếm ngữ nghĩa
+            #     semantic_results = self.search_manager.semantic_search(
+            #         query_to_use, k=k, sources=sources, file_id=file_id
+            #     )
+            #     results["semantic"] = semantic_results
+            #     results["keyword"] = []  # Danh sách rỗng vẫn được lưu để biết BM25 đã được thử
+            #     return
                 
             # Cũng thực hiện tìm kiếm ngữ nghĩa
             semantic_results = self.search_manager.semantic_search(
@@ -1121,10 +1121,10 @@ class AdvancedDatabaseRAG:
             search_results = self.semantic_search(
                 query_to_use, k=k, sources=sources, file_id=file_id
             )
-        elif search_type == "keyword":
-            search_results = self.search_manager.keyword_search(
-                query_to_use, k=k, sources=sources, file_id=file_id
-            )
+        # elif search_type == "keyword":
+        #     search_results = self.search_manager.keyword_search(
+        #         query_to_use, k=k, sources=sources, file_id=file_id
+        #     )
         else:  # hybrid
             # Sử dụng hybrid_search đồng bộ, không còn gây lỗi asyncio.run
             search_results = self.hybrid_search(

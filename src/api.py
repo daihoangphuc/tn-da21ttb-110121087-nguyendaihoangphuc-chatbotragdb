@@ -169,9 +169,9 @@ def indexing_documents():
         # Index lên vector store
         rag_system.index_to_qdrant(processed_chunks)
 
-        # Cập nhật BM25 index sau khi đã index xong tài liệu
-        indexing_status["message"] = "Đang cập nhật BM25 index..."
-        rag_system.search_manager.update_bm25_index()
+        # # Cập nhật BM25 index sau khi đã index xong tài liệu
+        # indexing_status["message"] = "Đang cập nhật BM25 index..."
+        # rag_system.search_manager.update_bm25_index()
 
         indexing_status["status"] = "completed"
         indexing_status["message"] = (
@@ -377,9 +377,9 @@ async def ask_question_stream(
         rag_system.vector_store.collection_name = "user_" + str(user_id)
         # Cập nhật user_id cho vector_store trong SearchManager
         rag_system.vector_store.user_id = user_id
-        # QUAN TRỌNG: Cập nhật SearchManager.vector_store và tải BM25 index cho user hiện tại
-        rag_system.search_manager.set_vector_store_and_reload_bm25(rag_system.vector_store)
-        print(f"Đã cập nhật SearchManager vector_store và BM25 index cho user_id={user_id}")
+        # # QUAN TRỌNG: Cập nhật SearchManager.vector_store và tải BM25 index cho user hiện tại
+        # rag_system.search_manager.set_vector_store_and_reload_bm25(rag_system.vector_store)
+        # print(f"Đã cập nhật SearchManager vector_store và BM25 index cho user_id={user_id}")
 
         # Kiểm tra xem người dùng đã chọn file_id hay chưa
         if (
@@ -693,15 +693,15 @@ async def upload_document(
                 file_id=file_id,
             )
             
-            # Chỉ cập nhật SearchManager và BM25 index SAU KHI đã index dữ liệu thành công
-            print(f"[UPLOAD] Dữ liệu đã được index thành công, bây giờ cập nhật BM25 index")
-            # QUAN TRỌNG: Cập nhật SearchManager.vector_store và tải BM25 index cho user hiện tại
-            rag_system.search_manager.set_vector_store_and_reload_bm25(rag_system.vector_store)
+            # # Chỉ cập nhật SearchManager và BM25 index SAU KHI đã index dữ liệu thành công
+            # print(f"[UPLOAD] Dữ liệu đã được index thành công, bây giờ cập nhật BM25 index")
+            # # QUAN TRỌNG: Cập nhật SearchManager.vector_store và tải BM25 index cho user hiện tại
+            # rag_system.search_manager.set_vector_store_and_reload_bm25(rag_system.vector_store)
             
-            # Cập nhật BM25 index sau khi index xong
-            print(f"[UPLOAD] Cập nhật BM25 index cho user_id={user_id}")
-            rag_system.search_manager.update_bm25_index()
-            print(f"[UPLOAD] Hoàn thành cập nhật BM25 index")
+            # # Cập nhật BM25 index sau khi index xong
+            # print(f"[UPLOAD] Cập nhật BM25 index cho user_id={user_id}")
+            # rag_system.search_manager.update_bm25_index()
+            # print(f"[UPLOAD] Hoàn thành cập nhật BM25 index")
             
             # Lưu thông tin file vào bảng document_files trong Supabase
             try:
@@ -909,27 +909,44 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
     try:
         # Lấy thư mục upload của user
         user_upload_dir = get_user_upload_dir(current_user.id)
-        file_path = os.path.join(user_upload_dir, filename)
-        print(f"[DELETE] Bắt đầu xóa file: {filename}, đường dẫn: {file_path}")
+        
+        # **LOGIC MỚI: Chuyển đổi tên file sang PDF nếu cần**
+        original_ext = os.path.splitext(filename)[1].lower()
+        
+        if original_ext == ".pdf":
+            # File gốc đã là PDF
+            actual_filename = filename
+        else:
+            # File gốc không phải PDF, chuyển sang tên file PDF
+            base_name = os.path.splitext(filename)[0]
+            actual_filename = f"{base_name}.pdf"
+            print(f"[DELETE] Chuyển đổi tên file từ {filename} thành {actual_filename}")
+        
+        # Sử dụng file thực tế để kiểm tra và xóa
+        file_path = os.path.join(user_upload_dir, actual_filename)
+        print(f"[DELETE] Bắt đầu xóa file: {filename}, đường dẫn thực tế: {file_path}")
 
         # Kiểm tra file có tồn tại không
         if not os.path.exists(file_path):
-            print(f"[DELETE] Lỗi: File {filename} không tồn tại")
+            print(f"[DELETE] Lỗi: File {actual_filename} không tồn tại")
             raise HTTPException(
                 status_code=404, detail=f"File {filename} không tồn tại"
             )
 
         print(f"[DELETE] Đang xóa các điểm dữ liệu liên quan đến file: {filename}")
 
-        # Tạo danh sách các biến thể của đường dẫn file để thử xóa
+        # **CẬP NHẬT: Tạo danh sách các biến thể với cả tên gốc và tên PDF**
         file_paths = [
-            file_path,  # Đường dẫn đầy đủ
+            file_path,  # Đường dẫn file thực tế (PDF)
             file_path.replace("\\", "/"),  # Đường dẫn với dấu /
-            os.path.join(user_upload_dir, filename).replace(
-                "\\", "/"
-            ),  # Đường dẫn đầy đủ với dấu /
-            f"src/data/{current_user.id}/{filename}",  # Thêm tiền tố src/data/user_id/
-            f"src/data\\{current_user.id}\\{filename}",  # Thêm tiền tố src/data\user_id\ với backslash
+            os.path.join(user_upload_dir, actual_filename).replace("\\", "/"),  # Đường dẫn đầy đủ với dấu /
+            f"src/data/{current_user.id}/{actual_filename}",  # Tiền tố src/data/user_id/ với file PDF
+            f"src/data\\{current_user.id}\\{actual_filename}",  # Tiền tố src/data\user_id\ với backslash
+            # Thêm các biến thể cho tên file gốc (trong trường hợp vector store lưu tên gốc)
+            os.path.join(user_upload_dir, filename),
+            os.path.join(user_upload_dir, filename).replace("\\", "/"),
+            f"src/data/{current_user.id}/{filename}",
+            f"src/data\\{current_user.id}\\{filename}",
         ]
 
         # Khởi tạo biến để lưu số lượng điểm đã xóa
@@ -959,26 +976,31 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
                 print(f"[DELETE] Lỗi khi xóa với đường dẫn {path}: {str(e)}")
                 continue
 
-        # Nếu không thành công với tất cả các đường dẫn, thử xóa bằng filename
+        # **CẬP NHẬT: Thử xóa với cả tên file gốc và tên file PDF**
         if not deletion_success:
-            print(f"[DELETE] Thử xóa với tên file: {filename}")
-            try:
-                # Sử dụng phương thức delete_by_file_path với tên file
-                success, message = rag_system.vector_store.delete_by_file_path(
-                    filename, user_id=current_user.id
-                )
+            filenames_to_try = [filename, actual_filename]  # Thử cả tên gốc và tên PDF
+            
+            for fname in filenames_to_try:
+                print(f"[DELETE] Thử xóa với tên file: {fname}")
+                try:
+                    # Sử dụng phương thức delete_by_file_path với tên file
+                    success, message = rag_system.vector_store.delete_by_file_path(
+                        fname, user_id=current_user.id
+                    )
 
-                if success:
-                    # Phân tích số lượng điểm đã xóa từ message
-                    import re
+                    if success:
+                        # Phân tích số lượng điểm đã xóa từ message
+                        import re
 
-                    match = re.search(r"Đã xóa (\d+) điểm", message)
-                    if match:
-                        deleted_points_count = int(match.group(1))
-                    print(f"[DELETE] Xóa thành công với tên file: {message}")
-                    deletion_success = True
-            except Exception as e:
-                print(f"[DELETE] Lỗi khi xóa với tên file: {str(e)}")
+                        match = re.search(r"Đã xóa (\d+) điểm", message)
+                        if match:
+                            deleted_points_count = int(match.group(1))
+                        print(f"[DELETE] Xóa thành công với tên file: {message}")
+                        deletion_success = True
+                        break
+                except Exception as e:
+                    print(f"[DELETE] Lỗi khi xóa với tên file {fname}: {str(e)}")
+                    continue
 
         # Nếu vẫn không thành công, thử xóa bằng phương thức cũ
         if not deletion_success:
@@ -1001,8 +1023,9 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
                         related_docs.append(doc)
                         break
 
-                # So sánh với tên file
-                if meta_source == filename or direct_source == filename:
+                # **CẬP NHẬT: So sánh với cả tên file gốc và tên file PDF**
+                if meta_source == filename or direct_source == filename or \
+                   meta_source == actual_filename or direct_source == actual_filename:
                     related_docs.append(doc)
 
             # Nếu tìm thấy tài liệu liên quan, xóa chúng
@@ -1021,13 +1044,14 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
                         {"key": "metadata.source", "match": {"value": path}}
                     )
 
-                # Thêm điều kiện cho filename
-                filter_conditions.append(
-                    {"key": "source", "match": {"value": filename}}
-                )
-                filter_conditions.append(
-                    {"key": "metadata.source", "match": {"value": filename}}
-                )
+                # **CẬP NHẬT: Thêm điều kiện cho cả tên file gốc và tên file PDF**
+                for fname in [filename, actual_filename]:
+                    filter_conditions.append(
+                        {"key": "source", "match": {"value": fname}}
+                    )
+                    filter_conditions.append(
+                        {"key": "metadata.source", "match": {"value": fname}}
+                    )
 
                 filter_request = {"filter": {"should": filter_conditions}}
 
@@ -1068,12 +1092,12 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
                     except Exception as e2:
                         print(f"[DELETE] Lỗi khi xóa bằng ID: {str(e2)}")
 
-        # Xóa file vật lý
+        # **XÓA FILE VẬT LÝ - Sử dụng đường dẫn file thực tế**
         print(f"[DELETE] Đang xóa file vật lý: {file_path}")
         os.remove(file_path)
         print(f"[DELETE] Đã xóa file vật lý thành công")
 
-        # Đánh dấu file đã xóa trong bảng document_files
+        # Đánh dấu file đã xóa trong bảng document_files (sử dụng tên file gốc)
         try:
             from src.supabase.files_manager import FilesManager
             from src.supabase.client import SupabaseClient
@@ -1081,7 +1105,7 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
             client = SupabaseClient().get_client()
             files_manager = FilesManager(client)
 
-            # Tìm file trong database theo tên và user_id
+            # Tìm file trong database theo tên gốc và user_id
             files = files_manager.get_file_by_name_and_user(filename, current_user.id)
             if files and len(files) > 0:
                 # Lấy file_id từ kết quả tìm kiếm
@@ -1096,18 +1120,17 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
             print(f"[DELETE] Lỗi khi đánh dấu file đã xóa trong database: {str(e)}")
 
         return {
-            "filename": filename,
+            "filename": filename,  # Trả về tên file gốc
             "status": "success",
             "message": f"Đã xóa file {filename} và {deleted_points_count} index liên quan",
             "removed_points": deleted_points_count,
         }
     except HTTPException as e:
-        print(f"[DELETE] HTTP Exception: {str(e)}")
+        print(f"[DELETE] HTTP Exception: {e.detail}")
         raise e
     except Exception as e:
         print(f"[DELETE] Lỗi không xác định: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Lỗi khi xóa file: {str(e)}")
-
 
 @app.post(f"{PREFIX}/collections/delete-by-filter")
 async def delete_points_by_filter(filter_request: Dict):
