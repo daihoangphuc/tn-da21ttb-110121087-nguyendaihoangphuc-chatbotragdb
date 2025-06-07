@@ -46,6 +46,25 @@ docker rm $(docker ps -a -q) 2>/dev/null || echo "Không có container nào đ�
 mkdir -p ~/app
 cd ~/app
 
+# Tạo file .env (bạn cần cập nhật nội dung này với các key thực tế)
+echo "📝 Tạo file .env..."
+cat > .env << 'EOF'
+# Thay đổi các giá trị này với thông tin thực tế của bạn
+USE_GEMINI=true
+GEMINI_API_KEY=your_gemini_api_keys_here
+QDRANT_URL=https://your-qdrant-url.com:6333/
+QDRANT_API_KEY=your_qdrant_api_key
+QDRANT_COLLECTION_NAME=csdl_rag
+TAVILY_API_KEY=your_tavily_api_key
+EMBEDDING_MODEL_NAME=intfloat/multilingual-e5-small
+LLM_MODEL_NAME=gemini-2.0-flash
+DEFAULT_ALPHA=0.7
+CHUNK_SIZE=800
+CHUNK_OVERLAP=200
+SUPABASE_URL=https://your-supabase-url.supabase.co
+SUPABASE_KEY=your_supabase_key
+EOF
+
 # Tạo file docker-compose.yml
 echo "📝 Tạo file docker-compose.yml..."
 cat > docker-compose.yml << 'EOF'
@@ -57,20 +76,8 @@ services:
     container_name: rag-app
     ports:
       - "8000:8000"
-    environment:
-      - USE_GEMINI=true
-      - GEMINI_API_KEY=AIzaSyBuj64bK2ubgOv7cQTo0fVsDh0OOYoJRDg,AIzaSyDxT3CPjQzrgyoyXPUl9VK3Jj-wcaRdX_o,AIzaSyDSQkmsAIm_d62yXCu-iPyyU7vXEXVL0LA,AIzaSyDCeISy4laS1Skgnr_uYQiAsrlyLYdXptg,AIzaSyDXASZq2kt2s4AkwlnMiIqO3jkw7FOEoCc,AIzaSyAo37mPje3YHqjjk5qFIz7P1-nFGmWuEB4,AIzaSyCvVJFzZJq8t7XNEzwYTboFSTi9CZnpF1s,AIzaSyAUX-45CBoWfLvoOWzCzz_BddYE4514D8Y,AIzaSyBKH7G3Aai1JbfqApgwJH5jXQLF0Jj30sw,AIzaSyD5JqMWR2GPbVsdAC1nQ4CWvW8ZnnD3Oyk
-      - QDRANT_URL=https://2f7481a0-b7e5-4785-afc0-14e7912f70d8.europe-west3-0.gcp.cloud.qdrant.io:6333/
-      - QDRANT_API_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.oD5nuszsntn8KKDUPDxB5UisjLYVEzonYaDByHdwFbg
-      - QDRANT_COLLECTION_NAME=csdl_rag
-      - TAVILY_API_KEY=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
-      - EMBEDDING_MODEL_NAME=intfloat/multilingual-e5-small
-      - LLM_MODEL_NAME=gemini-2.0-flash
-      - DEFAULT_ALPHA=0.7
-      - CHUNK_SIZE=800
-      - CHUNK_OVERLAP=200
-      - SUPABASE_URL=https://yhlgzixdgvjllrblsxsr.supabase.co
-      - SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlobGd6aXhkZ3ZqbGxyYmxzeHNyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDY3OTY1OTMsImV4cCI6MjA2MjM3MjU5M30.OHO8YwTzASgThYVPHFFEOu4COXKBhWnrVdy01c-PyrA
+    env_file:
+      - .env
     restart: unless-stopped
     networks:
       - rag-network
@@ -81,7 +88,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://rag-app:8000
+      - NEXT_PUBLIC_API_URL=http://34.30.191.213:8000
     depends_on:
       - rag-app
     restart: unless-stopped
