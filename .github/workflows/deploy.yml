@@ -41,6 +41,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Ensure DOCKERHUB_USERNAME in .env
+        run: |
+          touch .env
+          grep -q '^DOCKERHUB_USERNAME=' .env && sed -i "s|^DOCKERHUB_USERNAME=.*|DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}|" .env || echo "DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}" >> .env
+
       - name: Copy docker-compose and env files to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
