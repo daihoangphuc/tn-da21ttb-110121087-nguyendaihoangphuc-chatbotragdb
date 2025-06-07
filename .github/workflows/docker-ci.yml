@@ -97,7 +97,9 @@ jobs:
                   - .env
                 restart: unless-stopped
                 networks:
-                  - rag-network              frontend:
+                  - rag-network
+
+              frontend:
                 image: ${{ secrets.DOCKERHUB_USERNAME }}/frontend:latest
                 container_name: rag-frontend
                 ports:
@@ -136,7 +138,8 @@ jobs:
               echo "⚠️ Some containers not running, attempting restart..."
               docker-compose restart
               sleep 20
-            fi            echo "=== Checking container status ==="
+              fi
+              echo "=== Checking container status ==="
             sleep 20
             docker-compose ps
             docker ps -a
