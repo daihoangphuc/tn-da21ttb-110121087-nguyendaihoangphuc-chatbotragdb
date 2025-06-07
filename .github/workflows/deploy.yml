@@ -6,16 +6,11 @@ on:
       - test/cicd
 
 jobs:
-  build-and-deploy:
+  build-and-push:
     runs-on: ubuntu-latest
-    env:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-      BACKEND_ENV: ${{ secrets.BACKEND_ENV }}
-      FRONTEND_ENV: ${{ secrets.FRONTEND_ENV }}
-      VPS_HOST: ${{ secrets.VPS_HOST }}
-      VPS_USER: ${{ secrets.VPS_USER }}
-      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+    strategy:
+      matrix:
+        service: [frontend, backend]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -29,30 +24,27 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push backend image
+      - name: Build and push ${{ matrix.service }} image
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile.backend
+          file: Dockerfile.${{ matrix.service }}
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/myapp-backend:latest
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/myapp-${{ matrix.service }}:latest
           build-args: |
-            BACKEND_ENV=${{ secrets.BACKEND_ENV }}
+            ${{ matrix.service == 'backend' && format('BACKEND_ENV={0}', secrets.BACKEND_ENV) || format('FRONTEND_ENV={0}', secrets.FRONTEND_ENV) }}
 
-      - name: Build and push frontend image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: Dockerfile.frontend
-          push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/myapp-frontend:latest
-          build-args: |
-            FRONTEND_ENV=${{ secrets.FRONTEND_ENV }}
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Prepare docker-compose for VPS
         run: |
-          sed -i 's|image:.*|image: ${DOCKERHUB_USERNAME}/myapp-backend:latest|' docker-compose.yml
-          sed -i 's|image:.*|image: ${DOCKERHUB_USERNAME}/myapp-frontend:latest|' docker-compose.yml
+          sed -i 's|image:.*|image: ${{ secrets.DOCKERHUB_USERNAME }}/myapp-backend:latest|' docker-compose.yml
+          sed -i 's|image:.*|image: ${{ secrets.DOCKERHUB_USERNAME }}/myapp-frontend:latest|' docker-compose.yml
 
       - name: Copy docker-compose and env files to VPS
         uses: appleboy/scp-action@v0.1.7
@@ -74,4 +66,4 @@ jobs:
             docker compose pull
             docker compose down
             docker compose up -d --remove-orphans
-            docker system prune -af 
+            docker system prune -af
