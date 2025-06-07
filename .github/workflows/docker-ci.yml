@@ -40,7 +40,6 @@ jobs:
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/frontend:latest
 
-      # XÓA DEBUG STEP - chỉ giữ deploy step
       - name: Deploy to VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -66,7 +65,8 @@ jobs:
             echo "=== Stopping existing containers ==="
             docker-compose down 2>/dev/null || echo "No existing containers"
             
-            echo "=== Creating docker-compose.yml ==="            cat > docker-compose.yml << 'EOF'
+            echo "=== Creating docker-compose.yml ==="
+            cat > docker-compose.yml << 'EOF'
             version: '3.8'
             
             services:
@@ -110,7 +110,8 @@ jobs:
               rag-network:
                 driver: bridge
             EOF
-              echo "=== Starting containers ==="
+            
+            echo "=== Starting containers ==="
             # Ensure Docker Compose is installed
             if ! command -v docker-compose &> /dev/null; then
               sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose

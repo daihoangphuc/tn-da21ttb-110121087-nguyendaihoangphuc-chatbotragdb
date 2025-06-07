@@ -99,7 +99,7 @@ docker-compose up -d
 
 # Đợi một chút để containers khởi động
 echo "⏳ Đang đợi containers khởi động..."
-sleep 10
+sleep 30
 
 # Kiểm tra trạng thái containers
 echo "📋 Kiểm tra trạng thái containers..."
