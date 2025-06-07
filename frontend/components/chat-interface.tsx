@@ -446,7 +446,7 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
         return;
       }
 
-      const response = await fetch('process.env.NEXT_PUBLIC_API_URL/suggestions?num_suggestions=3', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/suggestions?num_suggestions=3`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
