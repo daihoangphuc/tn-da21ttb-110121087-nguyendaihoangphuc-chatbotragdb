@@ -66,8 +66,7 @@ jobs:
             echo "=== Stopping existing containers ==="
             docker-compose down 2>/dev/null || echo "No existing containers"
             
-            echo "=== Creating docker-compose.yml ==="
-            cat > docker-compose.yml << 'EOF'
+            echo "=== Creating docker-compose.yml ==="            cat > docker-compose.yml << 'EOF'
             version: '3.8'
             
             services:
@@ -91,6 +90,8 @@ jobs:
                   - SUPABASE_URL=https://yhlgzixdgvjllrblsxsr.supabase.co
                   - SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlobGd6aXhkZ3ZqbGxyYmxzeHNyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDY3OTY1OTMsImV4cCI6MjA2MjM3MjU5M30.OHO8YwTzASgThYVPHFFEOu4COXKBhWnrVdy01c-PyrA
                 restart: unless-stopped
+                networks:
+                  - rag-network
             
               frontend:
                 image: ${{ secrets.DOCKERHUB_USERNAME }}/frontend:latest
@@ -98,17 +99,40 @@ jobs:
                 ports:
                   - "3000:3000"
                 environment:
-                  - NEXT_PUBLIC_API_URL=http://34.30.191.213:8000
+                  - NEXT_PUBLIC_API_URL=http://rag-app:8000
                 depends_on:
                   - rag-app
                 restart: unless-stopped
+                networks:
+                  - rag-network
+                  
+            networks:
+              rag-network:
+                driver: bridge
             EOF
+              echo "=== Starting containers ==="
+            # Ensure Docker Compose is installed
+            if ! command -v docker-compose &> /dev/null; then
+              sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+              sudo chmod +x /usr/local/bin/docker-compose
+            fi
             
-            echo "=== Starting containers ==="
+            # Ensure proper permissions
+            sudo chown -R $USER:$USER ~/app
+            
+            # Stop and remove any conflicting containers
+            docker stop $(docker ps -a -q) 2>/dev/null || true
+            docker rm $(docker ps -a -q) 2>/dev/null || true
+            
+            # Start the containers
             docker-compose up -d
             
             echo "=== Checking container status ==="
             sleep 30
             docker-compose ps
+            docker ps -a
+            
+            echo "=== Container logs ==="
+            docker-compose logs --tail=20
             
             echo "=== Deployment completed ==="
