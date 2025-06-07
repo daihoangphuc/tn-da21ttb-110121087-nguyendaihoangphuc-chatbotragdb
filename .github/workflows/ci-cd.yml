@@ -52,6 +52,15 @@ jobs:
         run: |
           echo "${{ secrets.FRONTEND_ENV }}" > frontend/.env.local
 
+      - name: Fix pnpm lockfile for frontend
+        if: matrix.service == 'frontend'
+        run: |
+          cd frontend
+          # Install pnpm
+          npm install -g pnpm@latest
+          # Regenerate lockfile if it's incompatible
+          pnpm install --no-frozen-lockfile
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -165,7 +174,9 @@ jobs:
           docker-compose -f docker-compose.prod.yml ps
 
           echo "Deployment completed!"
-          EOF          chmod +x deploy.sh
+          EOF
+
+          chmod +x deploy.sh
 
       - name: Copy files to VPS
         uses: appleboy/scp-action@v0.1.7
