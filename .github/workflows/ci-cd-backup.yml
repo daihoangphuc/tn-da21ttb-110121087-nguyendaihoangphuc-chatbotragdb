@@ -45,18 +45,20 @@ jobs:
       - name: Create backend .env file
         if: matrix.service == 'backend'
         run: |
-          echo "${{ secrets.BACKEND_ENV }}" > .env
+          echo "${{ secrets.BACKEND_ENV }}" > .env      - name: Create frontend .env file
+        if: matrix.service == 'frontend'
+        run: |
+          echo "${{ secrets.FRONTEND_ENV }}" > frontend/.env.local
 
       - name: Setup pnpm for frontend
         if: matrix.service == 'frontend'
         uses: pnpm/action-setup@v4
         with:
           version: latest
-
-      - name: Create frontend .env file and install dependencies
+          
+      - name: Fix pnpm lockfile for frontend
         if: matrix.service == 'frontend'
         run: |
-          echo "${{ secrets.FRONTEND_ENV }}" > frontend/.env.local
           cd frontend
           # Regenerate lockfile if it's incompatible
           pnpm install --no-frozen-lockfile
