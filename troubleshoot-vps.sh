@@ -88,7 +88,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://34.30.191.213:8000
+      - NEXT_PUBLIC_API_URL=http://34.30.191.213:8000/api
     depends_on:
       - rag-app
     restart: unless-stopped
