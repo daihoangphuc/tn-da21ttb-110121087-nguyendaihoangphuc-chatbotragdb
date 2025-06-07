@@ -1,55 +1,56 @@
-version: '3.8'
-
 services:
-  rag-app:
+  # Backend service
+  backend:
     build:
       context: .
-      dockerfile: Dockerfile
-    container_name: rag-app
+      dockerfile: Dockerfile.backend
     ports:
       - "8000:8000"
-    volumes:
-      - ./src:/app/src
-      - ./data:/app/data
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
     env_file:
       - .env
-    depends_on:
-      - qdrant
-    restart: unless-stopped
+    volumes:
+      - ./src/data:/app/src/data
     networks:
-      - rag-network
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
+  # Frontend service
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: rag-frontend
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        - NEXT_PUBLIC_API_URL=http://backend:8000/api
     ports:
       - "3000:3000"
-    depends_on:
-      - rag-app
-    restart: unless-stopped
-    networks:
-      - rag-network
     environment:
-      - NEXT_PUBLIC_API_URL=http://34.30.191.213:8000/api
-
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: qdrant
-    ports:
-      - "6333:6333"
-      - "6334:6334"
-    volumes:
-      - qdrant-data:/qdrant/storage
-    restart: unless-stopped
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api
+    depends_on:
+      backend:
+        condition: service_healthy
     networks:
-      - rag-network
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 networks:
-  rag-network:
+  app-network:
     driver: bridge
 
 volumes:
-  qdrant-data:
-    driver: local
+  backend_data:

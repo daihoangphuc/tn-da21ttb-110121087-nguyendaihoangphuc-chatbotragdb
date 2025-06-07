@@ -1,0 +1,41 @@
+# Dockerfile cho Backend (FastAPI)
+FROM python:3.10-slim
+
+# Thiết lập thư mục làm việc
+WORKDIR /app
+
+# Cài đặt các gói hệ thống cần thiết
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements và cài đặt dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy source code
+COPY src/ ./src/
+
+# Copy environment file if exists (will be overridden by GitHub Actions)
+COPY .env* ./
+# Ensure .env exists for local builds
+RUN touch .env
+
+# Tạo thư mục data
+RUN mkdir -p src/data
+
+# Expose port
+EXPOSE 8000
+
+# Thiết lập biến môi trường
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Chạy ứng dụng
+CMD ["python", "-m", "uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]
