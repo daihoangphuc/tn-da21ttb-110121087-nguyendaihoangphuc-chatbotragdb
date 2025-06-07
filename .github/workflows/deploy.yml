@@ -30,7 +30,7 @@ jobs:
           context: .
           file: Dockerfile.${{ matrix.service }}
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/myapp-${{ matrix.service }}:latest
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/db-rag-${{ matrix.service }}:latest
           build-args: |
             ${{ matrix.service == 'backend' && format('BACKEND_ENV={0}', secrets.BACKEND_ENV) || format('FRONTEND_ENV={0}', secrets.FRONTEND_ENV) }}
 
@@ -40,11 +40,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Prepare docker-compose for VPS
-        run: |
-          sed -i 's|image:.*|image: ${{ secrets.DOCKERHUB_USERNAME }}/myapp-backend:latest|' docker-compose.yml
-          sed -i 's|image:.*|image: ${{ secrets.DOCKERHUB_USERNAME }}/myapp-frontend:latest|' docker-compose.yml
 
       - name: Copy docker-compose and env files to VPS
         uses: appleboy/scp-action@v0.1.7

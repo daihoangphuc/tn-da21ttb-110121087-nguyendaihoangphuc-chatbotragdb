@@ -1,9 +1,7 @@
 services:
   # Backend service
   backend:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
+    image: ${DOCKERHUB_USERNAME}/db-rag-backend:latest
     ports:
       - "8000:8000"
     environment:
@@ -25,11 +23,7 @@ services:
 
   # Frontend service
   frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-      args:
-        - NEXT_PUBLIC_API_URL=http://backend:8000/api
+    image: ${DOCKERHUB_USERNAME}/db-rag-frontend:latest
     ports:
       - "3000:3000"
     environment:
