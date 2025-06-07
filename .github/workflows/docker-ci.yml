@@ -52,25 +52,49 @@ jobs:
           push: true
           tags: ${{ env.DOCKERHUB_USERNAME }}/frontend:latest
 
+      # Debug SSH connection
+      - name: Debug SSH Connection
+        run: |
+          echo "Checking SSH key format..."
+          echo "${{ env.VPS_SSH_KEY }}" | head -1
+          echo "${{ env.VPS_SSH_KEY }}" | tail -1
+          
+          # Setup SSH key
+          mkdir -p ~/.ssh
+          echo "${{ env.VPS_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          
+          # Test SSH connection
+          ssh-keyscan -H ${{ env.VPS_HOST }} >> ~/.ssh/known_hosts
+          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ${{ env.VPS_USER }}@${{ env.VPS_HOST }} "echo 'SSH connection successful'"
+
       - name: Deploy to VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ env.VPS_HOST }}
           username: ${{ env.VPS_USER }}
           key: ${{ env.VPS_SSH_KEY }}
+          port: 22
+          timeout: 300s
+          command_timeout: 300s
+          debug: true
           script: |
-            # Stop existing containers
-            cd /home/${{ env.VPS_USER }}/app || mkdir -p /home/${{ env.VPS_USER }}/app
+            echo "=== Starting deployment ==="
+            whoami
+            pwd
+            
+            # Navigate to app directory
+            mkdir -p /home/${{ env.VPS_USER }}/app
             cd /home/${{ env.VPS_USER }}/app
             
-            # Pull latest images
-            docker pull ${{ env.DOCKERHUB_USERNAME }}/backend:latest
-            docker pull ${{ env.DOCKERHUB_USERNAME }}/frontend:latest
+            echo "=== Pulling Docker images ==="
+            docker pull ${{ env.DOCKERHUB_USERNAME }}/backend:latest || echo "Backend pull failed"
+            docker pull ${{ env.DOCKERHUB_USERNAME }}/frontend:latest || echo "Frontend pull failed"
             
-            # Stop and remove old containers
-            docker-compose down || true
+            echo "=== Stopping existing containers ==="
+            docker-compose down || echo "No existing containers"
             
-            # Create docker-compose.yml for production
+            echo "=== Creating docker-compose.yml ==="
             cat > docker-compose.yml << 'EOF'
             version: '3.8'
             
@@ -96,7 +120,7 @@ jobs:
                 ports:
                   - "3000:3000"
                 environment:
-                  - NEXT_PUBLIC_API_URL=http://localhost:8000
+                  - NEXT_PUBLIC_API_URL=http://${{ env.VPS_HOST }}:8000
                 depends_on:
                   - rag-app
                 restart: unless-stopped
@@ -108,7 +132,6 @@ jobs:
                 container_name: qdrant
                 ports:
                   - "6333:6333"
-                  - "6334:6334"
                 volumes:
                   - qdrant-data:/qdrant/storage
                 restart: unless-stopped
@@ -123,8 +146,16 @@ jobs:
                 driver: bridge
             EOF
             
-            # Start new containers
+            echo "=== Starting containers ==="
             docker-compose up -d
             
-            # Clean up old images
+            echo "=== Waiting for containers to start ==="
+            sleep 30
+            
+            echo "=== Checking container status ==="
+            docker-compose ps
+            
+            echo "=== Cleaning up old images ==="
             docker image prune -f
+            
+            echo "=== Deployment completed ==="
