@@ -10,12 +10,6 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    env:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-      VPS_HOST: ${{ secrets.VPS_HOST }}
-      VPS_USER: ${{ secrets.VPS_USER }}
-      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
     
     steps:
       - name: Checkout code
@@ -27,14 +21,8 @@ jobs:
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ env.DOCKERHUB_USERNAME }}
-          password: ${{ env.DOCKERHUB_TOKEN }}
-
-      - name: Create backend .env file
-        run: echo "${{ secrets.BACKEND_ENV }}" > .env
-
-      - name: Create frontend .env file
-        run: echo "${{ secrets.FRONTEND_ENV }}" > frontend/.env
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push backend image
         uses: docker/build-push-action@v5
@@ -42,7 +30,7 @@ jobs:
           context: .
           file: Dockerfile
           push: true
-          tags: ${{ env.DOCKERHUB_USERNAME }}/backend:latest
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/backend:latest
 
       - name: Build and push frontend image
         uses: docker/build-push-action@v5
@@ -50,49 +38,33 @@ jobs:
           context: ./frontend
           file: ./frontend/Dockerfile
           push: true
-          tags: ${{ env.DOCKERHUB_USERNAME }}/frontend:latest
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/frontend:latest
 
-      # Debug SSH connection
-      - name: Debug SSH Connection
-        run: |
-          echo "Checking SSH key format..."
-          echo "${{ env.VPS_SSH_KEY }}" | head -1
-          echo "${{ env.VPS_SSH_KEY }}" | tail -1
-          
-          # Setup SSH key
-          mkdir -p ~/.ssh
-          echo "${{ env.VPS_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          
-          # Test SSH connection
-          ssh-keyscan -H ${{ env.VPS_HOST }} >> ~/.ssh/known_hosts
-          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ${{ env.VPS_USER }}@${{ env.VPS_HOST }} "echo 'SSH connection successful'"
-
+      # XÓA DEBUG STEP - chỉ giữ deploy step
       - name: Deploy to VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ env.VPS_HOST }}
-          username: ${{ env.VPS_USER }}
-          key: ${{ env.VPS_SSH_KEY }}
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
           timeout: 300s
           command_timeout: 300s
-          debug: true
           script: |
             echo "=== Starting deployment ==="
             whoami
             pwd
             
             # Navigate to app directory
-            mkdir -p /home/${{ env.VPS_USER }}/app
-            cd /home/${{ env.VPS_USER }}/app
+            mkdir -p ~/app
+            cd ~/app
             
             echo "=== Pulling Docker images ==="
-            docker pull ${{ env.DOCKERHUB_USERNAME }}/backend:latest || echo "Backend pull failed"
-            docker pull ${{ env.DOCKERHUB_USERNAME }}/frontend:latest || echo "Frontend pull failed"
+            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/backend:latest
+            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/frontend:latest
             
             echo "=== Stopping existing containers ==="
-            docker-compose down || echo "No existing containers"
+            docker-compose down 2>/dev/null || echo "No existing containers"
             
             echo "=== Creating docker-compose.yml ==="
             cat > docker-compose.yml << 'EOF'
@@ -100,62 +72,43 @@ jobs:
             
             services:
               rag-app:
-                image: ${{ env.DOCKERHUB_USERNAME }}/backend:latest
+                image: ${{ secrets.DOCKERHUB_USERNAME }}/backend:latest
                 container_name: rag-app
                 ports:
                   - "8000:8000"
                 environment:
-                  - QDRANT_URL=http://qdrant:6333
-                volumes:
-                  - ./data:/app/data
-                depends_on:
-                  - qdrant
+                  - USE_GEMINI=true
+                  - GEMINI_API_KEY=AIzaSyBuj64bK2ubgOv7cQTo0fVsDh0OOYoJRDg,AIzaSyDxT3CPjQzrgyoyXPUl9VK3Jj-wcaRdX_o,AIzaSyDSQkmsAIm_d62yXCu-iPyyU7vXEXVL0LA,AIzaSyDCeISy4laS1Skgnr_uYQiAsrlyLYdXptg,AIzaSyDXASZq2kt2s4AkwlnMiIqO3jkw7FOEoCc,AIzaSyAo37mPje3YHqjjk5qFIz7P1-nFGmWuEB4,AIzaSyCvVJFzZJq8t7XNEzwYTboFSTi9CZnpF1s,AIzaSyAUX-45CBoWfLvoOWzCzz_BddYE4514D8Y,AIzaSyBKH7G3Aai1JbfqApgwJH5jXQLF0Jj30sw,AIzaSyD5JqMWR2GPbVsdAC1nQ4CWvW8ZnnD3Oyk
+                  - QDRANT_URL=https://2f7481a0-b7e5-4785-afc0-14e7912f70d8.europe-west3-0.gcp.cloud.qdrant.io:6333/
+                  - QDRANT_API_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.oD5nuszsntn8KKDUPDxB5UisjLYVEzonYaDByHdwFbg
+                  - QDRANT_COLLECTION_NAME=csdl_rag
+                  - TAVILY_API_KEY=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
+                  - EMBEDDING_MODEL_NAME=intfloat/multilingual-e5-small
+                  - LLM_MODEL_NAME=gemini-2.0-flash
+                  - DEFAULT_ALPHA=0.7
+                  - CHUNK_SIZE=800
+                  - CHUNK_OVERLAP=200
+                  - SUPABASE_URL=https://yhlgzixdgvjllrblsxsr.supabase.co
+                  - SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlobGd6aXhkZ3ZqbGxyYmxzeHNyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDY3OTY1OTMsImV4cCI6MjA2MjM3MjU5M30.OHO8YwTzASgThYVPHFFEOu4COXKBhWnrVdy01c-PyrA
                 restart: unless-stopped
-                networks:
-                  - rag-network
             
               frontend:
-                image: ${{ env.DOCKERHUB_USERNAME }}/frontend:latest
+                image: ${{ secrets.DOCKERHUB_USERNAME }}/frontend:latest
                 container_name: rag-frontend
                 ports:
                   - "3000:3000"
                 environment:
-                  - NEXT_PUBLIC_API_URL=http://${{ env.VPS_HOST }}:8000
+                  - NEXT_PUBLIC_API_URL=http://34.30.191.213:8000
                 depends_on:
                   - rag-app
                 restart: unless-stopped
-                networks:
-                  - rag-network
-            
-              qdrant:
-                image: qdrant/qdrant:latest
-                container_name: qdrant
-                ports:
-                  - "6333:6333"
-                volumes:
-                  - qdrant-data:/qdrant/storage
-                restart: unless-stopped
-                networks:
-                  - rag-network
-            
-            volumes:
-              qdrant-data:
-            
-            networks:
-              rag-network:
-                driver: bridge
             EOF
             
             echo "=== Starting containers ==="
             docker-compose up -d
             
-            echo "=== Waiting for containers to start ==="
-            sleep 30
-            
             echo "=== Checking container status ==="
+            sleep 30
             docker-compose ps
-            
-            echo "=== Cleaning up old images ==="
-            docker image prune -f
             
             echo "=== Deployment completed ==="
