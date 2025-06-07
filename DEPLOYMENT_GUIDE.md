@@ -7,7 +7,7 @@ Vào repository GitHub của bạn và thêm các Secrets sau:
 ### 🔑 **Secrets cần thiết:**
 
 1. **VPS_HOST**: `34.30.191.213`
-2. **VPS_USER**: `nguyendaihoangphuc1911`
+2. **VPS_USER**: `nguyendaihoangphuc24`
 3. **VPS_SSH_KEY**: Nội dung của file `ssh-key-2024-07-03.key`
 4. **DOCKERHUB_USERNAME**: Username Docker Hub của bạn
 5. **DOCKERHUB_TOKEN**: Access Token của Docker Hub
@@ -41,7 +41,7 @@ jObNRVJGnJNU2M0w40Tg/kOEk2mb9ROwKia5ZXYu4aL0HFcvqhyaAEU8M/Wf7WyB
 
 ```bash
 # Kết nối VPS
-ssh -i "C:\Users\ADMIN\Downloads\ssh-key-2024-07-03.key" nguyendaihoangphuc1911@34.30.191.213
+ssh -i "C:\Users\ADMIN\Downloads\ssh-key-2024-07-03.key" nguyendaihoangphuc24@34.30.191.213
 
 # Upload và chạy setup script
 wget https://raw.githubusercontent.com/[YOUR_USERNAME]/[YOUR_REPO]/main/scripts/setup-vps.sh
@@ -57,8 +57,8 @@ sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-
 sudo chmod +x /usr/local/bin/docker-compose
 
 # Tạo thư mục app
-mkdir -p /home/nguyendaihoangphuc1911/app
-cd /home/nguyendaihoangphuc1911/app
+mkdir -p /home/nguyendaihoangphuc24/app
+cd /home/nguyendaihoangphuc24/app
 mkdir -p ./data
 ```
 
@@ -66,7 +66,7 @@ mkdir -p ./data
 
 ```bash
 exit
-ssh -i "C:\Users\ADMIN\Downloads\ssh-key-2024-07-03.key" nguyendaihoangphuc1911@34.30.191.213
+ssh -i "C:\Users\ADMIN\Downloads\ssh-key-2024-07-03.key" nguyendaihoangphuc24@34.30.191.213
 ```
 
 ## 🚀 **TRIỂN KHAI TỰ ĐỘNG**
@@ -102,7 +102,7 @@ git push origin test/cicd
 
 ```bash
 # Kiểm tra containers
-ssh -i "C:\Users\ADMIN\Downloads\ssh-key-2024-07-03.key" nguyendaihoangphuc1911@34.30.191.213
+ssh -i "C:\Users\ADMIN\Downloads\ssh-key-2024-07-03.key" nguyendaihoangphuc24@34.30.191.213
 docker ps
 docker logs rag-app
 docker logs rag-frontend
@@ -132,7 +132,7 @@ curl http://34.30.191.213:6333/health
 
 ```bash
 # Trên VPS
-cd /home/nguyendaihoangphuc1911/app
+cd /home/nguyendaihoangphuc24/app
 docker-compose down
 docker pull [DOCKERHUB_USERNAME]/backend:latest
 docker pull [DOCKERHUB_USERNAME]/frontend:latest
