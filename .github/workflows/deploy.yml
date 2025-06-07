@@ -3,7 +3,7 @@ name: CI/CD Deploy to VPS
 on:
   push:
     branches:
-      - main
+      - test/cicd
 
 jobs:
   build-and-deploy:
