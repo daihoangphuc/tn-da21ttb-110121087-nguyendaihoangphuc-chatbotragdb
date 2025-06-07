@@ -32,7 +32,7 @@ services:
     networks:
       - rag-network
     environment:
-      - NEXT_PUBLIC_API_URL=http://rag-app:8000
+      - NEXT_PUBLIC_API_URL=http://34.30.191.213:8000/api
 
   qdrant:
     image: qdrant/qdrant:latest
