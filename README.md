@@ -2,36 +2,53 @@
 
 Hệ thống RAG (Retrieval-Augmented Generation) tìm kiếm thông tin và trả lời câu hỏi về Cơ sở dữ liệu.
 
+## 🚀 Triển khai tự động
+
+Hệ thống được cấu hình CI/CD tự động deploy lên VPS khi push code lên GitHub.
+
+### 🌐 Live Demo
+- **Frontend**: http://34.30.191.213:3000
+- **Backend API**: http://34.30.191.213:8000
+- **API Documentation**: http://34.30.191.213:8000/docs
+- **Health Check**: http://34.30.191.213:8000/health
+
+### 📋 Quick Deploy
+1. Push code lên branch `main` hoặc `test/cicd`
+2. GitHub Actions sẽ tự động build và deploy
+3. Kiểm tra deployment tại URLs trên
+
+> Xem chi tiết tại [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)
+
 ## Cấu trúc thư mục
 
 ```
 D:/DATN/V2/
 ├── requirements.txt         # Danh sách thư viện cần thiết
-└── src/                     # Thư mục mã nguồn
-    ├── __init__.py          # Đánh dấu thư mục là package Python
-    ├── embedding.py         # Module quản lý mô hình embedding
-    ├── llm.py               # Module quản lý mô hình ngôn ngữ lớn
-    ├── vector_store.py      # Module quản lý kho lưu trữ vector
+├── Dockerfile              # Docker config cho backend
+├── docker-compose.yml      # Docker compose cho development
+├── docker-compose.prod.yml # Docker compose cho production
+├── DEPLOYMENT_GUIDE.md     # Hướng dẫn triển khai
+├── frontend/               # Frontend Next.js
+│   ├── Dockerfile         # Docker config cho frontend
+│   └── ...
+├── scripts/               # Scripts tiện ích
+│   └── setup-vps.sh      # Script setup VPS
+├── .github/              # GitHub Actions workflows
+│   └── workflows/
+│       ├── docker-ci.yml # CI/CD deployment
+│       └── rollback.yml  # Rollback workflow
+└── src/                  # Thư mục mã nguồn backend
+    ├── __init__.py       # Đánh dấu thư mục là package Python
+    ├── embedding.py      # Module quản lý mô hình embedding
+    ├── llm.py            # Module quản lý mô hình ngôn ngữ lớn
+    ├── vector_store.py   # Module quản lý kho lưu trữ vector
     ├── document_processor.py # Module xử lý tài liệu
-    ├── prompt_manager.py    # Module quản lý prompt
-    ├── search.py            # Module quản lý tìm kiếm
-    ├── query_processor.py   # Module xử lý truy vấn đơn giản
-    ├── rag.py               # Module tổng hợp hệ thống RAG
-    ├── api.py               # Module API FastAPI
-    ├── .env                 # File cấu hình biến môi trường
-    ├── .env.example         # File mẫu cấu hình biến môi trường
-    ├── conversation_history/ # Thư mục lưu trữ lịch sử hội thoại
-    ├── UI/                  # Thư mục giao diện người dùng
-    │   ├── index.html       # Trang chính của ứng dụng web
-    │   └── assets/          # Thư mục tài nguyên
-    │       ├── css/         # Stylesheet
-    │       ├── js/          # JavaScript
-    │       └── img/         # Hình ảnh 
-    ├── img/                 # Thư mục hình ảnh
-    │   ├── Ui/              # Hình ảnh giao diện người dùng
-    │   └── Diagram/         # Hình ảnh sơ đồ hệ thống
-    ├── feedback/            # Thư mục lưu phản hồi người dùng
-    └── data/                # Thư mục chứa dữ liệu
+    ├── prompt_manager.py # Module quản lý prompt
+    ├── search.py         # Module quản lý tìm kiếm
+    ├── query_processor.py # Module xử lý truy vấn đơn giản
+    ├── rag.py            # Module tổng hợp hệ thống RAG
+    ├── api.py            # Module API FastAPI
+    └── .env              # File cấu hình biến môi trường
 ```
 
 ## Cài đặt và sử dụng

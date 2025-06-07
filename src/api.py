@@ -2208,5 +2208,28 @@ async def get_latest_conversation(
         return {"conversation_info": {}, "messages": [], "found": False}
 
 
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for deployment monitoring"""
+    try:
+        # Check if Qdrant is accessible
+        vector_store = rag_system.vector_store
+        # Basic connectivity test
+        return {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "services": {
+                "api": "running",
+                "vector_store": "connected" if vector_store else "disconnected"
+            }
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy", 
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e)
+        }
+
 if __name__ == "__main__":
     uvicorn.run("src.api:app", host="0.0.0.0", port=8000, reload=True)

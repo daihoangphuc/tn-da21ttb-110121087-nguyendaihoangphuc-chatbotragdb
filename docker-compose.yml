@@ -19,6 +19,21 @@ services:
     networks:
       - rag-network
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: rag-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - rag-app
+    restart: unless-stopped
+    networks:
+      - rag-network
+    environment:
+      - NEXT_PUBLIC_API_URL=http://rag-app:8000
+
   qdrant:
     image: qdrant/qdrant:latest
     container_name: qdrant
@@ -37,4 +52,4 @@ networks:
 
 volumes:
   qdrant-data:
-    driver: local 
+    driver: local

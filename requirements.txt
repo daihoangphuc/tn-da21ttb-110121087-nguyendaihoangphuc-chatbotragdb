@@ -19,6 +19,4 @@ python-dotenv
 pydantic[email]
 supabase
 
-# Cài đặt LibreOffice (để chuyển đổi các định dạng tài liệu về PDF)
-#!apt-get -q update
-#!apt-get install -y -q libreoffice
+# LibreOffice sẽ được cài đặt thông qua Dockerfile để chuyển đổi các định dạng tài liệu về PDF

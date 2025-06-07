@@ -45,14 +45,36 @@ docker-compose.yml
 logs/
 *.log
 
-# Data (tùy chọn, nếu bạn muốn dữ liệu được mount từ host)
-# data/
+# Frontend files (not needed for backend)
+frontend/
+node_modules/
 
-# Tệp cấu hình
+# Documentation
+docs/
+*.md
+README.md
+
+# Environment files
 .env
 .env.example
+.env.local
+.env.production
 
-# Tệp khác
-README.md
-README_2.md
-LICENSE 
+# Test files
+test_*
+*_test.py
+tests/
+__tests__/
+*.test.js
+*.spec.js
+
+# OS specific
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
