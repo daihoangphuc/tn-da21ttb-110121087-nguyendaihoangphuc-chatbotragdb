@@ -42,6 +42,14 @@ echo "🛑 Dừng tất cả containers đang chạy (nếu có)..."
 docker stop $(docker ps -a -q) 2>/dev/null || echo "Không có container nào đang chạy"
 docker rm $(docker ps -a -q) 2>/dev/null || echo "Không có container nào để xóa"
 
+# Dọn dẹp images cũ
+echo "🧹 Dọn dẹp Docker images cũ..."
+# Remove images with <none> tag
+docker images | grep '<none>' | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || echo "Không có <none> images để xóa"
+# Clean up unused images
+docker system prune -f
+docker image prune -f
+
 # Đảm bảo thư mục app tồn tại
 mkdir -p ~/app
 cd ~/app
@@ -89,6 +97,7 @@ services:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://34.30.191.213:8000/api
+      - NEXT_PUBLIC_INTERNAL_API_URL=http://rag-app:8000/api
     depends_on:
       - rag-app
     restart: unless-stopped
@@ -113,12 +122,27 @@ echo "📋 Kiểm tra trạng thái containers..."
 docker-compose ps
 docker ps -a
 
+# Test kết nối API
+echo "🧪 Test kết nối API..."
+if curl -f http://localhost:8000/api/ > /dev/null 2>&1; then
+  echo "✅ Backend API đang hoạt động"
+  curl -s http://localhost:8000/api/ | head -3
+else
+  echo "❌ Backend API không phản hồi"
+fi
+
+if curl -f http://localhost:3000 > /dev/null 2>&1; then
+  echo "✅ Frontend đang hoạt động"
+else
+  echo "❌ Frontend không phản hồi"
+fi
+
 # Kiểm tra logs
 echo "📋 Kiểm tra logs của containers..."
 echo "📊 Logs của backend:"
-docker-compose logs --tail=20 rag-app
+docker-compose logs --tail=30 rag-app
 echo "📊 Logs của frontend:"
-docker-compose logs --tail=20 frontend
+docker-compose logs --tail=30 frontend
 
 echo "✅ Quá trình khắc phục sự cố và chạy container đã hoàn tất!"
 echo "🌐 Bạn có thể truy cập ứng dụng tại:"

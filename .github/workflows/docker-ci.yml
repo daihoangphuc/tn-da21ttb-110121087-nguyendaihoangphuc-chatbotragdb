@@ -53,20 +53,32 @@ jobs:
             echo "=== Starting deployment ==="
             whoami
             pwd
-            
-            # Navigate to app directory
+              # Navigate to app directory
             mkdir -p ~/app
             cd ~/app
-              echo "=== Pulling Docker images ==="
+            
+            echo "=== Pulling Docker images ==="
             docker pull ${{ secrets.DOCKERHUB_USERNAME }}/backend:latest
             docker pull ${{ secrets.DOCKERHUB_USERNAME }}/frontend:latest
+              echo "=== Cleaning up old Docker images ==="
+            # Stop and remove all containers first
+            docker stop $(docker ps -a -q) 2>/dev/null || echo "No containers to stop"
+            docker rm $(docker ps -a -q) 2>/dev/null || echo "No containers to remove"
             
-            echo "=== Cleaning up old Docker images ==="
+            # Remove all images with <none> tag
+            docker images | grep '<none>' | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || echo "No <none> images to remove"
+            
+            # Remove old versions of our specific images
+            docker images ${{ secrets.DOCKERHUB_USERNAME }}/backend | grep -v latest | awk 'NR>1{print $3}' | xargs -r docker rmi -f 2>/dev/null || echo "No old backend images to remove"
+            docker images ${{ secrets.DOCKERHUB_USERNAME }}/frontend | grep -v latest | awk 'NR>1{print $3}' | xargs -r docker rmi -f 2>/dev/null || echo "No old frontend images to remove"
+            
+            # Clean up unused images, containers, and networks
+            docker system prune -f
             docker image prune -f
-            
-            echo "=== Stopping existing containers ==="
+              echo "=== Stopping existing containers ==="
             docker-compose down 2>/dev/null || echo "No existing containers"
-              echo "=== Creating .env file for backend ==="
+            
+            echo "=== Creating .env file for backend ==="
             cat > .env << 'EOF'
             ${{ secrets.BACKEND_ENV }}
             EOF
@@ -85,14 +97,14 @@ jobs:
                   - .env
                 restart: unless-stopped
                 networks:
-                  - rag-network
-              frontend:
+                  - rag-network              frontend:
                 image: ${{ secrets.DOCKERHUB_USERNAME }}/frontend:latest
                 container_name: rag-frontend
                 ports:
                   - "3000:3000"
                 environment:
                   - NEXT_PUBLIC_API_URL=http://34.30.191.213:8000/api
+                  - NEXT_PUBLIC_INTERNAL_API_URL=http://rag-app:8000/api
                 depends_on:
                   - rag-app
                 restart: unless-stopped
@@ -110,23 +122,45 @@ jobs:
               sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
               sudo chmod +x /usr/local/bin/docker-compose
             fi
-            
-            # Ensure proper permissions
+              # Ensure proper permissions
             sudo chown -R $USER:$USER ~/app
-            
-            # Stop and remove any conflicting containers
-            docker stop $(docker ps -a -q) 2>/dev/null || true
-            docker rm $(docker ps -a -q) 2>/dev/null || true
-            
-            # Start the containers
+              # Start the containers
             docker-compose up -d
             
-            echo "=== Checking container status ==="
-            sleep 30
+            # Wait for containers to start
+            echo "⏳ Waiting for containers to start..."
+            sleep 10
+            
+            # Check if containers are running, restart if needed
+            if ! docker-compose ps | grep -q "Up"; then
+              echo "⚠️ Some containers not running, attempting restart..."
+              docker-compose restart
+              sleep 20
+            fi            echo "=== Checking container status ==="
+            sleep 20
             docker-compose ps
             docker ps -a
             
+            echo "=== Testing API connectivity ==="
+            # Test backend API
+            if curl -f http://localhost:8000/api/ > /dev/null 2>&1; then
+              echo "✅ Backend API is responding"
+              curl -s http://localhost:8000/api/ | head -3
+            else
+              echo "❌ Backend API is not responding"
+            fi
+            
+            # Test frontend
+            if curl -f http://localhost:3000 > /dev/null 2>&1; then
+              echo "✅ Frontend is responding"
+            else
+              echo "❌ Frontend is not responding"
+            fi
+            
             echo "=== Container logs ==="
-            docker-compose logs --tail=20
+            echo "📊 Backend logs:"
+            docker-compose logs --tail=30 rag-app
+            echo "📊 Frontend logs:"
+            docker-compose logs --tail=30 frontend
             
             echo "=== Deployment completed ==="
