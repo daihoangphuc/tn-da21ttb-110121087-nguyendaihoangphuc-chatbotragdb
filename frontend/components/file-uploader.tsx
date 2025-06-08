@@ -176,25 +176,29 @@ export function FileUploader({ onSelectedFilesChange }: FileUploaderProps) {
       try {
         const fileToRemove = files.find(file => file.id === fileToDelete);
         if (!fileToRemove) return;
-        
         await filesApi.deleteFile(fileToRemove.name);
-        
         setFiles(files.filter((file) => file.id !== fileToDelete));
-        
         toast({
           title: "Xóa thành công",
           description: `Đã xóa tài liệu ${fileToRemove.name}`
         });
-      } catch (error) {
-        console.error('Lỗi khi xóa tài liệu:', error);
-        toast({
-          variant: "destructive",
-          title: "Lỗi",
-          description: "Không thể xóa tài liệu. Vui lòng thử lại sau."
-        });
+      } catch (error: any) {
+        // Nếu lỗi 404 (file không tồn tại), vẫn xóa khỏi giao diện và báo cho user
+        if (error.message && (error.message.includes("không tồn tại") || error.message.includes("404"))) {
+          setFiles(files.filter((file) => file.id !== fileToDelete));
+          toast({
+            title: "Đã xóa khỏi danh sách",
+            description: "File đã bị xóa hoặc không tồn tại trên server."
+          });
+        } else {
+          toast({
+            variant: "destructive",
+            title: "Lỗi",
+            description: error.message || "Không thể xóa tài liệu. Vui lòng thử lại sau."
+          });
+        }
       } finally {
         setFileToDelete(null);
-        
         // Cập nhật lại trạng thái selectAll sau khi xóa
         const remainingFiles = files.filter((file) => file.id !== fileToDelete);
         setSelectAll(remainingFiles.length > 0 && remainingFiles.every(file => file.selected));

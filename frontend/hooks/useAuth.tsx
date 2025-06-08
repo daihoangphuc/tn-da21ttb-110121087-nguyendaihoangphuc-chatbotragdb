@@ -234,43 +234,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     try {
       const payload = { code, provider: 'google' };
-      const response = await fetchApi('/auth/google', {
+      const data = await fetchApi('/auth/google', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
       });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        // Nếu không có access_token trong phản hồi, đây thực sự là lỗi
-        if (!data.access_token) {
-          throw new Error(data.message || "Lỗi xác thực với Google");
-        }
+      // Không cần gọi response.json(), fetchApi đã trả về data
+      if (!data.access_token) {
+        throw new Error(data.message || "Lỗi xác thực với Google");
       }
-      
       // Nếu có access_token, coi như đăng nhập thành công
       if (data.access_token) {
-        // Lưu token và thông tin người dùng
         setLocalStorage("auth_token", data.access_token);
         if (data.user) {
           setLocalStorage("user_info", JSON.stringify(data.user));
           setUser(data.user);
         }
-        
         toast({
           title: "Đăng nhập thành công",
           description: "Chào mừng bạn quay trở lại!",
         });
-        
         return data;
       } else {
         throw new Error("Không nhận được token xác thực");
       }
     } catch (error: any) {
-      // Hiển thị thông báo lỗi
       toast({
         variant: "destructive",
         title: "Đăng nhập thất bại",
