@@ -31,7 +31,7 @@ import {
   File,
 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
-import { filesApi, questionsApi } from "@/lib/api"
+import { filesApi, questionsApi, fetchApi } from "@/lib/api"
 import React from 'react'
 import { ChatMessage } from "@/components/chat-message"
 import { LoadingMessage } from "./loading-message"
@@ -192,7 +192,6 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
 
   const handleSend = async () => {
     if (!input.trim() || isSending) return;
-    
     if (selectedFileIds.length === 0) {
       toast({
         title: "Chưa chọn tài liệu",
@@ -202,11 +201,8 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
       });
       return;
     }
-
     setIsSending(true);
     setIsTyping(true);
-
-    // Add user message
     const userMessage = {
       id: Date.now().toString(),
       role: "user" as const,
@@ -214,59 +210,24 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
       sources: [],
       citations: []
     };
-    
     setMessages(prev => [...prev, userMessage]);
     setInput("");
-
     let abortController = new AbortController();
     const decoder = new TextDecoder();
-
     try {
-      // Sử dụng process.env.NEXT_PUBLIC_API_URL trực tiếp cho url stream
-      const url = `${process.env.NEXT_PUBLIC_API_URL}/ask/stream`;
-      const requestBody = JSON.stringify({
-        question: input,
-        search_type: "hybrid",
-        alpha: 0.7,
-        file_id: selectedFileIds
-      });
-      let token = null;
-      if (typeof window !== 'undefined') {
-        token = localStorage.getItem('auth_token');
-        if (!token) {
-          const session = localStorage.getItem('session');
-          if (session) {
-            try {
-              const sessionData = JSON.parse(session);
-              token = sessionData.access_token;
-            } catch (e) {
-              console.error('Error parsing session data:', e);
-            }
-          }
-        }
-      }
-      if (!token) {
-        throw new Error('Không tìm thấy token xác thực. Vui lòng đăng nhập lại.');
-      }
-      // Gọi fetch với url đầy đủ
-      const response = await fetch(url, {
+      // Gọi fetchApi để lấy response stream
+      const response = await fetchApi('/ask/stream', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: requestBody,
+        body: JSON.stringify({
+          question: input,
+          search_type: "hybrid",
+          alpha: 0.7,
+          file_id: selectedFileIds
+        }),
         signal: abortController.signal
       });
-      if (!response.ok) {
-        let errorMessage = `Lỗi khi gửi câu hỏi: ${response.status} ${response.statusText}`;
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.detail || errorData.message || errorMessage;
-        } catch (e) {}
-        throw new Error(errorMessage);
-      }
-      const reader = response.body?.getReader();
+      // fetchApi trả về response, kiểm tra nếu là stream
+      const reader = response.body?.getReader ? response.body.getReader() : null;
       if (!reader) {
         throw new Error('Không thể đọc response');
       }
@@ -395,10 +356,9 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
     }
   };
   
-  // Thay thế hàm updateRelatedQuestions để sử dụng questionsApi.getSuggestions
   const updateRelatedQuestions = async () => {
     try {
-      const data = await questionsApi.getSuggestions(3);
+      const data = await fetchApi('/suggestions?num_suggestions=3', { method: 'GET' });
       if (data.suggestions && Array.isArray(data.suggestions)) {
         const newRelatedQuestions = data.suggestions.map((question: string, index: number) => ({
           id: `related-${index}`,
