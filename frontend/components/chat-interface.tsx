@@ -222,15 +222,14 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
     const decoder = new TextDecoder();
 
     try {
+      // Sử dụng process.env.NEXT_PUBLIC_API_URL trực tiếp cho url stream
       const url = `${process.env.NEXT_PUBLIC_API_URL}/ask/stream`;
-      
       const requestBody = JSON.stringify({
         question: input,
         search_type: "hybrid",
         alpha: 0.7,
         file_id: selectedFileIds
       });
-      
       let token = null;
       if (typeof window !== 'undefined') {
         token = localStorage.getItem('auth_token');
@@ -246,11 +245,10 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
           }
         }
       }
-      
       if (!token) {
         throw new Error('Không tìm thấy token xác thực. Vui lòng đăng nhập lại.');
       }
-      
+      // Gọi fetch với url đầy đủ
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -260,55 +258,41 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
         body: requestBody,
         signal: abortController.signal
       });
-
       if (!response.ok) {
         let errorMessage = `Lỗi khi gửi câu hỏi: ${response.status} ${response.statusText}`;
         try {
           const errorData = await response.json();
           errorMessage = errorData.detail || errorData.message || errorMessage;
-        } catch (e) {
-          // Nếu không parse được JSON, sử dụng status text
-        }
+        } catch (e) {}
         throw new Error(errorMessage);
       }
-
       const reader = response.body?.getReader();
       if (!reader) {
         throw new Error('Không thể đọc response');
       }
-
       let buffer = '';
       let sources: Source[] = [];
       let newSourcesData: Record<string, SourceDetail> = {};
       let hasCreatedAssistantMessage = false;
       let assistantMessageId = '';
       let currentContent = '';
-
       try {
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
-
           buffer += decoder.decode(value, { stream: true });
-          
           let lines = buffer.split('\n');
           buffer = lines.pop() || '';
-
           for (const line of lines) {
             if (!line.trim()) continue;
-
             if (line.startsWith('event: content')) {
               const dataLine = lines.find(l => l.startsWith('data:'));
               if (dataLine) {
                 try {
                   const data = JSON.parse(dataLine.replace('data:', '').trim());
-                  
                   if (data.content) {
-                    // Append new content
                     currentContent += data.content;
-
                     if (!hasCreatedAssistantMessage) {
-                      // Create new message with initial content
                       assistantMessageId = Date.now().toString();
                       setMessages(prev => [...prev, {
                         id: assistantMessageId,
@@ -319,7 +303,6 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
                       }]);
                       hasCreatedAssistantMessage = true;
                     } else {
-                      // Update existing message with new content
                       setMessages(prev => {
                         const updatedMessages = [...prev];
                         const lastMessage = updatedMessages[updatedMessages.length - 1];
@@ -335,18 +318,14 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
                 }
               }
             }
-            
-            // Handle sources event
             else if (line.startsWith('event: sources') && hasCreatedAssistantMessage) {
               const dataLine = lines.find(l => l.startsWith('data:'));
               if (dataLine) {
                 try {
                   const data = JSON.parse(dataLine.replace('data:', '').trim());
-                  
                   if (data.sources && Array.isArray(data.sources)) {
                     sources = data.sources.map((source: any) => {
                       const sourceId = source.file_id || source.source || `source-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-                      
                       if (source.content_snippet) {
                         newSourcesData[sourceId] = {
                           id: sourceId,
@@ -357,7 +336,6 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
                           highlight: source.highlight || source.content_snippet.substring(0, 150)
                         };
                       }
-                      
                       return {
                         id: sourceId,
                         title: source.source || "Tài liệu không xác định",
@@ -365,7 +343,6 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
                         relevance: source.score || 0
                       };
                     });
-                    
                     setMessages(prev => {
                       const updatedMessages = [...prev];
                       const lastMessage = updatedMessages[updatedMessages.length - 1];
@@ -374,7 +351,6 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
                       }
                       return updatedMessages;
                     });
-                    
                     setSourcesData(prevSources => ({
                       ...prevSources,
                       ...newSourcesData
@@ -385,8 +361,6 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
                 }
               }
             }
-            
-            // Handle end event
             else if (line.startsWith('event: end')) {
               try {
                 const dataLine = lines.find(l => l.startsWith('data:'));
@@ -397,7 +371,6 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
               } catch (error) {
                 console.error('Lỗi khi parse dữ liệu end:', error);
               }
-              
               setIsTyping(false);
               setIsSending(false);
               break;
@@ -417,58 +390,21 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
         title: "Lỗi",
         description: error instanceof Error ? error.message : "Có lỗi xảy ra khi gửi câu hỏi"
       });
-      
       setIsTyping(false);
       setIsSending(false);
     }
   };
   
-  // Thêm hàm cập nhật câu hỏi liên quan
+  // Thay thế hàm updateRelatedQuestions để sử dụng questionsApi.getSuggestions
   const updateRelatedQuestions = async () => {
     try {
-      console.log('Bắt đầu gọi API suggestions...');
-      let token = localStorage.getItem('auth_token');
-      if (!token) {
-        const session = localStorage.getItem('session');
-        if (session) {
-          try {
-            const sessionData = JSON.parse(session);
-            token = sessionData.access_token;
-          } catch (e) {
-            console.error('Error parsing session data:', e);
-            return;
-          }
-        }
-      }
-
-      if (!token) {
-        console.error('Không tìm thấy token xác thực');
-        return;
-      }
-
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/suggestions?num_suggestions=3`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'accept': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Lỗi khi lấy câu hỏi gợi ý');
-      }
-
-      const data = await response.json();
-      console.log('Dữ liệu nhận được từ API:', data);
-      
+      const data = await questionsApi.getSuggestions(3);
       if (data.suggestions && Array.isArray(data.suggestions)) {
         const newRelatedQuestions = data.suggestions.map((question: string, index: number) => ({
           id: `related-${index}`,
           text: question,
           query: question
         }));
-        
-        console.log('Cập nhật state với câu hỏi mới:', newRelatedQuestions);
         setRelatedQuestions(newRelatedQuestions);
       }
     } catch (error) {
