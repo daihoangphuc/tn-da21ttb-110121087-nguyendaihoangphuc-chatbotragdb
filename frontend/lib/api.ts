@@ -141,7 +141,7 @@ export const authApi = {
 
   forgotPassword: async (email: string, redirectUrl?: string): Promise<ForgotPasswordResponse> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+      return await fetchApi('/auth/forgot-password', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -151,13 +151,6 @@ export const authApi = {
           redirect_to: redirectUrl
         })
       });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Không thể gửi yêu cầu đặt lại mật khẩu");
-      }
-      
-      return await response.json();
     } catch (error) {
       console.error("Forgot password error:", error);
       throw error;
@@ -166,7 +159,7 @@ export const authApi = {
 
   resetPassword: async (token: string, password: string): Promise<{ status: string; message: string }> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/reset-password`, {
+      return await fetchApi('/auth/reset-password', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -176,13 +169,6 @@ export const authApi = {
           access_token: token
         })
       });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Không thể đặt lại mật khẩu");
-      }
-      
-      return await response.json();
     } catch (error) {
       console.error("Reset password error:", error);
       throw error;
@@ -363,3 +349,35 @@ export const questionsApi = {
     return fetchApi(`/suggestions?num_suggestions=${numSuggestions}`);
   },
 };
+
+export async function fetchApiStream(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  const url = `${API_BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+  let token = null;
+  if (typeof window !== 'undefined') {
+    token = localStorage.getItem('auth_token');
+    if (!token) {
+      const session = localStorage.getItem('session');
+      if (session) {
+        try {
+          const sessionData = JSON.parse(session);
+          token = sessionData.access_token;
+        } catch (e) {
+          console.error('Error parsing session data:', e);
+        }
+      }
+    }
+  }
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...options.headers,
+  };
+  const config: RequestInit = {
+    ...options,
+    headers,
+  };
+  return fetch(url, config);
+}

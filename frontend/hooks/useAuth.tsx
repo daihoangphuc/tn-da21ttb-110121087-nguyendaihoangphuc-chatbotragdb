@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { authApi, conversationsApi } from "@/lib/api";
 import { toast } from "@/components/ui/use-toast";
 import type { AuthResponse, ForgotPasswordResponse } from "@/types/auth";
+import { fetchApi } from "@/lib/api";
 
 // Định nghĩa kiểu dữ liệu cho User
 export interface User {
@@ -232,12 +233,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loginWithGoogle = async (code: string) => {
     setLoading(true);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/google`, {
-        method: "POST",
+      const payload = { code, provider: 'google' };
+      const response = await fetchApi('/auth/google', {
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ code, provider: 'google' })
+        body: JSON.stringify(payload),
       });
       
       const data = await response.json();

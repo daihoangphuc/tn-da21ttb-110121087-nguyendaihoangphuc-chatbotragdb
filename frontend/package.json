@@ -9,7 +9,6 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "webpack": "^5.91.0",
     "@babel/runtime": "latest",
     "@codemirror/lang-sql": "latest",
     "@codemirror/state": "latest",
@@ -71,10 +70,12 @@
     "tailwind-merge": "^2.5.5",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^0.9.6",
+    "webpack": "^5.91.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.16",
+    "@types/next": "^9.0.0",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",

@@ -31,7 +31,7 @@ import {
   File,
 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
-import { filesApi, questionsApi, fetchApi } from "@/lib/api"
+import { filesApi, questionsApi, fetchApi, fetchApiStream } from "@/lib/api"
 import React from 'react'
 import { ChatMessage } from "@/components/chat-message"
 import { LoadingMessage } from "./loading-message"
@@ -215,8 +215,8 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
     let abortController = new AbortController();
     const decoder = new TextDecoder();
     try {
-      // Gọi fetchApi để lấy response stream
-      const response = await fetchApi('/ask/stream', {
+      // Gọi fetchApiStream để lấy response stream
+      const response = await fetchApiStream('/ask/stream', {
         method: 'POST',
         body: JSON.stringify({
           question: input,
@@ -226,8 +226,7 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
         }),
         signal: abortController.signal
       });
-      // fetchApi trả về response, kiểm tra nếu là stream
-      const reader = response.body?.getReader ? response.body.getReader() : null;
+      const reader = response.body?.getReader();
       if (!reader) {
         throw new Error('Không thể đọc response');
       }

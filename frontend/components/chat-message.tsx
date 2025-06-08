@@ -82,7 +82,7 @@ export function ChatMessage({
       <div
         className={cn(
           message.role === "assistant"
-            ? "p-0 w-full"
+            ? "bg-white/70 dark:bg-background/80 rounded-xl border shadow-md p-4 w-full backdrop-blur-sm"
             : "bg-primary text-primary-foreground inline-block p-4 rounded-lg shadow-md overflow-hidden"
         )}
       >
