@@ -65,14 +65,14 @@ export function ChatMessage({
       <Avatar className="h-8 w-8 mt-1 flex-shrink-0">
         {message.role === "assistant" ? (
           <>
-            <AvatarImage src="/images/bot-avatar.png" alt="Bot" />
+            <AvatarImage src="/images/bot-avatar.svg" alt="Bot" />
             <AvatarFallback className="bg-primary/10 text-primary">
               <Database className="h-4 w-4" />
             </AvatarFallback>
           </>
         ) : (
           <>
-            <AvatarImage src="/images/user-avatar.png" alt="User" />
+            <AvatarImage src="/images/user-avatar.svg" alt="User" />
             <AvatarFallback className="bg-secondary text-secondary-foreground">
               <User className="h-4 w-4" />
             </AvatarFallback>
