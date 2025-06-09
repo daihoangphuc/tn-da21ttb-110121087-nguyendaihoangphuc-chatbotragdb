@@ -1,12 +1,53 @@
-name: CI/CD Deploy to VPS
+name: CI/CD Pipeline
 
 on:
   push:
     branches:
-      - test/cicd
+      - test/cicd_v2
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Backend tests
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install backend dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run backend tests
+        run: |
+          pytest src/tests/
+
+      # Frontend tests
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: |
+          npm ci || npm install
+
+      - name: Run frontend tests
+        working-directory: ./frontend
+        run: |
+          npm test
+
   build-and-push:
+    needs: test
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -15,8 +56,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set environment variables
+        id: vars
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "ENV=production" >> $GITHUB_OUTPUT
+            echo "TAG=latest" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+            echo "ENV=staging" >> $GITHUB_OUTPUT
+            echo "TAG=staging" >> $GITHUB_OUTPUT
+          else
+            echo "ENV=development" >> $GITHUB_OUTPUT
+            echo "TAG=dev" >> $GITHUB_OUTPUT
+          fi
+          echo "SHA_SHORT=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ matrix.service }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-${{ matrix.service }}-
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -24,38 +88,83 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Prepare backend env file
+        if: matrix.service == 'backend'
+        run: |
+          echo "${{ secrets.BACKEND_ENV }}" > .env.backend
+
+      - name: Prepare frontend env file
+        if: matrix.service == 'frontend'
+        run: |
+          echo "${{ secrets.FRONTEND_ENV }}" > .env.frontend
+          echo "NEXT_PUBLIC_API_URL=${{ steps.vars.outputs.ENV == 'production' && 'https://api.example.com' || steps.vars.outputs.ENV == 'staging' && 'https://staging-api.example.com' || 'http://localhost:8000' }}" >> .env.frontend
+
       - name: Build and push ${{ matrix.service }} image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: Dockerfile.${{ matrix.service }}
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/db-rag-${{ matrix.service }}:latest
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/db-rag-${{ matrix.service }}:${{ steps.vars.outputs.TAG }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/db-rag-${{ matrix.service }}:${{ steps.vars.outputs.SHA_SHORT }}
           build-args: |
-            ${{ matrix.service == 'backend' && format('BACKEND_ENV={0}', secrets.BACKEND_ENV) || format('FRONTEND_ENV={0}', secrets.FRONTEND_ENV) }}
+            ENV_FILE=.env.${{ matrix.service }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
   deploy:
     needs: build-and-push
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/test/cicd')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Write BACKEND_ENV to .env
+      - name: Set environment variables
+        id: vars
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "ENV=production" >> $GITHUB_OUTPUT
+            echo "TAG=latest" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+            echo "ENV=staging" >> $GITHUB_OUTPUT
+            echo "TAG=staging" >> $GITHUB_OUTPUT
+          else
+            echo "ENV=development" >> $GITHUB_OUTPUT
+            echo "TAG=dev" >> $GITHUB_OUTPUT
+          fi
+          echo "SHA_SHORT=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Create .env file
         run: |
           echo "${{ secrets.BACKEND_ENV }}" > .env
+          echo "DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}" >> .env
+          echo "TAG=${{ steps.vars.outputs.TAG }}" >> .env
 
-      - name: Ensure DOCKERHUB_USERNAME in .env
+      - name: Create docker-compose override
         run: |
-          grep -q '^DOCKERHUB_USERNAME=' .env && sed -i "s|^DOCKERHUB_USERNAME=.*|DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}|" .env || echo "DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}" >> .env
+          cat > docker-compose.override.yml << EOF
+          version: '3'
+          services:
+            backend:
+              image: \${DOCKERHUB_USERNAME}/db-rag-backend:\${TAG}
+            frontend:
+              image: \${DOCKERHUB_USERNAME}/db-rag-frontend:\${TAG}
+          EOF
 
-      - name: Copy docker-compose and env files to VPS
+      - name: Copy files to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: "docker-compose.yml,.env"
+          source: "docker-compose.yml,docker-compose.override.yml,.env"
           target: "~/app"
 
       - name: Deploy on VPS via SSH
@@ -69,4 +178,4 @@ jobs:
             docker compose pull
             docker compose down
             docker compose up -d --remove-orphans
-            docker system prune -af
+            docker system prune -af --filter "until=24h"

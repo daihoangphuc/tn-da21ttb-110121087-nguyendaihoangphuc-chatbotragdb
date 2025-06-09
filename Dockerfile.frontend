@@ -24,9 +24,10 @@ WORKDIR /app
 COPY frontend/ .
 COPY --from=deps /app/node_modules ./node_modules
 
-# Build arguments for environment variables
-ARG NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# Đối số để nhận file env từ CI/CD
+ARG ENV_FILE=.env.frontend
+# Copy file env từ build context
+COPY ${ENV_FILE} ./.env.local
 
 # Build the application
 RUN pnpm build

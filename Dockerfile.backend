@@ -1,5 +1,5 @@
 # Dockerfile cho Backend (FastAPI)
-FROM python:3.10-slim
+FROM python:3.10-slim AS base
 
 # Thiết lập thư mục làm việc
 WORKDIR /app
@@ -11,20 +11,26 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Stage cho dependencies
+FROM base AS dependencies
+
 # Copy requirements và cài đặt dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Stage cho build
+FROM dependencies AS build
+
 # Copy source code
 COPY src/ ./src/
 
-# Copy environment file if exists (will be overridden by GitHub Actions)
-COPY .env* ./
-# Ensure .env exists for local builds
-RUN touch .env
-
 # Tạo thư mục data
 RUN mkdir -p src/data
+
+# Đối số để nhận file env từ CI/CD
+ARG ENV_FILE=.env
+# Copy file env từ build context
+COPY ${ENV_FILE} ./.env
 
 # Expose port
 EXPOSE 8000

@@ -1,7 +1,9 @@
+version: '3.8'
+
 services:
   # Backend service
   backend:
-    image: ${DOCKERHUB_USERNAME}/db-rag-backend:latest
+    image: ${DOCKERHUB_USERNAME}/db-rag-backend:${TAG:-latest}
     ports:
       - "8000:8000"
     environment:
@@ -10,7 +12,7 @@ services:
     env_file:
       - .env
     volumes:
-      - ./src/data:/app/src/data
+      - backend_data:/app/src/data
     networks:
       - app-network
     restart: unless-stopped
@@ -20,15 +22,19 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Frontend service
   frontend:
-    image: ${DOCKERHUB_USERNAME}/db-rag-frontend:latest
+    image: ${DOCKERHUB_USERNAME}/db-rag-frontend:${TAG:-latest}
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://localhost:8000/api
     depends_on:
       backend:
         condition: service_healthy
@@ -41,6 +47,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   app-network:
@@ -48,3 +59,4 @@ networks:
 
 volumes:
   backend_data:
+    driver: local
