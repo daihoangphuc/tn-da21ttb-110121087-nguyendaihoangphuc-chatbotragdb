@@ -56,7 +56,7 @@ jobs:
         if: matrix.service == 'frontend'
         run: |
           echo "${{ secrets.FRONTEND_ENV }}" > .env.frontend
-          echo "NEXT_PUBLIC_API_URL=${{ steps.vars.outputs.ENV == 'production' && 'https://api.example.com' || steps.vars.outputs.ENV == 'staging' && 'https://staging-api.example.com' || 'http://localhost:8000' }}" >> .env.frontend
+          echo "NEXT_PUBLIC_API_URL=http://${{ secrets.VPS_HOST }}:8000" >> .env.frontend
 
       - name: Build and push ${{ matrix.service }} image
         uses: docker/build-push-action@v5
@@ -115,6 +115,8 @@ jobs:
               image: \${DOCKERHUB_USERNAME}/db-rag-backend:\${TAG}
             frontend:
               image: \${DOCKERHUB_USERNAME}/db-rag-frontend:\${TAG}
+              environment:
+                - NEXT_PUBLIC_API_URL=http://${{ secrets.VPS_HOST }}:8000
           EOF
 
       - name: Copy files to VPS
