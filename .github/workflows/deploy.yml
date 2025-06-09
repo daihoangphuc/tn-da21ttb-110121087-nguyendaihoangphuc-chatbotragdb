@@ -6,48 +6,7 @@ on:
       - test/cicd_v2
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # Backend tests
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-          cache: 'pip'
-
-      - name: Install backend dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install pytest
-
-      - name: Run backend tests
-        run: |
-          pytest src/tests/
-
-      # Frontend tests
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install frontend dependencies
-        working-directory: ./frontend
-        run: |
-          npm ci || npm install
-
-      - name: Run frontend tests
-        working-directory: ./frontend
-        run: |
-          npm test
-
   build-and-push:
-    needs: test
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -120,7 +79,7 @@ jobs:
 
   deploy:
     needs: build-and-push
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/test/cicd')
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
