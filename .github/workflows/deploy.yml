@@ -21,12 +21,18 @@ jobs:
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "ENV=production" >> $GITHUB_OUTPUT
             echo "TAG=latest" >> $GITHUB_OUTPUT
+            echo "FRONTEND_DOMAIN=https://chat.phucndh.me" >> $GITHUB_OUTPUT
+            echo "BACKEND_DOMAIN=https://api.phucndh.me" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
             echo "ENV=staging" >> $GITHUB_OUTPUT
             echo "TAG=staging" >> $GITHUB_OUTPUT
+            echo "FRONTEND_DOMAIN=https://staging.chat.phucndh.me" >> $GITHUB_OUTPUT
+            echo "BACKEND_DOMAIN=https://staging.api.phucndh.me" >> $GITHUB_OUTPUT
           else
             echo "ENV=development" >> $GITHUB_OUTPUT
             echo "TAG=dev" >> $GITHUB_OUTPUT
+            echo "FRONTEND_DOMAIN=http://${{ secrets.VPS_HOST }}:3000" >> $GITHUB_OUTPUT
+            echo "BACKEND_DOMAIN=http://${{ secrets.VPS_HOST }}:8000" >> $GITHUB_OUTPUT
           fi
           echo "SHA_SHORT=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
 
@@ -51,12 +57,13 @@ jobs:
         if: matrix.service == 'backend'
         run: |
           echo "${{ secrets.BACKEND_ENV }}" > .env.backend
+          echo "FRONTEND_URL=${{ steps.vars.outputs.FRONTEND_DOMAIN }}" >> .env.backend
 
       - name: Prepare frontend env file
         if: matrix.service == 'frontend'
         run: |
           echo "${{ secrets.FRONTEND_ENV }}" > .env.frontend
-          echo "NEXT_PUBLIC_API_URL=http://${{ secrets.VPS_HOST }}:8000/api" >> .env.frontend
+          echo "NEXT_PUBLIC_API_URL=${{ steps.vars.outputs.BACKEND_DOMAIN }}/api" >> .env.frontend
 
       - name: Build and push ${{ matrix.service }} image
         uses: docker/build-push-action@v5
@@ -91,12 +98,18 @@ jobs:
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "ENV=production" >> $GITHUB_OUTPUT
             echo "TAG=latest" >> $GITHUB_OUTPUT
+            echo "FRONTEND_DOMAIN=https://chat.phucndh.me" >> $GITHUB_OUTPUT
+            echo "BACKEND_DOMAIN=https://api.phucndh.me" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
             echo "ENV=staging" >> $GITHUB_OUTPUT
             echo "TAG=staging" >> $GITHUB_OUTPUT
+            echo "FRONTEND_DOMAIN=https://staging.chat.phucndh.me" >> $GITHUB_OUTPUT
+            echo "BACKEND_DOMAIN=https://staging.api.phucndh.me" >> $GITHUB_OUTPUT
           else
             echo "ENV=development" >> $GITHUB_OUTPUT
             echo "TAG=dev" >> $GITHUB_OUTPUT
+            echo "FRONTEND_DOMAIN=http://${{ secrets.VPS_HOST }}:3000" >> $GITHUB_OUTPUT
+            echo "BACKEND_DOMAIN=http://${{ secrets.VPS_HOST }}:8000" >> $GITHUB_OUTPUT
           fi
           echo "SHA_SHORT=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
 
@@ -105,6 +118,7 @@ jobs:
           echo "${{ secrets.BACKEND_ENV }}" > .env
           echo "DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}" >> .env
           echo "TAG=${{ steps.vars.outputs.TAG }}" >> .env
+          echo "FRONTEND_URL=${{ steps.vars.outputs.FRONTEND_DOMAIN }}" >> .env
 
       - name: Create docker-compose override
         run: |
@@ -113,10 +127,12 @@ jobs:
           services:
             backend:
               image: \${DOCKERHUB_USERNAME}/db-rag-backend:\${TAG}
+              environment:
+                - FRONTEND_URL=${{ steps.vars.outputs.FRONTEND_DOMAIN }}
             frontend:
               image: \${DOCKERHUB_USERNAME}/db-rag-frontend:\${TAG}
               environment:
-                - NEXT_PUBLIC_API_URL=http://${{ secrets.VPS_HOST }}:8000/api
+                - NEXT_PUBLIC_API_URL=${{ steps.vars.outputs.BACKEND_DOMAIN }}/api
           EOF
 
       - name: Copy files to VPS
