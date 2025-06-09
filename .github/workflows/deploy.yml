@@ -63,7 +63,7 @@ jobs:
         if: matrix.service == 'frontend'
         run: |
           echo "${{ secrets.FRONTEND_ENV }}" > .env.frontend
-          echo "NEXT_PUBLIC_API_URL=${{ steps.vars.outputs.BACKEND_DOMAIN }}/api" >> .env.frontend
+          echo "NEXT_PUBLIC_API_URL=${{ steps.vars.outputs.BACKEND_DOMAIN }}" >> .env.frontend
 
       - name: Build and push ${{ matrix.service }} image
         uses: docker/build-push-action@v5
@@ -132,7 +132,63 @@ jobs:
             frontend:
               image: \${DOCKERHUB_USERNAME}/db-rag-frontend:\${TAG}
               environment:
-                - NEXT_PUBLIC_API_URL=${{ steps.vars.outputs.BACKEND_DOMAIN }}/api
+                - NEXT_PUBLIC_API_URL=${{ steps.vars.outputs.BACKEND_DOMAIN }}
+          EOF
+
+      - name: Create nginx config for backend
+        run: |
+          cat > nginx-backend.conf << EOF
+          server {
+              listen 80;
+              server_name api.phucndh.me;
+              
+              location / {
+                  return 301 https://\$host\$request_uri;
+              }
+          }
+          
+          server {
+              listen 443 ssl;
+              server_name api.phucndh.me;
+              
+              ssl_certificate /etc/letsencrypt/live/api.phucndh.me/fullchain.pem;
+              ssl_certificate_key /etc/letsencrypt/live/api.phucndh.me/privkey.pem;
+              
+              location / {
+                  proxy_pass http://localhost:8000;
+                  proxy_set_header Host \$host;
+                  proxy_set_header X-Real-IP \$remote_addr;
+                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto \$scheme;
+              }
+          }
+          EOF
+          
+          cat > nginx-frontend.conf << EOF
+          server {
+              listen 80;
+              server_name chat.phucndh.me;
+              
+              location / {
+                  return 301 https://\$host\$request_uri;
+              }
+          }
+          
+          server {
+              listen 443 ssl;
+              server_name chat.phucndh.me;
+              
+              ssl_certificate /etc/letsencrypt/live/chat.phucndh.me/fullchain.pem;
+              ssl_certificate_key /etc/letsencrypt/live/chat.phucndh.me/privkey.pem;
+              
+              location / {
+                  proxy_pass http://localhost:3000;
+                  proxy_set_header Host \$host;
+                  proxy_set_header X-Real-IP \$remote_addr;
+                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto \$scheme;
+              }
+          }
           EOF
 
       - name: Copy files to VPS
@@ -141,7 +197,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: "docker-compose.yml,docker-compose.override.yml,.env"
+          source: "docker-compose.yml,docker-compose.override.yml,.env,nginx-backend.conf,nginx-frontend.conf"
           target: "~/app"
 
       - name: Deploy on VPS via SSH
@@ -152,7 +208,57 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             cd ~/app
+            
+            # Kiểm tra và cài đặt Nginx nếu chưa có
+            if ! command -v nginx &> /dev/null; then
+                sudo apt update
+                sudo apt install -y nginx
+            fi
+            
+            # Kiểm tra và cài đặt Certbot nếu chưa có
+            if ! command -v certbot &> /dev/null; then
+                sudo apt update
+                sudo apt install -y certbot python3-certbot-nginx
+            fi
+            
+            # Cấu hình Nginx
+            sudo cp nginx-backend.conf /etc/nginx/sites-available/api.phucndh.me
+            sudo cp nginx-frontend.conf /etc/nginx/sites-available/chat.phucndh.me
+            
+            # Tạo symbolic link nếu chưa tồn tại
+            if [ ! -f /etc/nginx/sites-enabled/api.phucndh.me ]; then
+                sudo ln -s /etc/nginx/sites-available/api.phucndh.me /etc/nginx/sites-enabled/
+            fi
+            
+            if [ ! -f /etc/nginx/sites-enabled/chat.phucndh.me ]; then
+                sudo ln -s /etc/nginx/sites-available/chat.phucndh.me /etc/nginx/sites-enabled/
+            fi
+            
+            # Kiểm tra cấu hình Nginx
+            sudo nginx -t
+            
+            # Tạo SSL certificate nếu chưa tồn tại
+            if [ ! -d /etc/letsencrypt/live/api.phucndh.me ]; then
+                sudo certbot --nginx -d api.phucndh.me --non-interactive --agree-tos -m admin@phucndh.me
+            fi
+            
+            if [ ! -d /etc/letsencrypt/live/chat.phucndh.me ]; then
+                sudo certbot --nginx -d chat.phucndh.me --non-interactive --agree-tos -m admin@phucndh.me
+            fi
+            
+            # Khởi động lại Nginx
+            sudo systemctl restart nginx
+            
+            # Deploy ứng dụng
             docker compose pull
             docker compose down
             docker compose up -d --remove-orphans
-            docker system prune -af --filter "until=24h"
+            
+            # Xóa các images không có tag (dangling images)
+            docker image prune -f
+            
+            # Xóa cụ thể các images có tag <none>
+            docker images | grep "<none>" | awk '{print $3}' | xargs -r docker rmi -f
+            
+            # Xóa các container không sử dụng và các network không sử dụng
+            docker system prune -f --filter "until=24h"
