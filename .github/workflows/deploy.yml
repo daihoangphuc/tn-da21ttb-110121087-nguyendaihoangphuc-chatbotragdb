@@ -39,7 +39,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Không sử dụng cache cho frontend để đảm bảo rebuild hoàn toàn
       - name: Cache Docker layers
+        if: matrix.service != 'frontend'
         uses: actions/cache@v3
         with:
           path: /tmp/.buildx-cache
@@ -74,21 +76,39 @@ jobs:
           echo "Environment: ${{ steps.vars.outputs.ENV }}"
           echo "API URL: $(grep NEXT_PUBLIC_API_URL .env.frontend)"
 
-      - name: Build and push ${{ matrix.service }} image
+      - name: Build and push backend image
+        if: matrix.service == 'backend'
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile.${{ matrix.service }}
+          file: Dockerfile.backend
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/db-rag-${{ matrix.service }}:${{ steps.vars.outputs.TAG }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/db-rag-${{ matrix.service }}:${{ steps.vars.outputs.SHA_SHORT }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/db-rag-backend:${{ steps.vars.outputs.TAG }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/db-rag-backend:${{ steps.vars.outputs.SHA_SHORT }}
           build-args: |
-            ENV_FILE=.env.${{ matrix.service }}
+            ENV_FILE=.env.backend
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
 
+      - name: Build and push frontend image
+        if: matrix.service == 'frontend'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.frontend
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/db-rag-frontend:${{ steps.vars.outputs.TAG }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/db-rag-frontend:${{ steps.vars.outputs.SHA_SHORT }}
+          build-args: |
+            ENV_FILE=.env.frontend
+            NEXT_PUBLIC_API_URL=https://api.phucndh.me/api
+          no-cache: true
+          pull: true
+
       - name: Move cache
+        if: matrix.service != 'frontend'
         run: |
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
@@ -260,13 +280,14 @@ jobs:
             # Khởi động lại Nginx
             sudo systemctl restart nginx
             
-            # Hiển thị thông tin debug
-            echo "Current environment variables for frontend container:"
-            docker exec app-frontend-1 env | grep NEXT_PUBLIC || echo "Frontend container not running yet"
+            # Xóa container cũ
+            docker compose down
+            
+            # Xóa image frontend cũ để đảm bảo pull image mới
+            docker rmi $(docker images | grep "db-rag-frontend" | awk '{print $3}') -f || true
             
             # Deploy ứng dụng
             docker compose pull
-            docker compose down
             docker compose up -d --remove-orphans
             
             # Đợi frontend container khởi động
@@ -276,6 +297,11 @@ jobs:
             # Hiển thị thông tin debug sau khi deploy
             echo "Environment variables after deployment:"
             docker exec app-frontend-1 env | grep NEXT_PUBLIC || echo "Frontend container not running or not accessible"
+            
+            # Kiểm tra URL API trong frontend
+            echo "Checking API URL in frontend container:"
+            docker exec app-frontend-1 cat /app/.next/static/chunks/*.js | grep -o "http://[^\"]*" || echo "No hardcoded HTTP URLs found"
+            docker exec app-frontend-1 cat /app/.next/static/chunks/*.js | grep -o "https://[^\"]*" || echo "No hardcoded HTTPS URLs found"
             
             # Xóa các images không có tag (dangling images)
             docker image prune -f

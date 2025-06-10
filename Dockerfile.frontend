@@ -26,8 +26,17 @@ COPY --from=deps /app/node_modules ./node_modules
 
 # Đối số để nhận file env từ CI/CD
 ARG ENV_FILE=.env.frontend
+# Đối số để nhận URL API trực tiếp
+ARG NEXT_PUBLIC_API_URL
+
 # Copy file env từ build context
 COPY ${ENV_FILE} ./.env.local
+
+# Đảm bảo biến môi trường được thiết lập trong quá trình build
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
+# Debug info
+RUN echo "Building with NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}"
 
 # Build the application
 RUN pnpm build
