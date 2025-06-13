@@ -729,16 +729,6 @@ async def upload_document(
                 file_id=file_id,
             )
             
-            # # Chỉ cập nhật SearchManager và BM25 index SAU KHI đã index dữ liệu thành công
-            # print(f"[UPLOAD] Dữ liệu đã được index thành công, bây giờ cập nhật BM25 index")
-            # # QUAN TRỌNG: Cập nhật SearchManager.vector_store và tải BM25 index cho user hiện tại
-            # rag_system.search_manager.set_vector_store_and_reload_bm25(rag_system.vector_store)
-            
-            # # Cập nhật BM25 index sau khi index xong
-            # print(f"[UPLOAD] Cập nhật BM25 index cho user_id={user_id}")
-            # rag_system.search_manager.update_bm25_index()
-            # print(f"[UPLOAD] Hoàn thành cập nhật BM25 index")
-            
             # Lưu thông tin file vào bảng document_files trong Supabase
             try:
                 from src.supabase.files_manager import FilesManager

@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -131,7 +130,6 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
   }, [initialMessages]);
 
   const [input, setInput] = useState("")
-  const [activeTab, setActiveTab] = useState("chat")
   const [showSources, setShowSources] = useState(false)
   const [isTyping, setIsTyping] = useState(false)
   const [selectedSource, setSelectedSource] = useState<string | null>(null)
@@ -236,6 +234,7 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
       let hasCreatedAssistantMessage = false;
       let assistantMessageId = '';
       let currentContent = '';
+      let currentQueryType = '';
       try {
         while (true) {
           const { value, done } = await reader.read();
@@ -245,7 +244,23 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
           buffer = lines.pop() || '';
           for (const line of lines) {
             if (!line.trim()) continue;
-            if (line.startsWith('event: content')) {
+            
+            // Handle start event to capture query_type
+            if (line.startsWith('event: start')) {
+              const dataLine = lines.find(l => l.startsWith('data:'));
+              if (dataLine) {
+                try {
+                  const data = JSON.parse(dataLine.replace('data:', '').trim());
+                  if (data.query_type) {
+                    currentQueryType = data.query_type;
+                    console.log(`Query type: ${currentQueryType}`);
+                  }
+                } catch (error) {
+                  console.error('Lỗi khi parse dữ liệu start:', error);
+                }
+              }
+            }
+            else if (line.startsWith('event: content')) {
               const dataLine = lines.find(l => l.startsWith('data:'));
               if (dataLine) {
                 try {
@@ -262,6 +277,7 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
                         citations: []
                       }]);
                       hasCreatedAssistantMessage = true;
+                      console.log(`Created assistant message for query type: ${currentQueryType}`);
                     } else {
                       setMessages(prev => {
                         const updatedMessages = [...prev];
@@ -326,6 +342,22 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
                 const dataLine = lines.find(l => l.startsWith('data:'));
                 if (dataLine) {
                   const data = JSON.parse(dataLine.replace('data:', '').trim());
+                  console.log('Received end event with data:', data);
+                  
+                  // Ensure we've created an assistant message even if we didn't get content
+                  if (!hasCreatedAssistantMessage && currentQueryType === 'other_question') {
+                    console.log('Creating assistant message for other_question at end event');
+                    assistantMessageId = Date.now().toString();
+                    setMessages(prev => [...prev, {
+                      id: assistantMessageId,
+                      role: "assistant",
+                      content: currentContent || "Mình là Chatbot chỉ hỗ trợ và phản hồi trong lĩnh vực cơ sở dữ liệu. Bạn vui lòng đặt câu hỏi liên quan đến cơ sở dữ liệu nhé.",
+                      sources: [],
+                      citations: []
+                    }]);
+                    hasCreatedAssistantMessage = true;
+                  }
+                  
                   await updateRelatedQuestions();
                 }
               } catch (error) {
@@ -340,6 +372,19 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
       } finally {
         reader.cancel();
         abortController.abort();
+        
+        // Final fallback to ensure we always have an assistant message
+        if (!hasCreatedAssistantMessage) {
+          console.log('Creating fallback assistant message at stream end');
+          setMessages(prev => [...prev, {
+            id: Date.now().toString(),
+            role: "assistant",
+            content: currentContent || "Mình là Chatbot chỉ hỗ trợ và phản hồi trong lĩnh vực cơ sở dữ liệu. Bạn vui lòng đặt câu hỏi liên quan đến cơ sở dữ liệu nhé.",
+            sources: [],
+            citations: []
+          }]);
+        }
+        
         setIsTyping(false);
         setIsSending(false);
       }
@@ -682,112 +727,71 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header tabs - fixed at top */}
-      <div className="flex h-16 items-center px-4 border-b bg-background sticky top-0 z-50">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="h-12">
-            <TabsTrigger value="chat" className="flex gap-2">
-              <Bot className="h-4 w-4" />
-              <span>Trò chuyện</span>
-            </TabsTrigger>
-            <TabsTrigger value="search" className="flex gap-2">
-              <Search className="h-4 w-4" />
-              <span>Tìm kiếm</span>
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
+      {/* Header - fixed at top */}
+  
 
       {/* Content area - scrollable */}
       <div className="flex-1 overflow-hidden">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-          <TabsContent value="chat" className="h-full flex-1 flex flex-col p-0 m-0 data-[state=active]:flex data-[state=inactive]:hidden">
-            <div className="flex-1 overflow-y-auto" ref={chatContainerRef}>
-              <div className="p-4">
-                <div className="max-w-3xl mx-auto space-y-6">
-                  {messages.map((message, index) => (
-                    <ChatMessage 
-                      key={`message-${message.id}-${index}`} 
-                      message={message}
-                      isLastMessage={index === messages.length - 1}
-                      isTyping={isTyping}
-                      relatedQuestions={index === messages.length - 1 ? relatedQuestions : []}
-                      onRelatedQuestionClick={handleRelatedQuestionClick}
-                    />
-                  ))}
+        <div className="h-full flex-1 flex flex-col">
+          <div className="flex-1 overflow-y-auto" ref={chatContainerRef}>
+            <div className="p-4">
+              <div className="max-w-3xl mx-auto space-y-6">
+                {messages.map((message, index) => (
+                  <ChatMessage 
+                    key={`message-${message.id}-${index}`} 
+                    message={message}
+                    isLastMessage={index === messages.length - 1}
+                    isTyping={isTyping}
+                    relatedQuestions={index === messages.length - 1 ? relatedQuestions : []}
+                    onRelatedQuestionClick={handleRelatedQuestionClick}
+                  />
+                ))}
 
-                  {isTyping && (
-                    <LoadingMessage elapsedTime={elapsedTime} />
+                {isTyping && (
+                  <LoadingMessage elapsedTime={elapsedTime} />
+                )}
+
+                <div ref={messagesEndRef} key="messages-end" />
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t p-4 bg-muted/30 backdrop-blur-sm">
+            <div className="max-w-3xl mx-auto">
+              <div className="relative">
+                <Textarea
+                  placeholder="Nhập câu hỏi của bạn về cơ sở dữ liệu..."
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className="pr-12 min-h-[60px] resize-none shadow-subtle focus-visible:ring-primary"
+                  rows={1}
+                  spellCheck={false}
+                  autoComplete="off"
+                  disabled={isSending}
+                />
+                <Button
+                  size="icon"
+                  className="absolute right-2 bottom-2 h-8 w-8"
+                  onClick={handleSend}
+                  disabled={!input.trim() || isSending || isTyping}
+                >
+                  {isSending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
                   )}
-
-                  <div ref={messagesEndRef} key="messages-end" />
-                </div>
-              </div>
-            </div>
-
-            <div className="border-t p-4 bg-muted/30 backdrop-blur-sm">
-              <div className="max-w-3xl mx-auto">
-                <div className="relative">
-                  <Textarea
-                    placeholder="Nhập câu hỏi của bạn về cơ sở dữ liệu..."
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    className="pr-12 min-h-[60px] resize-none shadow-subtle focus-visible:ring-primary"
-                    rows={1}
-                    spellCheck={false}
-                    autoComplete="off"
-                    disabled={isSending}
-                  />
-                  <Button
-                    size="icon"
-                    className="absolute right-2 bottom-2 h-8 w-8"
-                    onClick={handleSend}
-                    disabled={!input.trim() || isSending || isTyping}
-                  >
-                    {isSending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Send className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
-                <div className="flex items-center justify-between mt-2">
-                  <p className="text-xs text-muted-foreground">
-                    Nhấn <kbd className="px-1 py-0.5 bg-muted rounded text-xs">Shift</kbd> +{" "}
-                    <kbd className="px-1 py-0.5 bg-muted rounded text-xs">Enter</kbd> để xuống dòng
-                  </p>
-                </div>
-              </div>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="search" className="h-full flex-1 flex flex-col p-0 m-0 data-[state=active]:flex data-[state=inactive]:hidden">
-            <div className="border-b p-4">
-              <div className="max-w-3xl mx-auto flex gap-2">
-                <div className="relative flex-1">
-                  <Textarea
-                    placeholder="Tìm kiếm trong tài liệu..."
-                    className="pr-12 min-h-[60px] resize-none shadow-subtle"
-                    rows={1}
-                  />
-                  <Button size="icon" className="absolute right-2 bottom-2 h-8 w-8">
-                    <Search className="h-4 w-4" />
-                  </Button>
-                </div>
-                <Button variant="outline" size="icon" className="h-[60px] w-[60px]">
-                  <Filter className="h-5 w-5" />
                 </Button>
               </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4">
-              <div className="max-w-3xl mx-auto">
-                <SearchResults />
+              <div className="flex items-center justify-between mt-2">
+                <p className="text-xs text-muted-foreground">
+                  Nhấn <kbd className="px-1 py-0.5 bg-muted rounded text-xs">Shift</kbd> +{" "}
+                  <kbd className="px-1 py-0.5 bg-muted rounded text-xs">Enter</kbd> để xuống dòng
+                </p>
               </div>
             </div>
-          </TabsContent>
-        </Tabs>
+          </div>
+        </div>
       </div>
 
       <SourceModal

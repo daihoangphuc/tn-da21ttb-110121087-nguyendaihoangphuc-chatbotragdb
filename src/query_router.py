@@ -111,17 +111,6 @@ class QueryRouter:
         else:
             return "other_question"
 
-    def get_response_for_other_question(self, query: str) -> str:
-        """
-        Trả về phản hồi cho các câu hỏi không liên quan đến cơ sở dữ liệu
-
-        Args:
-            query: Câu hỏi cần phản hồi
-
-        Returns:
-            Phản hồi cố định cho câu hỏi không liên quan
-        """
-        return "Mình là Chatbot chỉ hỗ trợ và phản hồi trong lĩnh vực cơ sở dữ liệu. Bạn vui lòng đặt câu hỏi liên quan đến cơ sở dữ liệu nhé."
 
     def prepare_realtime_response(self, query: str) -> str:
         """

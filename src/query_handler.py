@@ -117,3 +117,15 @@ class QueryHandler:
             # Đây là một phương án dự phòng đơn giản nếu LLM không trả về đúng định dạng
             # Chúng ta có thể tạo một QueryRouter dự phòng hoặc chỉ mặc định
             return query, 'question_from_document' # Giá trị mặc định an toàn
+    
+    def get_response_for_other_question(self, query: str) -> str:
+        """
+        Trả về phản hồi cho các câu hỏi không liên quan đến cơ sở dữ liệu
+
+        Args:
+            query: Câu hỏi cần phản hồi
+
+        Returns:
+            Phản hồi cố định cho câu hỏi không liên quan
+        """
+        return "Mình là Chatbot chỉ hỗ trợ và phản hồi trong lĩnh vực cơ sở dữ liệu. Bạn vui lòng đặt câu hỏi liên quan đến cơ sở dữ liệu nhé."

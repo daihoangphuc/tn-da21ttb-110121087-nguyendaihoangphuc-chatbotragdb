@@ -44,17 +44,12 @@ def init_database():
         print("Đã khởi tạo database")
 
         # Tạo bảng conversations và messages
-        print("\n[1/4] Tạo bảng conversations và messages...")
+        print("\nTạo bảng conversations và messages...")
         convo_result = db.create_conversation_history_table()
         print(f"Kết quả: {convo_result}")
 
-        # Tạo bảng document_metadata
-        print("\n[3/4] Tạo bảng document_metadata...")
-        doc_result = db.create_document_metadata_table()
-        print(f"Kết quả: {doc_result}")
-
         # Tạo bảng document_files
-        print("\n[4/4] Tạo bảng document_files...")
+        print("\nTạo bảng document_files...")
         files_manager = FilesManager(client)
         files_result = files_manager.create_document_files_table()
         print(f"Kết quả: {files_result}")
