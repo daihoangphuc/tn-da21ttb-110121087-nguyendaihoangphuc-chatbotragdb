@@ -3,7 +3,7 @@ name: CI/CD Pipeline
 on:
   push:
     branches:
-      - test/cicd_v2
+      - dev
 
 jobs:
   build-and-push:
