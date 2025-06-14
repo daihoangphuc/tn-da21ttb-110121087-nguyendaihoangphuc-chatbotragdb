@@ -218,8 +218,6 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
         method: 'POST',
         body: JSON.stringify({
           question: input,
-          search_type: "hybrid",
-          alpha: 0.7,
           file_id: selectedFileIds
         }),
         signal: abortController.signal

@@ -105,8 +105,6 @@ def get_user_upload_dir(user_id: str) -> str:
 # Models cho API
 class QuestionRequest(BaseModel):
     question: str
-    search_type: Optional[str] = "hybrid"  # "semantic", "keyword", "hybrid"
-    alpha: Optional[float] = 0.7  # Hệ số kết hợp giữa semantic và keyword search
     sources: Optional[List[str]] = None  # Danh sách các file nguồn cần tìm kiếm
     file_id: Optional[List[str]] = None  # Danh sách các file_id cần tìm kiếm
     conversation_id: Optional[str] = (
@@ -398,8 +396,6 @@ async def ask_question_stream(
     Đặt câu hỏi và nhận câu trả lời từ hệ thống RAG dưới dạng stream
 
     - **question**: Câu hỏi cần trả lời
-    - **search_type**: Loại tìm kiếm ("semantic", "keyword", "hybrid")
-    - **alpha**: Hệ số kết hợp giữa semantic và keyword search (0.7 = 70% semantic + 30% keyword)
     - **file_id**: Danh sách các file_id của tài liệu cần tìm kiếm (thay thế sources)
     - **current_conversation_id**: ID phiên hội thoại để duy trì ngữ cảnh cuộc hội thoại
     - **max_sources**: Số lượng nguồn tham khảo tối đa trả về (query parameter)
@@ -488,8 +484,6 @@ async def ask_question_stream(
                 # Gọi RAG để lấy kết quả dạng stream với file_id thay vì sources
                 stream_generator = rag_system.query_with_sources_streaming(
                     request.question,
-                    search_type=request.search_type,
-                    alpha=request.alpha,
                     file_id=request.file_id,  # Sử dụng file_id thay cho sources
                     conversation_history=conversation_history,
                 )
@@ -571,8 +565,6 @@ async def ask_question_stream(
                             # Lưu vào lịch sử
                             questions_history[question_id] = {
                                 "question": request.question,
-                                "search_type": request.search_type,
-                                "alpha": request.alpha,
                                 "file_id": request.file_id,  # Lưu file_id thay vì sources
                                 "timestamp": datetime.now().isoformat(),
                                 "answer": full_answer,

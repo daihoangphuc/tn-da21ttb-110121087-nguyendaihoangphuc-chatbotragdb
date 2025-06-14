@@ -330,14 +330,12 @@ export const conversationsApi = {
 
 // API Questions
 export const questionsApi = {
-  ask: async (question: string, searchType = 'hybrid', alpha = 0.7, sources?: string[], fileId?: string[], sessionId?: string, maxSources?: number) => {
+  ask: async (question: string, sources?: string[], fileId?: string[], sessionId?: string, maxSources?: number) => {
     const params = maxSources ? `?max_sources=${maxSources}` : '';
     return fetchApi(`/ask/stream${params}`, {
       method: 'POST',
       body: JSON.stringify({
         question,
-        search_type: searchType,
-        alpha,
         sources,
         file_id: fileId,
         session_id: sessionId,

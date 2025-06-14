@@ -171,8 +171,6 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
   ```json
   {
     "question": "string",
-    "search_type": "hybrid", // tùy chọn: "semantic", "keyword", "hybrid"
-    "alpha": 0.7, // tùy chọn: hệ số kết hợp giữa semantic và keyword search
     "sources": ["file1.pdf", "file2.docx"] // tùy chọn: danh sách các file nguồn
   }
   ```
@@ -207,8 +205,6 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
   ```json
   {
     "question": "string",
-    "search_type": "hybrid", // tùy chọn: "semantic", "keyword", "hybrid"
-    "alpha": 0.7, // tùy chọn: hệ số kết hợp giữa semantic và keyword search
     "sources": ["file1.pdf", "file2.docx"] // tùy chọn: danh sách các file nguồn
   }
   ```
@@ -435,7 +431,7 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
   ```
 - **Query Parameters**:
   - `k`: Số lượng kết quả trả về (mặc định: 5)
-  - `alpha`: Hệ số kết hợp (0.7 = 70% semantic + 30% keyword) (mặc định: 0.7)
+  - `alpha`: Tham số lịch sử (không còn được sử dụng nhưng giữ lại để tương thích) (mặc định: 0.7)
 
 **Kết quả trả về**:
 ```json

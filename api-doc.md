@@ -17,8 +17,6 @@ Phần này mô tả các model dữ liệu được sử dụng trong các requ
 Dùng cho việc đặt câu hỏi.
 
 -   `question` (str): Câu hỏi cần trả lời.
--   `search_type` (Optional[str], default: "hybrid"): Loại tìm kiếm. Các giá trị hợp lệ: "semantic", "keyword", "hybrid".
--   `alpha` (Optional[float], default: 0.7): Hệ số kết hợp giữa semantic và keyword search (ví dụ: 0.7 nghĩa là 70% semantic, 30% keyword).
 -   `sources` (Optional[List[str]], default: None): Danh sách các tên file hoặc đường dẫn file nguồn cần tìm kiếm. (Lưu ý: API `/ask/stream` ưu tiên `file_id`).
 -   `file_id` (Optional[List[str]], default: None): Danh sách các `file_id` của tài liệu cần tìm kiếm (sử dụng trong API `/ask/stream`).
 -   `conversation_id` (Optional[str], default: None): ID của phiên hội thoại. Nếu không cung cấp, một ID mới sẽ được tạo tự động hoặc sử dụng ID của cuộc hội thoại gần nhất nếu có.

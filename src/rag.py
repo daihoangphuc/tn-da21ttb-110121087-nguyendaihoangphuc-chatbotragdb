@@ -167,40 +167,11 @@ class AdvancedDatabaseRAG:
         self.query_handler = QueryHandler()
         print("Đã khởi tạo QueryHandler để xử lý và phân loại câu hỏi")
 
-        # Đọc tham số alpha mặc định từ biến môi trường
-        try:
-            default_alpha_env = os.getenv("DEFAULT_ALPHA")
-            if default_alpha_env:
-                self.default_alpha = float(default_alpha_env)
-                print(
-                    f"Sử dụng alpha mặc định từ biến môi trường: {self.default_alpha}"
-                )
-            else:
-                self.default_alpha = 0.7  # Giá trị mặc định
-                print(f"Sử dụng alpha mặc định: {self.default_alpha}")
-        except ValueError:
-            self.default_alpha = 0.7
-            print(
-                f"Lỗi đọc giá trị alpha từ biến môi trường, sử dụng mặc định: {self.default_alpha}"
-            )
-
         # Tính toán và lưu các giá trị khác nếu cần
         self.enable_fact_checking = (
             False  # Tính năng kiểm tra sự kiện (có thể kích hoạt sau)
         )
 
-        # # Cấu hình fact checking
-        # self.enable_fact_checking = os.getenv(
-        #     "ENABLE_FACT_CHECKING", "True"
-        # ).lower() in ["true", "1", "yes"]
-        # self.fact_checking_threshold = float(
-        #     os.getenv("FACT_CHECKING_THRESHOLD", "0.6")
-        # )
-
-        # # Cấu hình confidence threshold cho kết quả
-        # self.enable_confidence_check = os.getenv(
-        #     "ENABLE_CONFIDENCE_CHECK", "True"
-        # ).lower() in ["true", "1", "yes"]
         self.confidence_threshold = float(os.getenv("CONFIDENCE_THRESHOLD", "0.5"))
 
         # Cài đặt cơ chế xử lý song song
@@ -315,131 +286,26 @@ class AdvancedDatabaseRAG:
             chunks, embeddings_list, user_id=current_user_id
         )
 
-    def _hybrid_search_task(self, query_to_use, k, alpha, sources, file_id, results):
-        """Task chạy song song để thực hiện hybrid search"""
-        try:    
-            # Cũng thực hiện tìm kiếm ngữ nghĩa
-            semantic_results = self.search_manager.semantic_search(
-                query_to_use, k=k, sources=sources, file_id=file_id
-            )
-            
-            # Lưu kết quả vào biến chung
-            # results["keyword"] = keyword_results
-            results["semantic"] = semantic_results
-        except Exception as e:
-            print(f"Lỗi trong hybrid_search: {str(e)}")
-            # Fallback to just semantic search
-            results["semantic"] = self.search_manager.semantic_search(
-                query_to_use, k=k, sources=sources, file_id=file_id
-            )
-            results["keyword"] = []
-
-    def hybrid_search(
+    def semantic_search(
         self,
         query: str,
         k: int = 10,
-        alpha: float = None,
         sources: List[str] = None,
         file_id: List[str] = None,
     ) -> List[Dict]:
         """
-        Tìm kiếm hybrid kết hợp cả keyword và semantic search
+        Tìm kiếm ngữ nghĩa (semantic search)
 
         Args:
             query: Câu hỏi người dùng
             k: Số lượng kết quả trả về
-            alpha: Hệ số kết hợp giữa semantic và keyword search (0.7 = 70% semantic + 30% keyword)
             sources: Danh sách các file nguồn cần tìm kiếm (cách cũ, sử dụng file_id thay thế)
             file_id: Danh sách các file_id cần tìm kiếm (cách mới). Nếu là None, sẽ tìm kiếm trong tất cả các file
 
         Returns:
             Danh sách các kết quả tìm kiếm
         """
-        if alpha is None:
-            alpha = self.default_alpha  # Sử dụng alpha mặc định nếu không được chỉ định
-
-        print(f"Đang thực hiện tìm kiếm hybrid với alpha={alpha}")
-        
-        if file_id is None or len(file_id) == 0:
-            print("file_id là None hoặc danh sách rỗng. Sẽ tìm kiếm trong tất cả các tài liệu.")
-        else:
-            print(f"Tìm kiếm với file_id: {file_id}")
-
-        # Tạo một dictionary để lưu kết quả từ các phương pháp tìm kiếm
-        results = {}
-
-        # Tăng số lượng kết quả tìm kiếm đầu vào để có nhiều hơn cho reranking
-        initial_k = max(10, int(k * 1.2))  # Giảm từ k * 3 xuống k * 2
-
-        # Thực hiện song song tìm kiếm bằng ThreadPoolExecutor thay vì asyncio
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            # Thực hiện hybrid search trong một luồng riêng biệt
-            executor.submit(
-                self._hybrid_search_task, 
-                query, 
-                initial_k, 
-                alpha, 
-                sources, 
-                file_id, 
-                results
-            )
-            
-        # Lấy kết quả từ biến chung
-        try:
-            semantic = results["semantic"] or []
-            # keyword = results["keyword"] or []
-        except KeyError:
-            print("Cảnh báo: Không tìm thấy kết quả tìm kiếm trong dictionary results")
-            semantic = []
-            # keyword = []
-
-        print(f"Đã tìm được {len(semantic)} kết quả từ semantic search")
-        # print(f"Đã tìm được {len(keyword)} kết quả từ keyword search")
-
-        combined = {}
-        for res in semantic:
-            combined[res["text"]] = {**res, "score": alpha * res["score"]}
-
-        # for res in keyword:
-        #     if res["text"] in combined:
-        #         combined[res["text"]]["score"] += (1 - alpha) * res["score"]
-        #         text_preview = (
-        #             res["text"][:50] + "..." if len(res["text"]) > 50 else res["text"]
-        #         )
-        #         print(f"Đã kết hợp kết quả trùng lặp: {text_preview}")
-        #     else:
-        #         combined[res["text"]] = {**res, "score": (1 - alpha) * res["score"]}
-
-        sorted_results = sorted(
-            combined.values(), key=lambda x: x["score"], reverse=True
-        )
-
-        # Lấy nhiều kết quả hơn để reranking nhưng ít hơn so với trước
-        results_for_reranking = sorted_results[: min(len(sorted_results), initial_k)]
-
-        # Tái xếp hạng để lấy kết quả phù hợp nhất
-        if results_for_reranking:
-            print(f"Đang rerank {len(results_for_reranking)} kết quả kết hợp...")
-            # Rerank để tăng độ chính xác
-            reranked_results = self.search_manager.rerank_results(
-                query, results_for_reranking
-            )
-
-            # Thêm thông tin về tổng số kết quả được rerank
-            for result in reranked_results:
-                result["total_reranked"] = len(results_for_reranking)
-
-            # Giới hạn số lượng kết quả trả về
-            final_results = reranked_results[:k]
-            print(f"Đã chọn {len(final_results)} kết quả tốt nhất sau reranking")
-        else:
-            final_results = []
-
-        print(
-            f"=== Kết thúc hybrid search: {len(final_results)}/{len(combined)} kết quả ==="
-        )
-
-        return final_results
+        return self.search_manager.semantic_search(query, k, sources, file_id)
 
     def rerank_results(self, query: str, results: List[Dict]) -> List[Dict]:
         """Tái xếp hạng kết quả"""
@@ -448,8 +314,6 @@ class AdvancedDatabaseRAG:
     async def query_with_sources_streaming(
         self,
         query: str,
-        search_type: str = "hybrid",
-        alpha: float = None,
         k: int = 10,
         sources: List[str] = None,
         file_id: List[str] = None,
@@ -460,8 +324,6 @@ class AdvancedDatabaseRAG:
 
         Args:
             query: Câu hỏi người dùng
-            search_type: Loại tìm kiếm ("semantic", "keyword", "hybrid")
-            alpha: Hệ số kết hợp giữa semantic và keyword search
             k: Số lượng kết quả trả về
             sources: Danh sách các file nguồn cần tìm kiếm (cách cũ, sử dụng file_id thay thế)
             file_id: Danh sách các file_id cần tìm kiếm (cách mới). Nếu là None, sẽ tìm kiếm trong tất cả các file
@@ -471,8 +333,6 @@ class AdvancedDatabaseRAG:
             AsyncGenerator trả về từng phần của câu trả lời
         """
         print(f"Đang xử lý câu hỏi (stream): '{query}'")
-        print(f"Phương pháp tìm kiếm: {search_type}")
-        print(f"Alpha: {alpha if alpha is not None else self.default_alpha}")
         
         if file_id is None or len(file_id) == 0:
             print("file_id là None hoặc danh sách rỗng. Sẽ tìm kiếm trong tất cả các tài liệu.")
@@ -482,18 +342,13 @@ class AdvancedDatabaseRAG:
         # Bắt đầu đo thời gian xử lý
         start_time = time.time()
 
-                # Xử lý và phân loại câu hỏi trong một lệnh gọi LLM duy nhất
+        # Xử lý và phân loại câu hỏi trong một lệnh gọi LLM duy nhất
         original_query = query
         expanded_query, query_type = self.query_handler.expand_and_classify_query(
             query, conversation_history
         )
         query_to_use = expanded_query
         print(f"Câu hỏi đã xử lý: '{query_to_use}', Loại: '{query_type}'")
-
-
-        # # Phân loại câu hỏi bằng QueryRouter
-        # query_type = self.query_router.classify_query(query_to_use)
-        # print(f"Loại câu hỏi: {query_type}")
 
         # Trả về ngay nếu là câu hỏi không liên quan đến cơ sở dữ liệu
         if query_type == "other_question":
@@ -502,8 +357,6 @@ class AdvancedDatabaseRAG:
                 "type": "start",
                 "data": {
                     "query_type": query_type,
-                    "search_type": search_type,
-                    "alpha": alpha if alpha is not None else self.default_alpha,
                     "file_id": file_id
                 },
             }
@@ -532,7 +385,7 @@ class AdvancedDatabaseRAG:
                 },
             }
             return
-            
+        
         # Xử lý sql_code_task trực tiếp với LLM (streaming)
         elif query_type == "sql_code_task":
             print(f"Câu hỏi được phân loại là sql_code_task (stream): '{query_to_use}'")
@@ -542,7 +395,6 @@ class AdvancedDatabaseRAG:
                     "query": original_query,
                     "expanded_query": query_to_use if query_to_use != original_query else None,
                     "query_type": "sql_code_task",
-                    "search_type": "llm_direct_sql",
                     "file_id": file_id,
                 },
             }
@@ -597,7 +449,6 @@ class AdvancedDatabaseRAG:
                 "data": {
                     "query_type": query_type,
                     "search_type": "google_agent_search",
-                    "alpha": alpha if alpha is not None else self.default_alpha,
                     "file_id": file_id,
                 },
             }
@@ -689,21 +540,11 @@ class AdvancedDatabaseRAG:
             }
             return
 
-        # Tìm kiếm dựa trên loại tìm kiếm được chỉ định
-        if search_type == "semantic":
-            search_results = self.semantic_search(
-                query_to_use, k=k, sources=sources, file_id=file_id
-            )
-        else:  # hybrid
-            
-            search_results = self.hybrid_search(
-                query_to_use,
-                k=k,
-                alpha=alpha if alpha is not None else self.default_alpha,
-                sources=sources,
-                file_id=file_id,
-            )
-            
+        # Thực hiện semantic search
+        search_results = self.semantic_search(
+            query_to_use, k=k, sources=sources, file_id=file_id
+        )
+        
         # Fallback mechanism cho streaming
         perform_fallback_stream = not search_results or len(search_results) == 0
         gas_fallback_used = False
@@ -761,8 +602,6 @@ class AdvancedDatabaseRAG:
                 "type": "start",
                 "data": {
                     "query_type": "no_results",
-                    "search_type": search_type,
-                    "alpha": alpha if alpha is not None else self.default_alpha,
                     "file_id": file_id,
                 },
             }
@@ -791,10 +630,10 @@ class AdvancedDatabaseRAG:
                 },
             }
             return
-            
+        
         # Rerank kết quả nếu có nhiều hơn 1 kết quả
         if len(search_results) > 1:
-            reranked_results = self.search_manager.rerank_results(
+            reranked_results = self.rerank_results(
                 query_to_use, search_results
             )
             # Lấy số lượng kết quả đã rerank
@@ -883,8 +722,6 @@ class AdvancedDatabaseRAG:
             "type": "start",
             "data": {
                 "query_type": query_type,
-                "search_type": search_type,
-                "alpha": alpha if alpha is not None else self.default_alpha,
                 "file_id": file_id,
                 "total_results": len(search_results),
                 "total_reranked": total_reranked,
@@ -932,28 +769,6 @@ class AdvancedDatabaseRAG:
                 "query_type": query_type,
             },
         }
-
-    # def generate_response_with_context(
-    #     self, query: str, retrieved: List[Dict], search_type: str = "hybrid"
-    # ) -> str:
-    #     """Tạo câu trả lời với ngữ cảnh của kết quả tìm kiếm"""
-    #     if not retrieved:
-    #         return "Không tìm thấy thông tin liên quan đến câu hỏi này trong cơ sở dữ liệu."
-
-    #     # Giới hạn số lượng tài liệu ngữ cảnh
-    #     context_docs = retrieved[:5]
-
-    #     # Xác định loại câu hỏi
-    #     question_type = self.prompt_manager.classify_question(query)
-
-    #     # Tạo prompt phù hợp
-    #     prompt = self.prompt_manager.create_prompt(query, context_docs, question_type)
-
-
-    #     # Gọi LLM
-    #     response = self.llm.invoke(prompt)
-
-    #     return response.content
 
     def delete_collection(self) -> None:
         """Xóa collection"""
