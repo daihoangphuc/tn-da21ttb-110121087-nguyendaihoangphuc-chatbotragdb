@@ -38,8 +38,8 @@ import requests
 import uuid
 import json
 
-# Import Google_Agents_Search
-from src.tools.Google_Agents_Search import run_query_with_sources as google_agent_search
+# Import Google_Search
+from src.tools.Google_Search import run_query_with_sources as google_agent_search
 
 # Load biến môi trường từ .env
 load_dotenv()

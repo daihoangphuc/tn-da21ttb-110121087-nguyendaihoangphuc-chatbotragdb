@@ -31,9 +31,6 @@ export default function AuthLayout({
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto py-8">
         <div className="flex justify-center mb-8">
-          <Link href="/" className="text-2xl font-bold text-primary">
-            Hệ thống RAG
-          </Link>
         </div>
         {children}
       </div>

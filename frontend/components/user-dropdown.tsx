@@ -64,7 +64,7 @@ export function UserDropdown({
             <p className="text-xs leading-none text-muted-foreground truncate">{displayEmail}</p>
           </div>
         </DropdownMenuLabel>
-        <DropdownMenuSeparator />
+        {/* <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuItem>
             <User className="mr-2 h-4 w-4" />
@@ -79,7 +79,7 @@ export function UserDropdown({
             <span>Trợ giúp</span>
           </DropdownMenuItem>
         </DropdownMenuGroup>
-        <DropdownMenuSeparator />
+        <DropdownMenuSeparator /> */}
         <DropdownMenuItem 
           className="text-destructive focus:text-destructive cursor-pointer" 
           onClick={handleLogout}
