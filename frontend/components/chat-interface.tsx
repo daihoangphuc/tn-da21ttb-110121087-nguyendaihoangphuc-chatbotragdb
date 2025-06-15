@@ -222,6 +222,8 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
         }),
         signal: abortController.signal
       });
+
+      // Phần xử lý stream
       const reader = response.body?.getReader();
       if (!reader) {
         throw new Error('Không thể đọc response');

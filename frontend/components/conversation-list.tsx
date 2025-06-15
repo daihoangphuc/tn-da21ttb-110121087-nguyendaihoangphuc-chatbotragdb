@@ -202,6 +202,7 @@ export function ConversationList({ onSelectConversation, currentConversationId, 
       ) : conversations.length === 0 ? (
         <div className="text-center p-4 text-muted-foreground">
           <p>Chưa có hội thoại nào.</p>
+          <p className="mt-2">Bắt đầu cuộc trò chuyện mới để tạo hội thoại.</p>
         </div>
       ) : (
         <>

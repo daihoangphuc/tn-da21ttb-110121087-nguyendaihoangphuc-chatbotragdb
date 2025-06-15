@@ -121,6 +121,7 @@ class GeminiLLM:
                 print(f"Lỗi khi gọi LLM: {str(e)}")
                 raise
 
+    # Hàm xử lý câu trả lời dạng stream
     async def stream(self, prompt):
         """Gọi mô hình LLM với prompt và trả về kết quả dạng streaming
 

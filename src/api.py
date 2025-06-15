@@ -1251,30 +1251,44 @@ async def get_all_conversations(
         # Sử dụng SupabaseConversationManager để lấy danh sách hội thoại
         all_conversations = conversation_manager.get_conversations(user_id)
 
+        # Kiểm tra nếu không có hội thoại nào
+        if not all_conversations:
+            return {
+                "status": "success",
+                "message": "Không có hội thoại nào",
+                "data": [],
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total_items": 0,
+                    "total_pages": 0,
+                },
+            }
+
         # Thêm user_id vào từng hội thoại để client có thể lọc
         for conv in all_conversations:
             conv["user_id"] = user_id
 
-            # Thực hiện phân trang
-            total_items = len(all_conversations)
-            total_pages = (total_items + page_size - 1) // page_size
+        # Thực hiện phân trang
+        total_items = len(all_conversations)
+        total_pages = (total_items + page_size - 1) // page_size
 
-            start_idx = (page - 1) * page_size
-            end_idx = min(start_idx + page_size, total_items)
+        start_idx = (page - 1) * page_size
+        end_idx = min(start_idx + page_size, total_items)
 
-            conversations = all_conversations[start_idx:end_idx]
+        conversations = all_conversations[start_idx:end_idx]
 
-            return {
-                "status": "success",
-                "message": f"Đã tìm thấy {total_items} hội thoại",
-                "data": conversations,
-                "pagination": {
-                    "page": page,
-                    "page_size": page_size,
-                    "total_items": total_items,
-                    "total_pages": total_pages,
-                },
-            }
+        return {
+            "status": "success",
+            "message": f"Đã tìm thấy {total_items} hội thoại",
+            "data": conversations,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_items": total_items,
+                "total_pages": total_pages,
+            },
+        }
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Lỗi khi lấy danh sách hội thoại: {str(e)}"
