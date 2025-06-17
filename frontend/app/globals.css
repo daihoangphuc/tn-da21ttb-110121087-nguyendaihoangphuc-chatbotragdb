@@ -276,14 +276,24 @@
 /* Table Styles for SQL Results */
 .sql-result-table {
   @apply w-full border-collapse text-sm;
+  table-layout: fixed !important; /* Force fixed layout để fit width */
 }
 
 .sql-result-table th {
   @apply bg-muted text-muted-foreground font-medium text-left p-2 border-b;
+  width: auto !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  max-width: 0 !important; /* Cho phép columns tự điều chỉnh */
 }
 
 .sql-result-table td {
   @apply p-2 border-b border-border;
+  width: auto !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  max-width: 0 !important; /* Cho phép cells tự điều chỉnh */
+  white-space: normal !important; /* Cho phép wrap text */
 }
 
 .sql-result-table tr:nth-child(even) {
@@ -292,6 +302,64 @@
 
 .sql-result-table tr:hover {
   @apply bg-muted;
+}
+
+/* SQL Table Responsive Styles */
+.sql-playground .overflow-x-auto {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.sql-playground .sql-result-table {
+  width: 100% !important;
+  table-layout: fixed !important;
+  margin: 0 !important;
+  border-collapse: collapse !important;
+}
+
+.sql-playground .sql-result-table th,
+.sql-playground .sql-result-table td {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  padding: 8px !important;
+  border: 1px solid hsl(var(--border)) !important;
+}
+
+.sql-playground .sql-result-table th {
+  background-color: hsl(var(--muted)) !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+}
+
+.sql-playground .sql-result-table td {
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+}
+
+.sql-playground .sql-result-table tr:hover td {
+  background-color: hsl(var(--muted)/0.5) !important;
+}
+
+/* Tooltip effect on hover for long content */
+.sql-playground .sql-result-table td:hover,
+.sql-playground .sql-result-table th:hover {
+  position: relative !important;
+  z-index: 20 !important;
+  background-color: hsl(var(--popover)) !important;
+  color: hsl(var(--popover-foreground)) !important;
+  white-space: normal !important;
+  word-wrap: break-word !important;
+  overflow: visible !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+  border-color: hsl(var(--ring)) !important;
+  border-width: 2px !important;
+}
+
+/* Ensure equal column widths */
+.sql-playground .sql-result-table th,
+.sql-playground .sql-result-table td {
+  width: auto !important;
 }
 
 /* Resizable Panel */

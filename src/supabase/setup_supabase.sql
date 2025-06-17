@@ -67,3 +67,13 @@ USING (auth.uid() = user_id);
 CREATE POLICY "Người dùng có thể xóa file của mình" 
 ON document_files FOR DELETE 
 USING (auth.uid() = user_id);
+
+
+CREATE POLICY "Only admin can insert files" ON document_files
+FOR INSERT
+USING (
+    EXISTS (
+        SELECT 1 FROM user_roles
+        WHERE user_id = auth.uid() AND role = 'admin'
+    )
+);

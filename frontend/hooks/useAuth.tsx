@@ -14,6 +14,7 @@ export interface User {
   created_at?: string;
   name?: string;
   avatar_url?: string;
+  role?: string; // 'admin' or 'student'
 }
 
 // Định nghĩa kiểu dữ liệu cho AuthContext
@@ -70,8 +71,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         try {
           const userData = await authApi.getUser();
+          console.log("User data from API:", userData);
+          
+          // Kiểm tra xem userData có trường role không
           if (userData) {
+            console.log("User role from API:", userData.role);
             setUser(userData);
+            
+            // Cập nhật lại localStorage nếu có thông tin mới
+            const storedUserInfo = getLocalStorage("user_info");
+            if (storedUserInfo) {
+              try {
+                const parsedUserInfo = JSON.parse(storedUserInfo);
+                console.log("Stored user info:", parsedUserInfo);
+                
+                // Cập nhật lại thông tin user trong localStorage nếu thiếu trường role
+                if (userData.role && !parsedUserInfo.role) {
+                  console.log("Updating stored user info with role:", userData.role);
+                  setLocalStorage("user_info", JSON.stringify({
+                    ...parsedUserInfo,
+                    role: userData.role
+                  }));
+                }
+              } catch (e) {
+                console.error("Error parsing stored user info:", e);
+              }
+            }
           }
         } catch (error: any) {
           // Xóa token nếu không hợp lệ
@@ -96,6 +121,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     try {
       const response = await authApi.login({ email, password });
+      
+      // Debug: Log thông tin user và role
+      console.log("Login response:", response);
+      console.log("User info:", response.user);
+      console.log("User role:", response.user.role);
       
       // Lưu token và thông tin người dùng
       setLocalStorage("auth_token", response.access_token);

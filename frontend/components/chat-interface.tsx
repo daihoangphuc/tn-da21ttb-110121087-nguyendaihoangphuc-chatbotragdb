@@ -190,15 +190,7 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
 
   const handleSend = async () => {
     if (!input.trim() || isSending) return;
-    if (selectedFileIds.length === 0) {
-      toast({
-        title: "Chưa chọn tài liệu",
-        description: "Vui lòng chọn ít nhất một tài liệu ở tab Tài liệu để tìm kiếm câu trả lời",
-        variant: "warning",
-        duration: 3000,
-      });
-      return;
-    }
+    
     setIsSending(true);
     setIsTyping(true);
     const userMessage = {
@@ -217,8 +209,8 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
       const response = await fetchApiStream('/ask/stream', {
         method: 'POST',
         body: JSON.stringify({
-          question: input,
-          file_id: selectedFileIds
+          question: input
+          // Không truyền file_id để API tìm kiếm trên tất cả tài liệu
         }),
         signal: abortController.signal
       });
@@ -760,7 +752,7 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
             <div className="max-w-3xl mx-auto">
               <div className="relative">
                 <Textarea
-                  placeholder="Nhập câu hỏi của bạn về cơ sở dữ liệu..."
+                  placeholder="Nhập câu hỏi của bạn về cơ sở dữ liệu... (hệ thống sẽ tự tìm kiếm trên tất cả tài liệu)"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}

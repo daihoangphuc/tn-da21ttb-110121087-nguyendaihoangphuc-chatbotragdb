@@ -1,3 +1,4 @@
+python -m src.supabase.add_admin phucadmin@gmail.com b900f80c-cbc3-472e-be40-5a5af859969f
 # Hệ thống RAG cho Cơ sở dữ liệu
 
 Hệ thống RAG (Retrieval-Augmented Generation) tìm kiếm thông tin và trả lời câu hỏi về Cơ sở dữ liệu.
@@ -693,3 +694,55 @@ Hệ thống bao gồm giao diện người dùng web được xây dựng bằn
 - Các file hỗ trợ: PDF, DOCX, TXT, SQL
 - Tùy chỉnh cấu hình API trong file `src/api.py`
 - Tùy chỉnh giao diện người dùng trong thư mục `src/UI`
+
+# Hệ thống phân quyền
+
+Hệ thống hiện tại sử dụng phân quyền dựa trên vai trò (role-based access control):
+
+## Vai trò người dùng
+
+- **Admin**: Có quyền tải lên và xóa tài liệu, quản lý nguồn dữ liệu, và sử dụng tính năng hỏi đáp.
+- **Student**: Chỉ có quyền xem danh sách tài liệu và sử dụng tính năng hỏi đáp.
+
+## Cấu hình vai trò
+
+Để thêm một người dùng vào vai trò admin:
+
+1. Chạy script sau:
+   ```
+   python -m src.supabase.add_admin <email>
+   ```
+   Trong đó `<email>` là địa chỉ email của người dùng cần cấp quyền admin.
+
+2. Hoặc thêm thủ công vào bảng `user_roles` trong Supabase:
+   ```sql
+   INSERT INTO user_roles (id, user_id, role, created_at, updated_at)
+   VALUES (
+     uuid_generate_v4(),
+     '<user_id>',
+     'admin',
+     now(),
+     now()
+   );
+   ```
+
+## Cơ sở dữ liệu
+
+Hệ thống sử dụng bảng `user_roles` để lưu trữ vai trò của người dùng:
+
+| Trường | Kiểu dữ liệu | Mô tả |
+|--------|--------------|-------|
+| id | uuid | Khóa chính |
+| user_id | uuid | ID của người dùng (tham chiếu đến auth.users) |
+| role | text | Vai trò ('admin' hoặc 'student') |
+| created_at | timestamp | Thời điểm tạo |
+| updated_at | timestamp | Thời điểm cập nhật gần nhất |
+
+## Row Level Security (RLS)
+
+Các chính sách RLS được áp dụng cho bảng `document_files`:
+
+- **SELECT**: Tất cả người dùng đều có thể xem danh sách tài liệu
+- **INSERT**: Chỉ admin mới có thể thêm tài liệu mới
+- **UPDATE**: Chỉ admin mới có thể cập nhật tài liệu của họ
+- **DELETE**: Chỉ admin mới có thể xóa tài liệu của họ

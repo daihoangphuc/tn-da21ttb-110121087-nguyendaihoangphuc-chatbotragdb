@@ -27,6 +27,7 @@ export interface AuthResponse {
     email: string;
     name?: string;
     avatar_url?: string;
+    role?: string; // 'admin' or 'student'
   };
 }
 
@@ -37,6 +38,7 @@ export interface User {
   avatar_url?: string;
   created_at?: string;
   updated_at?: string;
+  role?: string; // 'admin' or 'student'
 }
 
 export interface ForgotPasswordResponse {

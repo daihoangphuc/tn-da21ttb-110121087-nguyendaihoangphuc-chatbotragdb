@@ -326,7 +326,7 @@ class AdvancedDatabaseRAG:
             query: Câu hỏi người dùng
             k: Số lượng kết quả trả về
             sources: Danh sách các file nguồn cần tìm kiếm (cách cũ, sử dụng file_id thay thế)
-            file_id: Danh sách các file_id cần tìm kiếm (cách mới). Nếu là None, sẽ tìm kiếm trong tất cả các file
+            file_id: Danh sách các file_id cần tìm kiếm (cách mới). Nếu là None hoặc rỗng, sẽ tìm kiếm trong tất cả các file
             conversation_history: Lịch sử hội thoại
 
         Returns:
@@ -335,7 +335,9 @@ class AdvancedDatabaseRAG:
         print(f"Đang xử lý câu hỏi (stream): '{query}'")
         
         if file_id is None or len(file_id) == 0:
-            print("file_id là None hoặc danh sách rỗng. Sẽ tìm kiếm trong tất cả các tài liệu.")
+            print("file_id là None hoặc danh sách rỗng. Tìm kiếm sẽ được thực hiện trên toàn bộ tài liệu.")
+            # Đặt file_id thành None để semantic_search hiểu là tìm kiếm trên tất cả tài liệu
+            file_id = None
         else:
             print(f"Tìm kiếm với file_id: {file_id}")
 

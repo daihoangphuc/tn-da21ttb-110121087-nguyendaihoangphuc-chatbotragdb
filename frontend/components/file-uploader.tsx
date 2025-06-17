@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dialog"
 import { filesApi, uploadApi } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
+import { useAuth } from "@/hooks/useAuth"
 
 // Định nghĩa kiểu dữ liệu cho tài liệu
 interface FileDocument {
@@ -90,6 +91,15 @@ export function FileUploader({ onSelectedFilesChange }: FileUploaderProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropAreaRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const { user } = useAuth(); // Lấy thông tin người dùng từ context
+  
+  // Kiểm tra xem người dùng có phải là admin không
+  const isAdmin = user?.role === "admin";
+  
+  // Debug log
+  console.log("User in FileUploader:", user);
+  console.log("User role:", user?.role);
+  console.log("isAdmin value:", isAdmin);
 
   // Tải danh sách tài liệu khi component mount
   useEffect(() => {
@@ -152,7 +162,12 @@ export function FileUploader({ onSelectedFilesChange }: FileUploaderProps) {
     setSelectAll(allSelected);
 
     // Thông báo cho component cha về các file được chọn
-    const selectedIds = updatedFiles.filter(file => file.selected).map(file => file.file_id || file.id);
+    // Sử dụng file_id thay vì id để đảm bảo nhất quán
+    const selectedIds = updatedFiles
+      .filter(file => file.selected)
+      .map(file => file.file_id || file.id); // Ưu tiên sử dụng file_id nếu có
+    
+    console.log("Selected file IDs:", selectedIds);
     onSelectedFilesChange?.(selectedIds);
   }
 
@@ -162,7 +177,12 @@ export function FileUploader({ onSelectedFilesChange }: FileUploaderProps) {
     setSelectAll(checked);
 
     // Thông báo cho component cha về các file được chọn
-    const selectedIds = checked ? updatedFiles.map(file => file.file_id || file.id) : [];
+    // Sử dụng file_id thay vì id để đảm bảo nhất quán
+    const selectedIds = checked 
+      ? updatedFiles.map(file => file.file_id || file.id) // Ưu tiên sử dụng file_id nếu có
+      : [];
+    
+    console.log("Selected all file IDs:", selectedIds);
     onSelectedFilesChange?.(selectedIds);
   }
 
@@ -289,18 +309,21 @@ export function FileUploader({ onSelectedFilesChange }: FileUploaderProps) {
 
   // Xử lý sự kiện kéo thả file
   const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!isAdmin) return; // Chỉ admin mới có thể kéo thả
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(true);
   };
 
   const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!isAdmin) return; // Chỉ admin mới có thể kéo thả
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
   };
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!isAdmin) return; // Chỉ admin mới có thể kéo thả
     e.preventDefault();
     e.stopPropagation();
     if (!isDragging) {
@@ -309,6 +332,7 @@ export function FileUploader({ onSelectedFilesChange }: FileUploaderProps) {
   };
 
   const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    if (!isAdmin) return; // Chỉ admin mới có thể kéo thả
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
@@ -412,15 +436,17 @@ export function FileUploader({ onSelectedFilesChange }: FileUploaderProps) {
             </label>
           </div>
         </div>
-        <Button 
-          variant="outline" 
-          size="default" 
-          className="gap-1 px-4"
-          onClick={() => setUploadDialogOpen(true)}
-        >
-          <Plus className="h-4 w-4" />
-          Thêm
-        </Button>
+        {isAdmin && (
+          <Button 
+            variant="outline" 
+            size="default" 
+            className="gap-1 px-4"
+            onClick={() => setUploadDialogOpen(true)}
+          >
+            <Plus className="h-4 w-4" />
+            Thêm
+          </Button>
+        )}
       </div>
 
       <div className="space-y-2">
@@ -457,25 +483,27 @@ export function FileUploader({ onSelectedFilesChange }: FileUploaderProps) {
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 ml-1 text-destructive hover:text-destructive/90 hover:bg-destructive/10"
-                                  onClick={(e) => handleDeleteClick(file.id, e)}
-                                >
-                                  <X className="h-4 w-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Xóa tài liệu</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        </div>
+                        {isAdmin && (
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 ml-1 text-destructive hover:text-destructive/90 hover:bg-destructive/10"
+                                    onClick={(e) => handleDeleteClick(file.id, e)}
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Xóa tài liệu</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </div>
+                        )}
                       </div>
                       <Progress value={file.progress} className="h-1" />
                     </div>
@@ -487,74 +515,78 @@ export function FileUploader({ onSelectedFilesChange }: FileUploaderProps) {
         </div>
       </div>
 
-      {/* Modal tải lên file */}
-      <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Tải lên tài liệu</DialogTitle>
-            <DialogDescription>
-              Chọn tài liệu từ máy tính của bạn để tải lên hệ thống
-            </DialogDescription>
-          </DialogHeader>
-          <div 
-            className={`flex flex-col items-center justify-center rounded-lg border border-dashed p-8 text-center transition-colors ${isDragging ? 'bg-primary/5 border-primary' : ''}`}
-            onDragEnter={handleDragEnter}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            ref={dropAreaRef}
-          >
-            <div className="mb-4 rounded-full bg-primary/10 p-3">
-              <FileUp className="h-6 w-6 text-primary" />
-            </div>
-            <h3 className="mb-1 text-lg font-semibold">Kéo thả hoặc tải lên tài liệu</h3>
-            <p className="mb-4 text-sm text-muted-foreground">Hỗ trợ PDF, DOCX, TXT và SQL</p>
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={handleFileChange} 
-              className="hidden" 
-              multiple 
-              accept=".pdf,.docx,.doc,.txt,.sql" 
-            />
-            <Button 
-              size="sm" 
-              onClick={handleFileSelect}
-              disabled={uploading}
-            >
-              {uploading ? (
-                <>
-                  <div className="w-4 h-4 border-t-2 border-b-2 border-background rounded-full animate-spin mr-2"></div>
-                  Đang tải lên...
-                </>
-              ) : (
-                "Chọn tài liệu"
-              )}
-            </Button>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setUploadDialogOpen(false)} disabled={uploading}>Hủy</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Modal tải lên file - chỉ hiển thị cho admin */}
+      {isAdmin && (
+        <>
+          <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Tải lên tài liệu</DialogTitle>
+                <DialogDescription>
+                  Chọn tài liệu từ máy tính của bạn để tải lên hệ thống
+                </DialogDescription>
+              </DialogHeader>
+              <div 
+                className={`flex flex-col items-center justify-center rounded-lg border border-dashed p-8 text-center transition-colors ${isDragging ? 'bg-primary/5 border-primary' : ''}`}
+                onDragEnter={handleDragEnter}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                ref={dropAreaRef}
+              >
+                <div className="mb-4 rounded-full bg-primary/10 p-3">
+                  <FileUp className="h-6 w-6 text-primary" />
+                </div>
+                <h3 className="mb-1 text-lg font-semibold">Kéo thả hoặc tải lên tài liệu</h3>
+                <p className="mb-4 text-sm text-muted-foreground">Hỗ trợ PDF, DOCX, TXT và SQL</p>
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  onChange={handleFileChange} 
+                  className="hidden" 
+                  multiple 
+                  accept=".pdf,.docx,.doc,.txt,.sql" 
+                />
+                <Button 
+                  size="sm" 
+                  onClick={handleFileSelect}
+                  disabled={uploading}
+                >
+                  {uploading ? (
+                    <>
+                      <div className="w-4 h-4 border-t-2 border-b-2 border-background rounded-full animate-spin mr-2"></div>
+                      Đang tải lên...
+                    </>
+                  ) : (
+                    "Chọn tài liệu"
+                  )}
+                </Button>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setUploadDialogOpen(false)} disabled={uploading}>Hủy</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
-      {/* Modal xác nhận xóa một file */}
-      <AlertDialog open={!!fileToDelete} onOpenChange={(open) => !open && setFileToDelete(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Xác nhận xóa</AlertDialogTitle>
-            <AlertDialogDescription>
-              Bạn có chắc chắn muốn xóa tài liệu này? Hành động này không thể hoàn tác.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setFileToDelete(null)}>Hủy</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmDelete} className="bg-destructive text-destructive-foreground">
-              Xóa
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+          {/* Modal xác nhận xóa một file */}
+          <AlertDialog open={!!fileToDelete} onOpenChange={(open) => !open && setFileToDelete(null)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Xác nhận xóa</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Bạn có chắc chắn muốn xóa tài liệu này? Hành động này không thể hoàn tác.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel onClick={() => setFileToDelete(null)}>Hủy</AlertDialogCancel>
+                <AlertDialogAction onClick={handleConfirmDelete} className="bg-destructive text-destructive-foreground">
+                  Xóa
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
+      )}
     </div>
   )
 }

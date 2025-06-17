@@ -1,7 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { Menu, Database, Moon, Sun, Code } from "lucide-react"
+import { Menu, Database, Moon, Sun, Code, PanelLeftClose, PanelLeft } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useMobile } from "@/hooks/use-mobile"
 import { Badge } from "@/components/ui/badge"
@@ -12,20 +12,47 @@ interface HeaderProps {
   onMenuClick?: () => void
   onSqlClick?: () => void
   sqlPanelOpen?: boolean
+  onSidebarToggle?: () => void
+  isSidebarOpen?: boolean
 }
 
-export function Header({ onMenuClick, onSqlClick, sqlPanelOpen }: HeaderProps) {
+export function Header({ onMenuClick, onSqlClick, sqlPanelOpen, onSidebarToggle, isSidebarOpen }: HeaderProps) {
   const { theme, setTheme } = useTheme()
   const isMobile = useMobile()
 
   return (
-    <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 shadow-subtle">
+    <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 shadow-subtle relative z-50">
       <div className="flex h-16 items-center px-4">
-        {isMobile && (
+        {isMobile ? (
           <Button variant="ghost" size="icon" onClick={onMenuClick} className="mr-2">
             <Menu className="h-5 w-5" />
             <span className="sr-only">Mở menu</span>
           </Button>
+        ) : (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onSidebarToggle}
+                  className="mr-2"
+                >
+                  {isSidebarOpen ? (
+                    <PanelLeftClose className="h-5 w-5" />
+                  ) : (
+                    <PanelLeft className="h-5 w-5" />
+                  )}
+                  <span className="sr-only">
+                    {isSidebarOpen ? "Thu gọn sidebar" : "Mở rộng sidebar"}
+                  </span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="z-[100]">
+                <p>{isSidebarOpen ? "Thu gọn sidebar" : "Mở rộng sidebar"}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         )}
         <div className="flex items-center gap-2 font-semibold">
           <div className="bg-primary/10 p-1.5 rounded-md">
@@ -78,7 +105,6 @@ export function Header({ onMenuClick, onSqlClick, sqlPanelOpen }: HeaderProps) {
             </Tooltip>
           </TooltipProvider>
 
-          {/* Thay thế nút cài đặt bằng dropdown avatar */}
           <UserDropdown />
         </div>
       </div>

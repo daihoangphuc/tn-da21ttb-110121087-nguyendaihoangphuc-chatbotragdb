@@ -62,18 +62,24 @@ NGUYÊN TẮC LUÔN PHẢI TUÂN THỦ ĐỊNH DẠNG MARKDOWN CHO PHẢN HỒI 
 - Sử dụng danh sách với `-` hoặc `1.`
 
 
-QUY TẮC TẠO BẢNG MARKDOWN (KHI CẦN THIẾT):
-- Nếu yêu cầu trình bày dữ liệu so sánh hoặc bảng, BẮT BUỘC sử dụng định dạng Markdown sau.
-- Định dạng chuẩn:
-  |Header1|Header2|
-  |---|---|
-  |Dòng1Cột1|Dòng1Cột2|
-  |Dòng2Cột1|Dòng2Cột2|
-- YÊU CẦU QUAN TRỌNG:
-  1. Mỗi dòng (header, phân cách, dữ liệu) phải bắt đầu bằng `|` và kết thúc bằng `|` theo sau NGAY LẬP TỨC bởi ký tự xuống dòng (`\\n`).
-  2. KHÔNG dùng khoảng trắng để căn chỉnh cột. Giữ nội dung ô ngắn gọn.
-- Nếu bảng có trên 4 cột, dùng danh sách chi tiết thay thế.
-- Sau bảng (nếu có), tóm tắt ngắn gọn điểm chính (1-2 câu).""",
+LƯU Ý ĐẶC BIỆT QUAN TRỌNG KHI TẠO BẢNG MARKDOWN:
+- Khi người dùng yêu cầu so sánh hoặc trình bày dữ liệu dạng bảng, hãy sử dụng định dạng Markdown chuẩn.
+- TUYỆT ĐỐI KHÔNG SỬ DỤNG KHOẢNG TRẮNG THỪA ĐỂ CĂN CHỈNH CÁC CỘT TRONG BẢNG. Việc căn chỉnh sẽ do phía client xử lý.
+- GIỮ CHO MỖI DÒNG CỦA BẢNG (bao gồm cả dòng tiêu đề và dòng phân cách `|---|---|`) CÀNG GỌN CÀNG TỐT.
+- KHÔNG ĐƯỢC THÊM BẤT KỲ KHOẢNG TRẮNG DƯ THỪA NÀO GIỮA CÁC KÝ TỰ `|` TRONG CÙNG MỘT DÒNG.
+- ĐẶC BIỆT QUAN TRỌNG: SAU KÝ TỰ `|` CUỐI CÙNG CỦA MỖI DÒNG TRONG BẢNG (KỂ CẢ DÒNG TIÊU ĐỀ `|Header1|Hdr2|` VÀ DÒNG PHÂN CÁCH `|---|---|`), PHẢI XUỐNG DÒNG NGAY LẬP TỨC (`\\n`). TUYỆT ĐỐI KHÔNG ĐƯỢC PHÉP CÓ BẤT KỲ KHOẢNG TRẮNG NÀO SAU DẤU `|` CUỐI CÙNG VÀ TRƯỚC KHI XUỐNG DÒNG.
+- Ví dụ định dạng bảng TUYỆT ĐỐI ĐÚNG (không có khoảng trắng thừa, xuống dòng ngay sau dấu | cuối cùng):
+  |Header1|Hdr2|Header3|
+  |---|---|---|
+  |Cell1|Cell2|Cell3|
+  |AnotherCell|AC2|AC3|
+- Ví dụ định dạng bảng SAI (CÓ KHOẢNG TRẮNG THỪA ĐỂ CĂN CHỈNH HOẶC CÓ KHOẢNG TRẮNG SAU DẤU `|` CUỐI CÙNG - TUYỆT ĐỐI TRÁNH):
+  `| Header1     | Hdr2  | Header 3      |` <-- SAI: Khoảng trắng thừa để căn chỉnh
+  `|---|---|---| ` <-- SAI: Khoảng trắng thừa sau dấu `|` cuối cùng
+  `| Cell1       | Cell2 | Cell3         |`
+  `| AnotherCell | AC2   | AC3           |`
+- NẾU BẢNG CÓ NHIỀU HƠN 4 CỘT, hãy chuyển sang dạng liệt kê chi tiết cho từng mục thay vì cố gắng tạo bảng rộng.
+- Sau khi tạo bảng (nếu có), hãy tóm tắt ngắn gọn (1-2 câu) những điểm chính từ bảng đó nếu phù hợp.""",
             "related_questions": """Bạn là một trợ lý thông minh chuyên tạo câu hỏi để khuyến khích người dùng tiếp tục tìm hiểu về chủ đề.
 
 Câu hỏi vừa được trả lời: {query}

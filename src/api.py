@@ -105,8 +105,8 @@ def get_user_upload_dir(user_id: str) -> str:
 # Models cho API
 class QuestionRequest(BaseModel):
     question: str
-    sources: Optional[List[str]] = None  # Danh sách các file nguồn cần tìm kiếm
-    file_id: Optional[List[str]] = None  # Danh sách các file_id cần tìm kiếm
+    sources: Optional[List[str]] = None  # Danh sách các file nguồn cần tìm kiếm (không khuyến khích sử dụng)
+    file_id: Optional[List[str]] = None  # Danh sách các file_id cần tìm kiếm (tùy chọn, nếu không cung cấp sẽ tìm kiếm trên toàn bộ tài liệu)
     conversation_id: Optional[str] = (
         None  # ID phiên hội thoại, tự động tạo nếu không có
     )
@@ -288,6 +288,9 @@ class UserResponse(BaseModel):
     id: str
     email: str
     created_at: str
+    name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    role: Optional[str] = "student"  # Default role is student
 
 
 class AuthResponse(BaseModel):
@@ -355,6 +358,29 @@ async def get_current_user(
                     detail="Phiên đăng nhập không hợp lệ hoặc đã hết hạn",
                     headers={"WWW-Authenticate": "Bearer"},
                 )
+            
+            # Kiểm tra và lấy vai trò của người dùng từ metadata hoặc từ bảng users
+            try:
+                user_id = user_response.user.id
+                # Kiểm tra xem người dùng có vai trò admin không
+                # Truy vấn bảng user_roles hoặc metadata để lấy vai trò
+                role_data = supabase_client.table("user_roles").select("role").eq("user_id", user_id).execute()
+                
+                # Mặc định vai trò là student
+                user_role = "student"
+                
+                # Nếu có dữ liệu về vai trò, cập nhật vai trò
+                if role_data.data and len(role_data.data) > 0:
+                    user_role = role_data.data[0].get("role", "student")
+                
+                # Gán vai trò vào đối tượng user
+                user_response.user.role = user_role
+                
+                print(f"Người dùng {user_response.user.email} có vai trò: {user_role}")
+            except Exception as e:
+                print(f"Lỗi khi lấy vai trò người dùng: {str(e)}")
+                # Nếu không lấy được vai trò, mặc định là student
+                user_response.user.role = "student"
         except Exception as e:
             print(f"Lỗi khi lấy thông tin người dùng từ token: {str(e)}")
             raise HTTPException(
@@ -396,64 +422,43 @@ async def ask_question_stream(
     Đặt câu hỏi và nhận câu trả lời từ hệ thống RAG dưới dạng stream
 
     - **question**: Câu hỏi cần trả lời
-    - **file_id**: Danh sách các file_id của tài liệu cần tìm kiếm (thay thế sources)
+    - **file_id**: Danh sách các file_id của tài liệu cần tìm kiếm (không bắt buộc)
     - **current_conversation_id**: ID phiên hội thoại để duy trì ngữ cảnh cuộc hội thoại
     - **max_sources**: Số lượng nguồn tham khảo tối đa trả về (query parameter)
     """
     try:
         # Lấy hoặc tạo ID phiên hội thoại
-
         user_id = current_user.id
 
         # Đặt collection_name cho vector store
-        rag_system.vector_store.collection_name = "user_" + str(user_id)
+        rag_system.vector_store.collection_name = "global_documents"
         # Cập nhật user_id cho vector_store trong SearchManager
         rag_system.vector_store.user_id = user_id
-        # # QUAN TRỌNG: Cập nhật SearchManager.vector_store và tải BM25 index cho user hiện tại
-        # rag_system.search_manager.set_vector_store_and_reload_bm25(rag_system.vector_store)
-        # print(f"Đã cập nhật SearchManager vector_store và BM25 index cho user_id={user_id}")
 
-        # Kiểm tra xem người dùng đã chọn file_id hay chưa
-        if (
-            not hasattr(request, "file_id")
-            or not request.file_id
-            or len(request.file_id) == 0
-        ):
-            # Lấy danh sách các file_id có sẵn từ bảng document_files
+        # Lấy danh sách file_id từ request nếu có
+        search_file_ids = request.file_id
+        
+        # Nếu không có file_id trong request, lấy tất cả file_id có sẵn từ Supabase
+        if not search_file_ids or len(search_file_ids) == 0:
             try:
+                # Sử dụng service client để lấy tất cả file_id
                 from src.supabase.files_manager import FilesManager
                 from src.supabase.client import SupabaseClient
-
-                client = SupabaseClient().get_client()
+                
+                supabase_client_with_service_role = SupabaseClient(use_service_key=True)
+                client = supabase_client_with_service_role.get_client()
                 files_manager = FilesManager(client)
-
-                # Lấy danh sách file của người dùng
-                files = files_manager.get_files_by_user(
-                    current_user.id, include_deleted=False
-                )
-                available_file_ids = [file.get("file_id") for file in files]
-                available_filenames = [
-                    (file.get("filename"), file.get("file_id")) for file in files
-                ]
-
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "status": "error",
-                        "message": "Vui lòng chọn ít nhất một file_id để tìm kiếm.",
-                        "available_file_ids": available_file_ids,
-                        "available_files": available_filenames,
-                    },
-                )
+                
+                # Lấy tất cả file từ database
+                all_files = files_manager.get_all_files(include_deleted=False)
+                
+                # Tạo danh sách file_id từ kết quả
+                search_file_ids = [file.get("file_id") for file in all_files if file.get("file_id")]
+                
+                print(f"Tự động tìm kiếm trên {len(search_file_ids)} file có sẵn trong hệ thống")
             except Exception as e:
                 print(f"Lỗi khi lấy danh sách file_id: {str(e)}")
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "status": "error",
-                        "message": "Vui lòng chọn ít nhất một file_id để tìm kiếm.",
-                    },
-                )
+                search_file_ids = []
 
         # Tạo ID cho câu hỏi
         question_id = f"q_{uuid4().hex[:8]}"
@@ -481,10 +486,10 @@ async def ask_question_stream(
         # Hàm generator để cung cấp dữ liệu cho SSE
         async def generate_response_stream():
             try:
-                # Gọi RAG để lấy kết quả dạng stream với file_id thay vì sources
+                # Gọi RAG để lấy kết quả dạng stream với file_id
                 stream_generator = rag_system.query_with_sources_streaming(
                     request.question,
-                    file_id=request.file_id,  # Sử dụng file_id thay cho sources
+                    file_id=search_file_ids,
                     conversation_history=conversation_history,
                 )
 
@@ -565,7 +570,7 @@ async def ask_question_stream(
                             # Lưu vào lịch sử
                             questions_history[question_id] = {
                                 "question": request.question,
-                                "file_id": request.file_id,  # Lưu file_id thay vì sources
+                                "file_id": search_file_ids,  # Lưu file_id đã tìm kiếm
                                 "timestamp": datetime.now().isoformat(),
                                 "answer": full_answer,
                                 "processing_time": chunk["data"].get(
@@ -609,7 +614,6 @@ async def ask_question_stream(
         # Trả về lỗi dưới dạng JSON thông thường
         raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý câu hỏi: {str(e)}")
 
-
 @app.post(f"{PREFIX}/upload")
 async def upload_document(
     file: UploadFile = File(...),
@@ -622,6 +626,7 @@ async def upload_document(
     - **file**: File cần upload (PDF, DOCX, TXT)
     - **category**: Danh mục của tài liệu (tùy chọn)
     """
+    # Đã xóa kiểm tra quyền admin để cho phép tất cả người dùng tải lên tài liệu
     try:
         # Tạo thư mục upload cho user nếu chưa tồn tại
         user_id = current_user.id
@@ -637,8 +642,8 @@ async def upload_document(
         
         # Cập nhật user_id cho vector_store
         rag_system.vector_store.user_id = user_id
-        # Đặt collection_name cho vector store
-        rag_system.vector_store.collection_name = "user_" + str(user_id)
+        # Đặt collection_name cho vector store - sử dụng collection chung cho tất cả người dùng
+        rag_system.vector_store.collection_name = "global_documents"
         
         # Lưu ý: Không cập nhật SearchManager.vector_store ở đây
         # Sẽ cập nhật sau khi đã index dữ liệu thành công
@@ -743,8 +748,11 @@ async def upload_document(
                     "converted_to_pdf": original_file_extension != ".pdf" and file_extension == ".pdf"
                 }
                 
-                # Lưu thông tin file vào Supabase
-                client = SupabaseClient().get_client()
+                # Sử dụng client với service role để bypass RLS
+                supabase_client_with_service_role = SupabaseClient(use_service_key=True)
+                client = supabase_client_with_service_role.get_client()
+                
+                # Tạo files_manager với service role client
                 files_manager = FilesManager(client)
                 
                 # Lưu metadata vào Supabase - sử dụng tên file gốc
@@ -814,7 +822,7 @@ async def reset_collection():
 @app.get(f"{PREFIX}/files", response_model=FileListResponse)
 async def get_uploaded_files(current_user=Depends(get_current_user)):
     """
-    Lấy danh sách các file đã upload của người dùng hiện tại
+    Lấy danh sách các file đã upload của tất cả người dùng
 
     Returns:
         Danh sách các file đã upload
@@ -828,12 +836,14 @@ async def get_uploaded_files(current_user=Depends(get_current_user)):
             from src.supabase.files_manager import FilesManager
             from src.supabase.client import SupabaseClient
 
-            client = SupabaseClient().get_client()
+            # Sử dụng client với service role để bypass RLS
+            supabase_client_with_service_role = SupabaseClient(use_service_key=True)
+            client = supabase_client_with_service_role.get_client()
             files_manager = FilesManager(client)
 
-            # Lấy danh sách file từ database
-            db_files = files_manager.get_files_by_user(user_id)
-            print(f"[FILES] Tìm thấy {len(db_files)} file của user {user_id} trong database")
+            # Lấy tất cả file từ database thay vì chỉ file của user hiện tại
+            db_files = files_manager.get_all_files(include_deleted=False)
+            print(f"[FILES] Tìm thấy {len(db_files)} file trong database")
         except Exception as e:
             print(f"[FILES] Lỗi khi lấy danh sách file từ database: {str(e)}")
             db_files = []
@@ -875,38 +885,43 @@ async def get_uploaded_files(current_user=Depends(get_current_user)):
         else:
             # Fallback: Nếu không có dữ liệu trong database, đọc từ filesystem
             print(f"[FILES] Không tìm thấy dữ liệu trong database, đọc từ filesystem")
-            user_upload_dir = get_user_upload_dir(current_user.id)
+            # Đọc từ thư mục dữ liệu chung thay vì thư mục của user
+            upload_dir = os.getenv("UPLOAD_DIR", "src/data")
 
             # Kiểm tra thư mục có tồn tại không
-            if os.path.exists(user_upload_dir):
-                for filename in os.listdir(user_upload_dir):
-                    file_path = os.path.join(user_upload_dir, filename)
+            if os.path.exists(upload_dir):
+                # Duyệt qua tất cả thư mục người dùng
+                for user_folder in os.listdir(upload_dir):
+                    user_dir = os.path.join(upload_dir, user_folder)
+                    if os.path.isdir(user_dir):
+                        for filename in os.listdir(user_dir):
+                            file_path = os.path.join(user_dir, filename)
 
-                    # Bỏ qua các thư mục
-                    if os.path.isdir(file_path):
-                        continue
+                            # Bỏ qua các thư mục
+                            if os.path.isdir(file_path):
+                                continue
 
-                    # Lấy thông tin file
-                    file_stats = os.stat(file_path)
-                    extension = os.path.splitext(filename)[1].lower()
+                            # Lấy thông tin file
+                            file_stats = os.stat(file_path)
+                            extension = os.path.splitext(filename)[1].lower()
 
-                    # Lấy thời gian tạo file
-                    created_time = datetime.fromtimestamp(
-                        file_stats.st_ctime
-                    ).isoformat()
+                            # Lấy thời gian tạo file
+                            created_time = datetime.fromtimestamp(
+                                file_stats.st_ctime
+                            ).isoformat()
 
-                    # Thêm vào danh sách
-                    files.append(
-                        FileInfo(
-                            filename=filename,
-                            path=file_path,
-                            size=file_stats.st_size,
-                            upload_date=created_time,
-                            extension=extension,
-                            category=None,
-                            id=None,
-                        )
-                    )
+                            # Thêm vào danh sách
+                            files.append(
+                                FileInfo(
+                                    filename=filename,
+                                    path=file_path,
+                                    size=file_stats.st_size,
+                                    upload_date=created_time,
+                                    extension=extension,
+                                    category=None,
+                                    id=None,
+                                )
+                            )
 
         # Sắp xếp theo thời gian tạo mới nhất
         files.sort(key=lambda x: x.upload_date, reverse=True)
@@ -924,6 +939,7 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
     """
     Xóa file đã upload và các index liên quan trong vector store
     """
+    # Đã xóa kiểm tra quyền admin để cho phép người dùng xóa file của họ
     try:
         # Lấy thư mục upload của user
         user_upload_dir = get_user_upload_dir(current_user.id)
@@ -1377,6 +1393,9 @@ async def signup(request: UserSignUpRequest):
                 "id": result.user.id,
                 "email": result.user.email,
                 "created_at": created_at,
+                "name": result.user.user_metadata.get("name", result.user.email),
+                "avatar_url": result.user.user_metadata.get("avatar_url", None),
+                "role": result.user.user_metadata.get("role", "student"),
             },
             "access_token": result.session.access_token if result.session else "",
             "expires_in": result.session.expires_in if result.session else None,
@@ -1391,44 +1410,88 @@ async def signup(request: UserSignUpRequest):
 @app.post(f"{PREFIX}/auth/login", response_model=AuthResponse)
 async def login(request: UserLoginRequest, response: Response):
     """
-    Đăng nhập với email và mật khẩu
-
-    - **email**: Email đăng nhập
-    - **password**: Mật khẩu đăng nhập
+    Đăng nhập người dùng
     """
-    if not supabase_client:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Dịch vụ xác thực chưa được cấu hình",
-        )
-
     try:
-        print(f"Đang đăng nhập với email: {request.email}")
-        result = supabase_client.auth.sign_in_with_password(
-            {"email": request.email, "password": request.password}
-        )
-
-        if not result.user or not result.session:
+        # Đăng nhập với Supabase
+        try:
+            auth_response = supabase_client.auth.sign_in_with_password({
+                "email": request.email,
+                "password": request.password,
+            })
+        except Exception as auth_error:
+            # Xử lý lỗi timeout
+            if "timeout" in str(auth_error).lower() or "timed out" in str(auth_error).lower():
+                print(f"Lỗi timeout khi kết nối đến Supabase: {str(auth_error)}")
+                raise HTTPException(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail="Kết nối đến máy chủ xác thực bị timeout. Vui lòng thử lại sau."
+                )
+            # Xử lý các lỗi khác
+            print(f"Lỗi khi đăng nhập: {str(auth_error)}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Đăng nhập thất bại, kiểm tra lại email và mật khẩu",
+                detail="Không thể đăng nhập. Vui lòng kiểm tra lại thông tin đăng nhập."
             )
-
-        # Chuyển đổi created_at từ datetime sang string nếu cần
-        created_at = result.user.created_at
+        
+        if not auth_response.user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Email hoặc mật khẩu không chính xác",
+            )
+        
+        # Lấy thông tin người dùng từ Supabase
+        user_data = auth_response.user
+        
+        # Kiểm tra và lấy vai trò của người dùng
+        try:
+            user_id = user_data.id
+            role_data = supabase_client.table("user_roles").select("role").eq("user_id", user_id).execute()
+            
+            # Mặc định vai trò là student
+            user_role = "student"
+            
+            # Nếu có dữ liệu về vai trò, cập nhật vai trò
+            if role_data.data and len(role_data.data) > 0:
+                user_role = role_data.data[0].get("role", "student")
+            
+            print(f"Người dùng {user_data.email} đăng nhập với vai trò: {user_role}")
+        except Exception as e:
+            print(f"Lỗi khi lấy vai trò người dùng: {str(e)}")
+            user_role = "student"
+        
+        # Chuyển đổi created_at từ datetime sang string
+        created_at = user_data.created_at
         if hasattr(created_at, "isoformat"):
             created_at = created_at.isoformat()
-
-        # Trả về thông tin người dùng và token
-        return {
-            "user": {
-                "id": result.user.id,
-                "email": result.user.email,
-                "created_at": created_at,
-            },
-            "access_token": result.session.access_token,
-            "expires_in": result.session.expires_in,
-        }
+        
+        # Tạo đối tượng UserResponse
+        user_response = UserResponse(
+            id=user_data.id,
+            email=user_data.email,
+            created_at=created_at,  # Đã chuyển đổi sang string
+            name=user_data.user_metadata.get("name") if user_data.user_metadata else None,
+            avatar_url=user_data.user_metadata.get("avatar_url") if user_data.user_metadata else None,
+            role=user_role
+        )
+        
+        # Debug: In ra response để kiểm tra
+        print(f"Login response: {user_response.model_dump()}")
+        
+        # Tạo response
+        auth_response_data = AuthResponse(
+            user=user_response,
+            access_token=auth_response.session.access_token,
+            token_type="bearer",
+            expires_in=3600,  # 1 giờ
+        )
+        
+        # Debug: In ra auth_response_data để kiểm tra
+        print(f"Auth response data: {auth_response_data.model_dump()}")
+        
+        return auth_response_data
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Lỗi khi đăng nhập: {str(e)}")
         error_message = "Lỗi khi đăng nhập"
@@ -1449,6 +1512,9 @@ async def login(request: UserLoginRequest, response: Response):
         elif "rate limit" in str(e).lower():
             error_message = "Quá nhiều lần đăng nhập thất bại. Vui lòng thử lại sau"
             error_status = status.HTTP_429_TOO_MANY_REQUESTS
+        elif "timeout" in str(e).lower() or "timed out" in str(e).lower():
+            error_message = "Kết nối đến máy chủ xác thực bị timeout. Vui lòng thử lại sau."
+            error_status = status.HTTP_504_GATEWAY_TIMEOUT
         else:
             # Trả về lỗi chi tiết từ Supabase nếu không khớp với các trường hợp trên
             error_message = f"Lỗi đăng nhập: {str(e)}"
@@ -1659,6 +1725,9 @@ async def get_user(current_user=Depends(get_current_user)):
         "id": current_user.id,
         "email": current_user.email,
         "created_at": created_at,
+        "name": current_user.user_metadata.get("name", current_user.email),
+        "avatar_url": current_user.user_metadata.get("avatar_url", None),
+        "role": getattr(current_user, "role", "student"),  # Sử dụng getattr để lấy an toàn
     }
 
 
@@ -1708,6 +1777,9 @@ async def session_info(
             "user_id": session.user.id,
             "email": session.user.email,
             "created_at": created_at,
+            "name": session.user.user_metadata.get("name", session.user.email),
+            "avatar_url": session.user.user_metadata.get("avatar_url", None),
+            "role": getattr(session.user, "role", "student"),  # Sử dụng getattr để lấy an toàn
         }
     except Exception as e:
         return JSONResponse(
@@ -1785,6 +1857,7 @@ async def login_with_google(request: GoogleAuthRequest):
                 "email": user.email,
                 "name": user.user_metadata.get("name", user.email),
                 "avatar_url": user.user_metadata.get("avatar_url", None),
+                "role": user.user_metadata.get("role", "student"),
             },
             "access_token": session.access_token,
             "refresh_token": session.refresh_token,
@@ -1909,6 +1982,7 @@ async def auth_callback(
                 "email": user.email,
                 "name": user.user_metadata.get("name", user.email),
                 "avatar_url": user.user_metadata.get("avatar_url", None),
+                "role": user.user_metadata.get("role", "student"),
             },
             "access_token": access_token,
             "refresh_token": refresh_token,

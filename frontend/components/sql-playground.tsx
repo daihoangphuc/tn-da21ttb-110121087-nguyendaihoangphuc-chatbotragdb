@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -18,10 +18,26 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { useMobile } from "@/hooks/use-mobile"
 import Script from "next/script"
+import { cn } from "@/lib/utils"
 
 // Type definition for SQL.js
 type SQLJSStatic = any;
 type SQLJSDatabase = any;
+
+// Add window interface for SQL.js
+declare global {
+  interface Window {
+    initSqlJs: (config: { locateFile: (file: string) => string }) => Promise<SQLJSStatic>;
+  }
+}
+
+// Initialize SQL.js with the correct configuration for browser environment
+const initSqlJs = async () => {
+  const SQL = await window.initSqlJs({
+    locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
+  });
+  return SQL;
+};
 
 interface SqlPlaygroundProps {
   className?: string
@@ -41,6 +57,7 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
   const [sqlLoaded, setSqlLoaded] = useState(false)
   const [db, setDb] = useState<SQLJSDatabase | null>(null)
   const [initializing, setInitializing] = useState(true)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   // Script load handling
   const handleSqlJsLoad = () => {
@@ -51,16 +68,13 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
   useEffect(() => {
     let mounted = true;
     
-    const initSqlJs = async () => {
+    const initializeDb = async () => {
       if (!sqlLoaded) return;
       
       try {
         setInitializing(true);
         
-        // Load sql.js WASM module
-        const SQL = await (window as any).initSqlJs({
-          locateFile: (file: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.6.2/${file}`
-        });
+        const SQL = await initSqlJs();
         
         if (!mounted) return;
         
@@ -196,7 +210,7 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
       }
     };
 
-    initSqlJs();
+    initializeDb();
     
     return () => {
       mounted = false;
@@ -399,38 +413,56 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
               {results.message}
             </div>
           ) : (
-            <div className="overflow-auto flex-1 border rounded-md">
-              <table className="sql-result-table w-full">
-                <thead>
-                  <tr>
-                    {results.columns.map((column: string) => (
-                      <th key={column}>{column}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.rows.length === 0 ? (
+            <div className="overflow-hidden flex-1 border rounded-md">
+              <div className="w-full h-full overflow-auto">
+                <table className="sql-result-table w-full">
+                  <thead className="sticky top-0 bg-background z-10">
                     <tr>
-                      <td colSpan={results.columns.length} className="text-center text-muted-foreground py-8">
-                        Không tìm thấy dữ liệu.
-                      </td>
+                      {results.columns.map((column: string, index: number) => (
+                        <th 
+                          key={column} 
+                          className="min-w-0 truncate border-b bg-muted" 
+                          title={column}
+                          style={{ width: `${100 / results.columns.length}%` }}
+                        >
+                          {column}
+                        </th>
+                      ))}
                     </tr>
-                  ) : (
-                    results.rows.map((row: any, index: number) => (
-                      <tr key={index}>
-                        {results.columns.map((column: string) => {
-                          const value = row[column] !== undefined && row[column] !== null 
-                            ? row[column] 
-                            : 'NULL';
-                          return (
-                            <td key={`${index}-${column}`}>{value}</td>
-                          );
-                        })}
+                  </thead>
+                  <tbody>
+                    {results.rows.length === 0 ? (
+                      <tr>
+                        <td colSpan={results.columns.length} className="text-center text-muted-foreground py-8">
+                          Không tìm thấy dữ liệu.
+                        </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : (
+                      results.rows.map((row: any, index: number) => (
+                        <tr key={index} className="hover:bg-muted/50">
+                          {results.columns.map((column: string, colIndex: number) => {
+                            const value = row[column] !== undefined && row[column] !== null 
+                              ? String(row[column]) 
+                              : 'NULL';
+                            return (
+                              <td 
+                                key={`${index}-${column}`} 
+                                className="min-w-0 truncate px-2 py-1.5 text-sm border-b" 
+                                title={value}
+                                style={{ width: `${100 / results.columns.length}%` }}
+                              >
+                                <span className="block truncate">
+                                  {value}
+                                </span>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
@@ -450,14 +482,16 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
 
   return (
     <div
-      className={`flex flex-col h-full transition-all duration-300 ${
-        isFullscreen ? "fixed inset-0 z-50 bg-background p-4" : ""
-      } ${className}`}
+      className={cn(
+        "sql-playground flex flex-col h-full transition-all duration-300",
+        isFullscreen ? "fixed inset-0 z-50 bg-background p-4" : "",
+        className
+      )}
       onKeyDown={handleKeyDown}
     >
       {/* SQL.js Script */}
       <Script 
-        src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.6.2/sql-wasm.js"
+        src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"
         onLoad={handleSqlJsLoad}
         strategy="lazyOnload"
       />
@@ -587,11 +621,21 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
             // Desktop fullscreen - Split view
             <ResizablePanelGroup direction="horizontal" className="flex-1">
               <ResizablePanel defaultSize={50} minSize={30} className="pr-2">
-                {renderQueryEditor()}
+                <div className="h-full flex flex-col">
+                  <h3 className="text-sm font-medium mb-2 text-muted-foreground">Truy vấn SQL</h3>
+                  <div className="flex-1">
+                    {renderQueryEditor()}
+                  </div>
+                </div>
               </ResizablePanel>
               <ResizableHandle withHandle />
-              <ResizablePanel defaultSize={50} minSize={30} className="pl-2 overflow-auto">
-                {renderResults()}
+              <ResizablePanel defaultSize={50} minSize={30} className="pl-2">
+                <div className="h-full flex flex-col">
+                  <h3 className="text-sm font-medium mb-2 text-muted-foreground">Kết quả</h3>
+                  <div className="flex-1 overflow-hidden">
+                    {renderResults()}
+                  </div>
+                </div>
               </ResizablePanel>
             </ResizablePanelGroup>
           ) : (
@@ -623,12 +667,10 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
             <kbd className="px-1 py-0.5 bg-muted rounded text-xs">Enter</kbd> để thực thi
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1">
-              <div className={`w-2 h-2 rounded-full ${initializing ? "bg-amber-500" : db ? "bg-success" : "bg-destructive"}`}></div>
-              <span className="text-xs text-muted-foreground">
-                {initializing ? "Đang khởi tạo" : db ? "Đã kết nối" : "Chưa kết nối"}
-              </span>
-            </div>
+            <div className={`w-2 h-2 rounded-full ${initializing ? "bg-amber-500" : db ? "bg-success" : "bg-destructive"}`}></div>
+            <span className="text-xs text-muted-foreground">
+              {initializing ? "Đang khởi tạo" : db ? "Đã kết nối" : "Chưa kết nối"}
+            </span>
           </div>
         </CardFooter>
       </Card>

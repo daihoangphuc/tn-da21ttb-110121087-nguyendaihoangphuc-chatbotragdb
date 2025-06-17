@@ -42,6 +42,7 @@ export function ConversationList({ onSelectConversation, currentConversationId, 
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(false)
   const { toast } = useToast()
+  const pageSize = 5 // Giảm số lượng hội thoại tải về mỗi lần xuống 5
 
   // Tải danh sách hội thoại từ API
   useEffect(() => {
@@ -49,7 +50,7 @@ export function ConversationList({ onSelectConversation, currentConversationId, 
       try {
         setLoading(true)
         setError(null)
-        const response = await conversationsApi.getConversations(page, 10)
+        const response = await conversationsApi.getConversations(page, pageSize)
         
         if (response && response.status === 'success') {
           const conversationData = response.data || [];
@@ -108,7 +109,7 @@ export function ConversationList({ onSelectConversation, currentConversationId, 
     }
 
     fetchConversations()
-  }, [page, toast, refreshKey, onSelectConversation, currentConversationId])
+  }, [page, toast, refreshKey, onSelectConversation, currentConversationId, pageSize])
 
   const loadMore = () => {
     if (!loading && hasMore) {
@@ -240,21 +241,25 @@ export function ConversationList({ onSelectConversation, currentConversationId, 
       ))}
 
           {hasMore && (
-            <Button 
-              variant="outline" 
-              className="mt-2"
-              onClick={loadMore}
-              disabled={loading}
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Đang tải...
-                </>
-              ) : (
-                "Tải thêm"
-              )}
-            </Button>
+            <div className="flex justify-center mt-4">
+              <Button 
+                variant="outline" 
+                className="px-4 py-2 flex items-center gap-2"
+                onClick={loadMore}
+                disabled={loading}
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Đang tải...
+                  </>
+                ) : (
+                  <>
+                    <span>Tải thêm hội thoại</span>
+                  </>
+                )}
+              </Button>
+            </div>
           )}
         </>
       )}

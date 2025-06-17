@@ -142,6 +142,7 @@ class SearchManager:
                 query_vector, file_id=file_id, limit=k
             )
         else:
+            print(f"Semantic search trên toàn bộ tài liệu (không có filter)")
             results = self.vector_store.search(query_vector, limit=k)
 
         # In thông tin để debug

@@ -10,6 +10,7 @@ import { PlusCircle, MessageSquare, FileText, Loader2 } from "lucide-react"
 import { useState } from "react"
 import { conversationsApi } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
+import { useAuth } from "@/hooks/useAuth"
 
 interface SidebarProps {
   className?: string
@@ -19,7 +20,11 @@ interface SidebarProps {
 }
 
 export function Sidebar({ className, onSelectConversation, currentConversationId, onSelectedFilesChange }: SidebarProps) {
-  const [activeTab, setActiveTab] = useState("documents")
+  const { user } = useAuth()
+  const isAdmin = user?.role === "admin"
+  
+  // Đặt tab mặc định là "conversations" cho tất cả người dùng
+  const [activeTab, setActiveTab] = useState("conversations")
   const [creatingConversation, setCreatingConversation] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const { toast } = useToast()
@@ -89,15 +94,16 @@ export function Sidebar({ className, onSelectConversation, currentConversationId
       <Tabs defaultValue="conversations" value={activeTab} onValueChange={setActiveTab} className="flex-1">
         <div className="px-4">
           <TabsList className="w-full">
-          <TabsTrigger value="documents" className="flex-1">
-              <FileText className="mr-2 h-4 w-4" />
-              Tài liệu
-            </TabsTrigger>
+            {isAdmin && (
+              <TabsTrigger value="documents" className="flex-1">
+                <FileText className="mr-2 h-4 w-4" />
+                Tài liệu
+              </TabsTrigger>
+            )}
             <TabsTrigger value="conversations" className="flex-1">
               <MessageSquare className="mr-2 h-4 w-4" />
               Hội thoại
             </TabsTrigger>
-
           </TabsList>
         </div>
         <TabsContent value="conversations" className="flex-1">
@@ -109,11 +115,13 @@ export function Sidebar({ className, onSelectConversation, currentConversationId
             />
           </ScrollArea>
         </TabsContent>
-        <TabsContent value="documents" className="flex-1">
-          <ScrollArea className="h-[calc(100vh-8rem)] p-4">
-            <FileUploader onSelectedFilesChange={onSelectedFilesChange} />
-          </ScrollArea>
-        </TabsContent>
+        {isAdmin && (
+          <TabsContent value="documents" className="flex-1">
+            <ScrollArea className="h-[calc(100vh-8rem)] p-4">
+              <FileUploader onSelectedFilesChange={onSelectedFilesChange} />
+            </ScrollArea>
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   )

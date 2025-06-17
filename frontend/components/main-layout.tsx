@@ -26,7 +26,11 @@ const getLocalStorage = (key: string): string | null => {
 };
 
 export function MainLayout() {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  // Khởi tạo trạng thái sidebar từ localStorage hoặc mặc định là true
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    const stored = getLocalStorage('sidebarOpen');
+    return stored === null ? true : stored === 'true';
+  });
   const [sqlPanelOpen, setSqlPanelOpen] = useState(false)
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null)
   const [conversationMessages, setConversationMessages] = useState<any[]>([])
@@ -34,6 +38,13 @@ export function MainLayout() {
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([])
   const isMobile = useMobile()
   const { user } = useAuth()
+
+  // Lưu trạng thái sidebar vào localStorage khi thay đổi
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('sidebarOpen', sidebarOpen.toString());
+    }
+  }, [sidebarOpen]);
 
   // Khi mount chỉ load danh sách hội thoại, không load messages
   // Xử lý khi chọn một cuộc hội thoại
@@ -87,17 +98,21 @@ export function MainLayout() {
   return (
     <AuthGuard>
       <div className="flex h-screen bg-background">
-        {!isMobile ? (
-          <Sidebar
-            className={cn(
-              "fixed inset-y-0 z-50 w-[300px] border-r bg-background transition-transform duration-300 lg:static lg:translate-x-0",
-              sidebarOpen ? "translate-x-0" : "-translate-x-[300px]"
-            )}
-            onSelectConversation={handleSelectConversation}
-            currentConversationId={currentConversationId}
-            onSelectedFilesChange={setSelectedFileIds}
-          />
-        ) : (
+        {!isMobile && (
+          <div className={cn(
+            "w-[300px] transition-all duration-300 ease-in-out",
+            sidebarOpen ? "translate-x-0" : "-translate-x-[300px] absolute"
+          )}>
+            <Sidebar
+              className="h-screen border-r bg-background z-20"
+              onSelectConversation={handleSelectConversation}
+              currentConversationId={currentConversationId}
+              onSelectedFilesChange={setSelectedFileIds}
+            />
+          </div>
+        )}
+
+        {isMobile && (
           <MobileNav
             open={sidebarOpen}
             onOpenChange={setSidebarOpen}
@@ -106,11 +121,16 @@ export function MainLayout() {
           />
         )}
 
-        <div className="flex flex-col flex-1 overflow-hidden">
+        <div className={cn(
+          "flex flex-col flex-1 overflow-hidden transition-all duration-300 relative z-30",
+          sidebarOpen ? "ml-0 lg:ml-[300px]" : "ml-0"
+        )}>
           <Header
             onMenuClick={() => setSidebarOpen(true)}
             onSqlClick={() => setSqlPanelOpen(!sqlPanelOpen)}
             sqlPanelOpen={sqlPanelOpen}
+            onSidebarToggle={() => setSidebarOpen(!sidebarOpen)}
+            isSidebarOpen={sidebarOpen}
           />
 
           <main className="flex-1 overflow-hidden flex">

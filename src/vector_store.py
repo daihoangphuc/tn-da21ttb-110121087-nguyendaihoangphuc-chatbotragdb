@@ -320,7 +320,7 @@ class VectorStore:
             return []
 
         # Nếu không có danh sách nguồn hoặc file_id, sử dụng search thông thường
-        if not sources and not file_id:
+        if (not sources or len(sources) == 0) and (not file_id or len(file_id) == 0):
             print(f"Không có sources hoặc file_id được chỉ định, tìm kiếm trong tất cả các tài liệu.")
             return self.search(query_vector, limit, user_id)
 
@@ -328,7 +328,7 @@ class VectorStore:
         should_conditions = []
 
         # Xử lý tìm kiếm theo sources nếu được cung cấp
-        if sources:
+        if sources and len(sources) > 0:
             # Xử lý danh sách nguồn để hỗ trợ so sánh với cả tên file đơn thuần và đường dẫn
             normalized_sources = []
             for source in sources:
@@ -357,7 +357,7 @@ class VectorStore:
                     )
 
         # Xử lý tìm kiếm theo file_id nếu được cung cấp
-        if file_id:
+        if file_id and len(file_id) > 0:
             print(f"Tìm kiếm với file_id={file_id}")
             # Thêm điều kiện lọc theo file_id
             for fid in file_id:
