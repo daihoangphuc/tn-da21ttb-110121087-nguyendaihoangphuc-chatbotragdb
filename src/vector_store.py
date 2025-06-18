@@ -403,10 +403,14 @@ class VectorStore:
         if user_id and user_id != self.user_id:
             self.collection_name = self.get_collection_name_for_user(user_id)
 
+        # **FIX: Chỉ yêu cầu collection_name, không bắt buộc phải có user_id**
         if not self.collection_name:
-            raise ValueError(
-                "collection_name không được để trống. Cần user_id để xác định collection."
-            )
+            if user_id:
+                self.collection_name = self.get_collection_name_for_user(user_id)
+            else:
+                raise ValueError(
+                    "collection_name không được để trống. Cần user_id để xác định collection hoặc đã set collection_name trước đó."
+                )
 
         try:
             # Kiểm tra xem collection có tồn tại không
@@ -549,10 +553,14 @@ class VectorStore:
         if user_id and user_id != self.user_id:
             self.collection_name = self.get_collection_name_for_user(user_id)
 
+        # **FIX: Chỉ yêu cầu collection_name, không bắt buộc phải có user_id**
         if not self.collection_name:
-            raise ValueError(
-                "collection_name không được để trống. Cần user_id để xác định collection."
-            )
+            if user_id:
+                self.collection_name = self.get_collection_name_for_user(user_id)
+            else:
+                raise ValueError(
+                    "collection_name không được để trống. Cần user_id để xác định collection hoặc đã set collection_name trước đó."
+                )
 
         try:
             print(
@@ -589,10 +597,14 @@ class VectorStore:
         if user_id and user_id != self.user_id:
             self.collection_name = self.get_collection_name_for_user(user_id)
 
+        # **FIX: Chỉ yêu cầu collection_name, không bắt buộc phải có user_id**
         if not self.collection_name:
-            raise ValueError(
-                "collection_name không được để trống. Cần user_id để xác định collection."
-            )
+            if user_id:
+                self.collection_name = self.get_collection_name_for_user(user_id)
+            else:
+                raise ValueError(
+                    "collection_name không được để trống. Cần user_id để xác định collection hoặc đã set collection_name trước đó."
+                )
 
         try:
             print(f"[VECTOR_STORE] Bắt đầu xóa điểm theo filter: {filter_dict}")
@@ -658,7 +670,7 @@ class VectorStore:
 
         Args:
             file_path (str): Đường dẫn đầy đủ của file cần xóa
-            user_id (str): ID của người dùng
+            user_id (str): ID của người dùng (tùy chọn, nếu không có sẽ dùng collection hiện tại)
 
         Returns:
             tuple: (success: bool, message: str) - Kết quả xóa và thông báo
@@ -667,10 +679,14 @@ class VectorStore:
         if user_id and user_id != self.user_id:
             self.collection_name = self.get_collection_name_for_user(user_id)
 
+        # **FIX: Chỉ yêu cầu collection_name, không bắt buộc phải có user_id**
         if not self.collection_name:
-            raise ValueError(
-                "collection_name không được để trống. Cần user_id để xác định collection."
-            )
+            if user_id:
+                self.collection_name = self.get_collection_name_for_user(user_id)
+            else:
+                raise ValueError(
+                    "collection_name không được để trống. Cần user_id để xác định collection hoặc đã set collection_name trước đó."
+                )
 
         try:
             print(f"[VECTOR_STORE] Bắt đầu xóa các điểm của file: {file_path}")

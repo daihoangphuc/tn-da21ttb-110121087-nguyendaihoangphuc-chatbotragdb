@@ -98,13 +98,14 @@ export function MainLayout() {
   return (
     <AuthGuard>
       <div className="flex h-screen bg-background">
+        {/* Desktop Sidebar */}
         {!isMobile && (
           <div className={cn(
-            "w-[300px] transition-all duration-300 ease-in-out",
-            sidebarOpen ? "translate-x-0" : "-translate-x-[300px] absolute"
+            "fixed left-0 top-0 h-full w-[300px] transition-transform duration-300 ease-in-out z-40",
+            sidebarOpen ? "translate-x-0" : "-translate-x-full"
           )}>
             <Sidebar
-              className="h-screen border-r bg-background z-20"
+              className="h-full border-r bg-background"
               onSelectConversation={handleSelectConversation}
               currentConversationId={currentConversationId}
               onSelectedFilesChange={setSelectedFileIds}
@@ -112,6 +113,7 @@ export function MainLayout() {
           </div>
         )}
 
+        {/* Mobile Navigation */}
         {isMobile && (
           <MobileNav
             open={sidebarOpen}
@@ -121,9 +123,10 @@ export function MainLayout() {
           />
         )}
 
+        {/* Main Content Area */}
         <div className={cn(
-          "flex flex-col flex-1 overflow-hidden transition-all duration-300 relative z-30",
-          sidebarOpen ? "ml-0 lg:ml-[300px]" : "ml-0"
+          "flex flex-col flex-1 overflow-hidden transition-all duration-300 ease-in-out",
+          !isMobile && sidebarOpen ? "ml-[300px]" : "ml-0"
         )}>
           <Header
             onMenuClick={() => setSidebarOpen(true)}
@@ -166,7 +169,7 @@ export function MainLayout() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="absolute right-4 bottom-4 h-10 w-10 rounded-full shadow-md bg-primary text-primary-foreground hover:bg-primary/90"
+                      className="absolute right-4 bottom-4 h-10 w-10 rounded-full shadow-md bg-primary text-primary-foreground hover:bg-primary/90 z-10"
                       onClick={() => setSqlPanelOpen(true)}
                     >
                       <Database className="h-5 w-5" />

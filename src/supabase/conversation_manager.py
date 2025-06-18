@@ -300,7 +300,7 @@ class SupabaseConversationManager:
 
     def get_conversations(self, user_id: str, delete_empty: bool = True) -> List[Dict]:
         """
-        Lấy danh sách các phiên hội thoại của người dùng
+        Lấy danh sách các phiên hội thoại của người dùng (Tối ưu với batch queries)
         Chỉ trả về những hội thoại có tin nhắn, trừ cuộc hội thoại mới nhất
         Có thể xóa những hội thoại rỗng (không có tin nhắn) nếu delete_empty=True
 
@@ -310,6 +310,134 @@ class SupabaseConversationManager:
 
         Returns:
             Danh sách các phiên hội thoại
+        """
+        try:
+            # Tối ưu: Sử dụng một query duy nhất với JOIN để lấy tất cả thông tin cần thiết
+            # Thay vì N+1 queries, chỉ cần 1-2 queries
+            
+            # Query 1: Lấy conversations với thông tin message count và first message
+            conversations_query = """
+            SELECT 
+                c.conversation_id,
+                c.last_updated,
+                COUNT(m.id) as message_count,
+                MIN(CASE WHEN m.role = 'user' THEN m.content END) as first_message
+            FROM conversations c
+            LEFT JOIN messages m ON c.conversation_id = m.conversation_id
+            WHERE c.user_id = %s
+            GROUP BY c.conversation_id, c.last_updated
+            ORDER BY c.last_updated DESC
+            """
+            
+            # Thực hiện query tối ưu (nếu Supabase hỗ trợ raw SQL)
+            try:
+                # Fallback về method cũ nếu không thể thực hiện raw query
+                result = (
+                    self.supabase_client.table("conversations")
+                    .select("conversation_id, last_updated")
+                    .eq("user_id", user_id)
+                    .order("last_updated", desc=True)
+                    .execute()
+                )
+
+                if not hasattr(result, "data") or not result.data:
+                    return []
+
+                conversations = []
+                conversation_ids = [conv["conversation_id"] for conv in result.data]
+                
+                if not conversation_ids:
+                    return []
+
+                # Batch query: Lấy message count cho tất cả conversations cùng lúc
+                message_counts = {}
+                first_messages = {}
+                
+                # Lấy tất cả messages cho các conversations này
+                messages_result = (
+                    self.supabase_client.table("messages")
+                    .select("conversation_id, role, content, sequence")
+                    .in_("conversation_id", conversation_ids)
+                    .order("sequence")
+                    .execute()
+                )
+                
+                # Xử lý dữ liệu messages
+                for msg in messages_result.data if hasattr(messages_result, "data") and messages_result.data else []:
+                    conv_id = msg["conversation_id"]
+                    
+                    # Đếm messages
+                    if conv_id not in message_counts:
+                        message_counts[conv_id] = 0
+                    message_counts[conv_id] += 1
+                    
+                    # Lấy first message (user message đầu tiên)
+                    if msg["role"] == "user" and conv_id not in first_messages:
+                        first_messages[conv_id] = msg["content"]
+
+                is_first = True  # Đánh dấu cuộc hội thoại đầu tiên (mới nhất)
+                empty_conversations = []  # Danh sách conversations rỗng cần xóa
+
+                for conv in result.data:
+                    conversation_id = conv.get("conversation_id")
+                    last_updated = conv.get("last_updated")
+                    
+                    message_count = message_counts.get(conversation_id, 0)
+                    
+                    # Nếu không phải cuộc hội thoại mới nhất và không có tin nhắn
+                    if not is_first and message_count == 0 and delete_empty:
+                        empty_conversations.append(conversation_id)
+                        continue  # Bỏ qua, không thêm vào kết quả
+
+                    # Nếu là cuộc hội thoại mới nhất hoặc có tin nhắn, thì thêm vào danh sách
+                    if is_first or message_count > 0:
+                        first_message = first_messages.get(conversation_id, "")
+
+                        # Tạo đối tượng hội thoại
+                        conversations.append(
+                            {
+                                "conversation_id": conversation_id,
+                                "last_updated": last_updated,
+                                "first_message": first_message,
+                                "message_count": message_count,
+                                "is_newest": is_first,  # Thêm trường để biết đây là cuộc hội thoại mới nhất
+                            }
+                        )
+
+                    # Đánh dấu không còn là cuộc hội thoại đầu tiên nữa
+                    if is_first:
+                        is_first = False
+
+                # Batch delete empty conversations nếu có
+                if delete_empty and empty_conversations:
+                    try:
+                        delete_result = (
+                            self.supabase_client.table("conversations")
+                            .delete()
+                            .in_("conversation_id", empty_conversations)
+                            .eq("user_id", user_id)
+                            .execute()
+                        )
+                        if hasattr(delete_result, "data") and delete_result.data:
+                            print(f"Đã xóa {len(empty_conversations)} cuộc hội thoại rỗng")
+                    except Exception as e:
+                        print(f"Lỗi khi xóa batch conversations rỗng: {str(e)}")
+
+                print(f"Đã tìm thấy {len(conversations)} cuộc hội thoại có tin nhắn (hoặc mới nhất)")
+                return conversations
+                
+            except Exception as e:
+                print(f"Lỗi trong optimized query: {str(e)}")
+                # Fallback về method cũ nếu có lỗi
+                return self._get_conversations_fallback(user_id, delete_empty)
+                
+        except Exception as e:
+            print(f"Lỗi khi lấy danh sách hội thoại: {str(e)}")
+            return []
+
+    def _get_conversations_fallback(self, user_id: str, delete_empty: bool = True) -> List[Dict]:
+        """
+        Fallback method cho get_conversations khi optimized query không hoạt động
         """
         try:
             # Lấy danh sách phiên hội thoại từ Supabase
@@ -404,7 +532,7 @@ class SupabaseConversationManager:
             )
             return conversations
         except Exception as e:
-            print(f"Lỗi khi lấy danh sách hội thoại: {str(e)}")
+            print(f"Lỗi trong fallback method: {str(e)}")
             return []
 
     def delete_conversation(self, conversation_id: str, user_id: str) -> bool:

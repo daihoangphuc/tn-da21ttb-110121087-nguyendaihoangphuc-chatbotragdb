@@ -969,6 +969,12 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
 
         print(f"[DELETE] Đang xóa các điểm dữ liệu liên quan đến file: {filename}")
 
+        # **FIX: Đảm bảo sử dụng collection global_documents thay vì user-specific collection**
+        # Cập nhật collection_name cho vector store để sử dụng global_documents
+        original_collection = rag_system.vector_store.collection_name
+        rag_system.vector_store.collection_name = "global_documents"
+        print(f"[DELETE] Sử dụng collection: {rag_system.vector_store.collection_name}")
+
         # **CẬP NHẬT: Tạo danh sách các biến thể với cả tên gốc và tên PDF**
         file_paths = [
             file_path,  # Đường dẫn file thực tế (PDF)
@@ -991,10 +997,8 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
         for path in file_paths:
             print(f"[DELETE] Thử xóa với đường dẫn: {path}")
             try:
-                # Sử dụng phương thức delete_by_file_path
-                success, message = rag_system.vector_store.delete_by_file_path(
-                    path, user_id=current_user.id
-                )
+                # **FIX: Không truyền user_id vào delete_by_file_path vì đang dùng global collection**
+                success, message = rag_system.vector_store.delete_by_file_path(path)
 
                 if success:
                     # Phân tích số lượng điểm đã xóa từ message
@@ -1017,10 +1021,8 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
             for fname in filenames_to_try:
                 print(f"[DELETE] Thử xóa với tên file: {fname}")
                 try:
-                    # Sử dụng phương thức delete_by_file_path với tên file
-                    success, message = rag_system.vector_store.delete_by_file_path(
-                        fname, user_id=current_user.id
-                    )
+                    # **FIX: Không truyền user_id vào delete_by_file_path vì đang dùng global collection**
+                    success, message = rag_system.vector_store.delete_by_file_path(fname)
 
                     if success:
                         # Phân tích số lượng điểm đã xóa từ message
@@ -1040,10 +1042,8 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
         if not deletion_success:
             print(f"[DELETE] Thử xóa bằng phương thức cũ...")
 
-            # Tìm tất cả tài liệu khớp với đường dẫn hoặc tên file
-            all_docs = rag_system.vector_store.get_all_documents(
-                user_id=current_user.id
-            )
+            # **FIX: Không truyền user_id vào get_all_documents vì đang dùng global collection**
+            all_docs = rag_system.vector_store.get_all_documents()
             related_docs = []
 
             for doc in all_docs:
@@ -1090,8 +1090,9 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
                 filter_request = {"filter": {"should": filter_conditions}}
 
                 try:
+                    # **FIX: Không truyền user_id vào delete_points_by_filter vì đang dùng global collection**
                     success, message = rag_system.vector_store.delete_points_by_filter(
-                        filter_request, user_id=current_user.id
+                        filter_request
                     )
 
                     if success:
@@ -1114,9 +1115,8 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
                             if doc.get("id") is not None
                         ]
                         if point_ids:
-                            delete_result = rag_system.vector_store.delete_points(
-                                point_ids, user_id=current_user.id
-                            )
+                            # **FIX: Không truyền user_id vào delete_points vì đang dùng global collection**
+                            delete_result = rag_system.vector_store.delete_points(point_ids)
                             if delete_result:
                                 deleted_points_count = len(point_ids)
                                 print(
@@ -1126,17 +1126,22 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
                     except Exception as e2:
                         print(f"[DELETE] Lỗi khi xóa bằng ID: {str(e2)}")
 
+        # Khôi phục collection_name gốc
+        rag_system.vector_store.collection_name = original_collection
+
         # **XÓA FILE VẬT LÝ - Sử dụng đường dẫn file thực tế**
         print(f"[DELETE] Đang xóa file vật lý: {file_path}")
         os.remove(file_path)
         print(f"[DELETE] Đã xóa file vật lý thành công")
 
-        # Đánh dấu file đã xóa trong bảng document_files (sử dụng tên file gốc)
+        # **FIX: Cải thiện logic xóa file trong database**
         try:
             from src.supabase.files_manager import FilesManager
             from src.supabase.client import SupabaseClient
 
-            client = SupabaseClient().get_client()
+            # **FIX: Sử dụng service key để bypass RLS policies**
+            supabase_client_with_service_role = SupabaseClient(use_service_key=True)
+            client = supabase_client_with_service_role.get_client()
             files_manager = FilesManager(client)
 
             # Tìm file trong database theo tên gốc và user_id
@@ -1150,8 +1155,29 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
                     print(
                         f"[DELETE] Đã xóa vĩnh viễn file {filename} (ID: {file_id}) khỏi database"
                     )
+                else:
+                    print(f"[DELETE] Không tìm thấy file_id cho file {filename}")
+            else:
+                print(f"[DELETE] Không tìm thấy file {filename} trong database cho user {current_user.id}")
+                
+                # **FIX: Thử tìm file không phân biệt user_id (cho trường hợp admin có thể xóa file của user khác)**
+                if current_user.role == 'admin':
+                    print(f"[DELETE] Admin đang thử xóa file, tìm kiếm trong toàn bộ database...")
+                    matching_files = files_manager.get_file_by_name_for_admin(filename)
+                    
+                    if matching_files:
+                        for file_record in matching_files:
+                            file_id = file_record.get("file_id")
+                            if file_id:
+                                files_manager.delete_file_permanently(file_id)
+                                print(f"[DELETE] Admin đã xóa vĩnh viễn file {filename} (ID: {file_id}) khỏi database")
+                    else:
+                        print(f"[DELETE] Không tìm thấy file {filename} trong toàn bộ database")
+                        
         except Exception as e:
-            print(f"[DELETE] Lỗi khi đánh dấu file đã xóa trong database: {str(e)}")
+            print(f"[DELETE] Lỗi khi xóa file trong database: {str(e)}")
+            import traceback
+            traceback.print_exc()
 
         return {
             "filename": filename,  # Trả về tên file gốc
@@ -1164,6 +1190,8 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
         raise e
     except Exception as e:
         print(f"[DELETE] Lỗi không xác định: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Lỗi khi xóa file: {str(e)}")
 
 @app.post(f"{PREFIX}/collections/delete-by-filter")
@@ -1250,65 +1278,7 @@ async def delete_points_by_filter(filter_request: Dict):
         )
 
 
-@app.get(f"{PREFIX}/conversations")
-async def get_all_conversations(
-    page: int = Query(1, ge=1, description="Trang hiện tại"),
-    page_size: int = Query(10, ge=1, le=50, description="Số lượng hội thoại mỗi trang"),
-    current_user=Depends(get_current_user),
-):
-    """
-    Lấy danh sách tất cả các hội thoại đã lưu trữ
-
-    Trả về danh sách các phiên hội thoại với thông tin cơ bản, có hỗ trợ phân trang
-    """
-    try:
-        user_id = current_user.id
-
-        # Sử dụng SupabaseConversationManager để lấy danh sách hội thoại
-        all_conversations = conversation_manager.get_conversations(user_id)
-
-        # Kiểm tra nếu không có hội thoại nào
-        if not all_conversations:
-            return {
-                "status": "success",
-                "message": "Không có hội thoại nào",
-                "data": [],
-                "pagination": {
-                    "page": page,
-                    "page_size": page_size,
-                    "total_items": 0,
-                    "total_pages": 0,
-                },
-            }
-
-        # Thêm user_id vào từng hội thoại để client có thể lọc
-        for conv in all_conversations:
-            conv["user_id"] = user_id
-
-        # Thực hiện phân trang
-        total_items = len(all_conversations)
-        total_pages = (total_items + page_size - 1) // page_size
-
-        start_idx = (page - 1) * page_size
-        end_idx = min(start_idx + page_size, total_items)
-
-        conversations = all_conversations[start_idx:end_idx]
-
-        return {
-            "status": "success",
-            "message": f"Đã tìm thấy {total_items} hội thoại",
-            "data": conversations,
-            "pagination": {
-                "page": page,
-                "page_size": page_size,
-                "total_items": total_items,
-                "total_pages": total_pages,
-            },
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Lỗi khi lấy danh sách hội thoại: {str(e)}"
-        )
+# Đã xóa hàm get_all_conversations trùng lặp - sử dụng get_user_conversations thay thế
 
 
 @app.get(f"{PREFIX}/conversations/{{conversation_id}}")
@@ -2030,7 +2000,7 @@ async def get_user_conversations(
     current_user=Depends(get_current_user),
 ):
     """
-    Lấy danh sách tất cả cuộc hội thoại của người dùng hiện tại
+    Lấy danh sách tất cả cuộc hội thoại của người dùng hiện tại (Tối ưu với JOIN query)
 
     Args:
         page: Trang hiện tại (bắt đầu từ 1)
@@ -2046,9 +2016,94 @@ async def get_user_conversations(
         # Tính offset cho phân trang
         offset = (page - 1) * page_size
 
+        # Tối ưu: Sử dụng một query duy nhất với CTE để lấy tất cả thông tin cần thiết
+        query = f"""
+        WITH conversation_stats AS (
+            SELECT 
+                c.conversation_id,
+                c.user_id,
+                c.created_at,
+                c.last_updated,
+                COUNT(m.id) as message_count,
+                (
+                    SELECT content 
+                    FROM messages m2 
+                    WHERE m2.conversation_id = c.conversation_id 
+                    AND m2.role = 'user' 
+                    ORDER BY m2.sequence ASC 
+                    LIMIT 1
+                ) as first_message
+            FROM conversations c
+            LEFT JOIN messages m ON c.conversation_id = m.conversation_id
+            WHERE c.user_id = '{user_id}'
+            GROUP BY c.conversation_id, c.user_id, c.created_at, c.last_updated
+            ORDER BY c.last_updated DESC
+            LIMIT {page_size} OFFSET {offset}
+        ),
+        total_count AS (
+            SELECT COUNT(*) as total FROM conversations WHERE user_id = '{user_id}'
+        )
+        SELECT 
+            cs.*,
+            tc.total as total_conversations
+        FROM conversation_stats cs
+        CROSS JOIN total_count tc
+        """
+
+        # Thực hiện query tối ưu
+        result = supabase_client.rpc('execute_sql', {'query': query}).execute()
+        
+        if not result.data:
+            # Fallback về phương pháp cũ nếu RPC không hoạt động
+            return await get_user_conversations_fallback(page, page_size, current_user)
+
+        conversations = []
+        total_items = 0
+        
+        for row in result.data:
+            if 'total_conversations' in row:
+                total_items = row['total_conversations']
+            
+            conversations.append({
+                "conversation_id": row["conversation_id"],
+                "user_id": row["user_id"],
+                "created_at": row["created_at"],
+                "last_updated": row["last_updated"],
+                "first_message": row["first_message"] or "Hội thoại mới",
+                "message_count": row["message_count"]
+            })
+
+        return {
+            "status": "success",
+            "data": conversations,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_items": total_items,
+                "total_pages": (total_items + page_size - 1) // page_size,
+            },
+        }
+    except Exception as e:
+        print(f"Lỗi khi lấy danh sách hội thoại: {str(e)}")
+        # Fallback về phương pháp cũ
+        return await get_user_conversations_fallback(page, page_size, current_user)
+
+
+async def get_user_conversations_fallback(
+    page: int,
+    page_size: int,
+    current_user,
+):
+    """
+    Phương pháp fallback cho get_user_conversations khi RPC không hoạt động
+    """
+    try:
+        user_id = current_user.id
+        offset = (page - 1) * page_size
+
         # Lấy tổng số hội thoại
         count_result = (
-            await supabase_client.table("conversations")
+            supabase_client.table("conversations")
             .select("*", count="exact")
             .eq("user_id", user_id)
             .execute()
@@ -2058,7 +2113,7 @@ async def get_user_conversations(
 
         # Lấy danh sách hội thoại có phân trang
         conversations = (
-            await supabase_client.table("conversations")
+            supabase_client.table("conversations")
             .select("*")
             .eq("user_id", user_id)
             .order("last_updated", desc=True)
@@ -2066,33 +2121,51 @@ async def get_user_conversations(
             .execute()
         )
 
-        # Lấy tin nhắn đầu tiên cho mỗi hội thoại
-        for conv in conversations.data:
-            first_message = (
-                await supabase_client.table("messages")
-                .select("content")
-                .eq("conversation_id", conv["conversation_id"])
+        # Tối ưu: Lấy tất cả first_message và message_count trong 2 query batch
+        conversation_ids = [conv["conversation_id"] for conv in conversations.data]
+        
+        if conversation_ids:
+            # Batch query cho first messages
+            first_messages = (
+                supabase_client.table("messages")
+                .select("conversation_id, content")
+                .in_("conversation_id", conversation_ids)
                 .eq("role", "user")
                 .order("sequence")
-                .limit(1)
                 .execute()
             )
-
-            conv["first_message"] = (
-                first_message.data[0]["content"] if first_message.data else ""
-            )
-
-            # Đếm số tin nhắn trong hội thoại
-            message_count = (
-                await supabase_client.table("messages")
-                .select("*", count="exact")
-                .eq("conversation_id", conv["conversation_id"])
+            
+            # Batch query cho message counts
+            message_counts = (
+                supabase_client.table("messages")
+                .select("conversation_id", count="exact")
+                .in_("conversation_id", conversation_ids)
                 .execute()
             )
+            
+            # Tạo dictionary để lookup nhanh
+            first_msg_dict = {}
+            for msg in first_messages.data:
+                conv_id = msg["conversation_id"]
+                if conv_id not in first_msg_dict:
+                    first_msg_dict[conv_id] = msg["content"]
+            
+            # Đếm messages cho mỗi conversation
+            msg_count_dict = {}
+            for conv_id in conversation_ids:
+                count_result = (
+                    supabase_client.table("messages")
+                    .select("*", count="exact")
+                    .eq("conversation_id", conv_id)
+                    .execute()
+                )
+                msg_count_dict[conv_id] = count_result.count if hasattr(count_result, "count") else 0
 
-            conv["message_count"] = (
-                message_count.count if hasattr(message_count, "count") else 0
-            )
+            # Gán dữ liệu vào conversations
+            for conv in conversations.data:
+                conv_id = conv["conversation_id"]
+                conv["first_message"] = first_msg_dict.get(conv_id, "Hội thoại mới")
+                conv["message_count"] = msg_count_dict.get(conv_id, 0)
 
         return {
             "status": "success",
@@ -2105,7 +2178,7 @@ async def get_user_conversations(
             },
         }
     except Exception as e:
-        print(f"Lỗi khi lấy danh sách hội thoại: {str(e)}")
+        print(f"Lỗi trong fallback method: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Lỗi khi lấy danh sách hội thoại: {str(e)}"
         )

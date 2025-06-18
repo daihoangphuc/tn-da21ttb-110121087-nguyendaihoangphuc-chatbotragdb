@@ -149,6 +149,26 @@ class FilesManager:
 
         return result.data if hasattr(result, "data") else []
 
+    def get_file_by_name_for_admin(self, filename: str) -> List[Dict]:
+        """
+        Lấy thông tin file theo tên cho admin (không phân biệt user_id)
+
+        Args:
+            filename: Tên file
+
+        Returns:
+            Danh sách thông tin file (có thể có nhiều file cùng tên từ các user khác nhau)
+        """
+        result = (
+            self.client.table("document_files")
+            .select("*")
+            .eq("filename", filename)
+            .eq("is_deleted", False)
+            .execute()
+        )
+
+        return result.data if hasattr(result, "data") else []
+
     def mark_file_as_deleted(self, file_id: str) -> Dict:
         """
         Đánh dấu file đã bị xóa (soft delete)

@@ -81,7 +81,25 @@ BEGIN
 END
 $$;
 
--- Tạo policy chỉ cho phép admin xóa tài liệu của họ
+-- Tạo policy cho phép admin xóa tất cả file (không chỉ file của họ)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE tablename = 'document_files' AND policyname = 'Admin can delete all files'
+    ) THEN
+        EXECUTE 'CREATE POLICY "Admin can delete all files" ON document_files
+        FOR DELETE
+        USING (
+            EXISTS (
+                SELECT 1 FROM user_roles
+                WHERE user_id = auth.uid() AND role = ''admin''
+            )
+        )';
+    END IF;
+END
+$$;
+
+-- Tạo policy chỉ cho phép admin xóa tài liệu của họ (backup policy)
 DO $$
 BEGIN
     IF NOT EXISTS (

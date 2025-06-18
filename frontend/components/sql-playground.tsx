@@ -282,8 +282,8 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
         const values = result.values;
 
         // Convert array values to object rows
-        const rows = values.map(row => {
-          const rowObj: any = {};
+        const rows = values.map((row: unknown[]) => {
+          const rowObj: Record<string, unknown> = {};
           columns.forEach((col: string, index: number) => {
             rowObj[col] = row[index];
           });

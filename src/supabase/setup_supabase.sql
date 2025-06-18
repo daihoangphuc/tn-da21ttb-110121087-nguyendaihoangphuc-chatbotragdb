@@ -77,3 +77,105 @@ USING (
         WHERE user_id = auth.uid() AND role = 'admin'
     )
 );
+
+-- **NEW: Policy cho phép admin xóa tất cả file**
+CREATE POLICY "Admin can delete all files" ON document_files
+FOR DELETE
+USING (
+    EXISTS (
+        SELECT 1 FROM user_roles
+        WHERE user_id = auth.uid() AND role = 'admin'
+    )
+);
+
+-- **NEW: Policy cho phép admin cập nhật tất cả file**
+CREATE POLICY "Admin can update all files" ON document_files
+FOR UPDATE
+USING (
+    EXISTS (
+        SELECT 1 FROM user_roles
+        WHERE user_id = auth.uid() AND role = 'admin'
+    )
+);
+
+-- **NEW: Policy cho phép admin xem tất cả file**
+CREATE POLICY "Admin can view all files" ON document_files
+FOR SELECT
+USING (
+    EXISTS (
+        SELECT 1 FROM user_roles
+        WHERE user_id = auth.uid() AND role = 'admin'
+    )
+);
+
+-- Tạo bảng user_roles
+CREATE TABLE IF NOT EXISTS user_roles (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
+    role TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Policies cho user_roles
+CREATE POLICY "Người dùng chỉ thấy role của mình" 
+ON user_roles FOR SELECT 
+USING (auth.uid() = user_id);
+
+-- Policies cho conversations
+CREATE POLICY "Người dùng chỉ thấy hội thoại của mình" 
+ON conversations FOR SELECT 
+USING (auth.uid() = user_id);
+
+CREATE POLICY "Người dùng có thể tạo hội thoại" 
+ON conversations FOR INSERT 
+WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Người dùng có thể cập nhật hội thoại của mình" 
+ON conversations FOR UPDATE 
+USING (auth.uid() = user_id);
+
+CREATE POLICY "Người dùng có thể xóa hội thoại của mình" 
+ON conversations FOR DELETE 
+USING (auth.uid() = user_id);
+
+-- Policies cho messages
+CREATE POLICY "Người dùng chỉ thấy tin nhắn của hội thoại mình" 
+ON messages FOR SELECT 
+USING (
+    EXISTS (
+        SELECT 1 FROM conversations 
+        WHERE conversations.conversation_id = messages.conversation_id 
+        AND conversations.user_id = auth.uid()
+    )
+);
+
+CREATE POLICY "Người dùng có thể tạo tin nhắn trong hội thoại của mình" 
+ON messages FOR INSERT 
+WITH CHECK (
+    EXISTS (
+        SELECT 1 FROM conversations 
+        WHERE conversations.conversation_id = messages.conversation_id 
+        AND conversations.user_id = auth.uid()
+    )
+);
+
+CREATE POLICY "Người dùng có thể cập nhật tin nhắn trong hội thoại của mình" 
+ON messages FOR UPDATE 
+USING (
+    EXISTS (
+        SELECT 1 FROM conversations 
+        WHERE conversations.conversation_id = messages.conversation_id 
+        AND conversations.user_id = auth.uid()
+    )
+);
+
+CREATE POLICY "Người dùng có thể xóa tin nhắn trong hội thoại của mình" 
+ON messages FOR DELETE 
+USING (
+    EXISTS (
+        SELECT 1 FROM conversations 
+        WHERE conversations.conversation_id = messages.conversation_id 
+        AND conversations.user_id = auth.uid()
+    )
+);
