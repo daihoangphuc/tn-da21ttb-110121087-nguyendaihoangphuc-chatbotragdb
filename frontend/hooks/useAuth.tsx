@@ -133,15 +133,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       setUser(response.user);
       
-      // Tạo hội thoại mới
+      // Tạo hội thoại mới sau khi đăng nhập thành công
       try {
         const conversationResponse = await conversationsApi.createConversation();
         if (conversationResponse && conversationResponse.conversation_id) {
           // Lưu conversation_id vào localStorage để MainLayout có thể sử dụng
           setLocalStorage("current_conversation_id", conversationResponse.conversation_id);
+          console.log("Đã tạo hội thoại mới:", conversationResponse.conversation_id);
         }
       } catch (error) {
-        // Không log lỗi khi tạo hội thoại mới
+        console.log("Không thể tạo hội thoại mới sau khi đăng nhập, sẽ tạo khi cần thiết");
       }
       
       toast({
@@ -194,6 +195,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       setUser(response.user);
       
+      // Tạo hội thoại mới sau khi đăng ký thành công
+      try {
+        const conversationResponse = await conversationsApi.createConversation();
+        if (conversationResponse && conversationResponse.conversation_id) {
+          // Lưu conversation_id vào localStorage để MainLayout có thể sử dụng
+          setLocalStorage("current_conversation_id", conversationResponse.conversation_id);
+        }
+      } catch (error) {
+        console.log("Không thể tạo hội thoại mới sau khi đăng ký, sẽ tạo khi cần thiết");
+      }
+      
       toast({
         variant: "success",
         title: "Thành công",
@@ -202,10 +214,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       return response;
     } catch (error: any) {
+      // Xử lý các loại lỗi cụ thể
+      let errorMessage = "Vui lòng thử lại sau";
+      let errorTitle = "Đăng ký thất bại";
+      
+      if (error.message) {
+        errorMessage = error.message;
+        
+        // Xử lý trường hợp email đã tồn tại
+        if (error.message.includes("Email này đã được đăng ký")) {
+          errorTitle = "Email đã tồn tại";
+        } else if (error.message.includes("Email không hợp lệ")) {
+          errorTitle = "Email không hợp lệ";
+        } else if (error.message.includes("Mật khẩu quá yếu")) {
+          errorTitle = "Mật khẩu không đủ mạnh";
+        }
+      }
+      
       toast({
         variant: "destructive",
-        title: "Đăng ký thất bại",
-        description: error.message || "Vui lòng thử lại sau",
+        title: errorTitle,
+        description: errorMessage,
       });
       throw error;
     } finally {
@@ -282,6 +311,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setLocalStorage("user_info", JSON.stringify(data.user));
           setUser(data.user);
         }
+        
+        // Tạo hội thoại mới sau khi đăng nhập Google thành công
+        try {
+          const conversationResponse = await conversationsApi.createConversation();
+          if (conversationResponse && conversationResponse.conversation_id) {
+            setLocalStorage("current_conversation_id", conversationResponse.conversation_id);
+            console.log("Đã tạo hội thoại mới cho Google login:", conversationResponse.conversation_id);
+          }
+        } catch (error) {
+          console.log("Không thể tạo hội thoại mới sau khi đăng nhập Google, sẽ tạo khi cần thiết");
+        }
+        
         toast({
           title: "Đăng nhập thành công",
           description: "Chào mừng bạn quay trở lại!",

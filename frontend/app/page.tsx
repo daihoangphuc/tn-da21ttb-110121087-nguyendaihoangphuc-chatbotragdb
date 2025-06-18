@@ -18,14 +18,13 @@ export default function Home() {
 
   if (loading) {
     return (
-      <HydrationSafe fallback={
-        <div className="flex items-center justify-center h-screen">
+      <HydrationSafe 
+        className="flex items-center justify-center h-screen"
+        fallback={
           <div className="w-10 h-10 border-t-2 border-b-2 border-primary rounded-full animate-spin"></div>
-        </div>
-      }>
-        <div className="flex items-center justify-center h-screen">
-          <div className="w-10 h-10 border-t-2 border-b-2 border-primary rounded-full animate-spin"></div>
-        </div>
+        }
+      >
+        <div className="w-10 h-10 border-t-2 border-b-2 border-primary rounded-full animate-spin"></div>
       </HydrationSafe>
     );
   }
@@ -34,5 +33,9 @@ export default function Home() {
     return null; // Sẽ được chuyển hướng bởi useEffect
   }
 
-  return <MainLayout />;
+  return (
+    <HydrationSafe>
+      <MainLayout />
+    </HydrationSafe>
+  );
 }

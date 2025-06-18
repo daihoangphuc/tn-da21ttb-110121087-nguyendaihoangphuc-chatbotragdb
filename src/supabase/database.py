@@ -5,6 +5,7 @@ Supabase Database module for database operations.
 from typing import Dict, List, Optional, Any, Union
 from .client import SupabaseClient
 import json
+import pytz
 from datetime import datetime
 
 import logging
@@ -18,6 +19,17 @@ original_print = print
 def print(*args, **kwargs):
     prefix = "[Database_Init] "
     original_print(prefix + " ".join(map(str, args)), **kwargs)
+
+# Hàm utility để lấy thời gian Việt Nam
+def get_vietnam_time():
+    """Lấy thời gian hiện tại theo múi giờ Việt Nam"""
+    vietnam_tz = pytz.timezone('Asia/Ho_Chi_Minh')
+    return datetime.now(vietnam_tz)
+
+def format_vietnam_time_for_db():
+    """Format thời gian Việt Nam cho database"""
+    vietnam_time = get_vietnam_time()
+    return vietnam_time.isoformat()
 
 
 class SupabaseDatabase:
@@ -145,7 +157,7 @@ class SupabaseDatabase:
                     session_data = {
                         "conversation_id": conversation_id,
                         "user_id": uuid.uuid4(),
-                        "last_updated": "NOW()",
+                        "last_updated": format_vietnam_time_for_db(),
                     }
                     session_result = (
                         self.client.table("conversations").insert(session_data).execute()
@@ -229,7 +241,7 @@ class SupabaseDatabase:
                 print(f"Conversation đã tồn tại với id: {conversation_id}")
 
                 # Cập nhật last_updated
-                conv_table.update({"last_updated": "NOW()"}).eq(
+                conv_table.update({"last_updated": format_vietnam_time_for_db()}).eq(
                     "conversation_id", current_conversation_id
                 ).execute()
             else:
@@ -246,7 +258,7 @@ class SupabaseDatabase:
                 session_data = {
                     "conversation_id": current_conversation_id,
                     "user_id": user_id,
-                    "last_updated": "NOW()",
+                    "last_updated": format_vietnam_time_for_db(),
                 }
                 conv_result = conv_table.insert(session_data).execute()
 
@@ -416,7 +428,7 @@ class SupabaseDatabase:
             )
 
             # Bước 3: Cập nhật last_updated cho session
-            self.from_table("conversations").update({"last_updated": "NOW()"}).eq(
+            self.from_table("conversations").update({"last_updated": format_vietnam_time_for_db()}).eq(
                 "conversation_id", current_conversation_id
             ).execute()
 

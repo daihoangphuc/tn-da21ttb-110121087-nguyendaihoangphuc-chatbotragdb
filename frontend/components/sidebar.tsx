@@ -76,7 +76,7 @@ export function Sidebar({ className, onSelectConversation, currentConversationId
   }
 
   return (
-    <div className={cn("flex flex-col border-r bg-background", className)}>
+    <div className={cn("flex flex-col border-r bg-background relative z-10", className)}>
       <div className="p-4">
         <Button 
           className="w-full justify-start gap-2" 

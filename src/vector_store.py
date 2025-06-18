@@ -119,17 +119,22 @@ class VectorStore:
         """Index dữ liệu lên Qdrant"""
         start_time = time.time()
 
-        # Kiểm tra user_id phải được cung cấp
-        if not user_id:
-            raise ValueError(
-                "user_id là bắt buộc để xác định collection cho từng người dùng"
-            )
-
-        # Cập nhật collection_name nếu user_id khác hoặc chưa có collection_name
-        if self.user_id != user_id or not self.collection_name:
-            self.collection_name = self.get_collection_name_for_user(user_id)
+        # CẬP NHẬT: Cho phép user_id=None để index vào collection chung
+        if user_id is not None:
+            # Cập nhật collection_name nếu user_id khác hoặc chưa có collection_name
+            if self.user_id != user_id or not self.collection_name:
+                self.collection_name = self.get_collection_name_for_user(user_id)
+                print(
+                    f"[INDEX] Sử dụng collection: {self.collection_name} cho user_id: {user_id}"
+                )
+        else:
+            # Trường hợp user_id=None, sử dụng collection đã được set từ trước
+            if not self.collection_name:
+                raise ValueError(
+                    "collection_name phải được thiết lập khi user_id=None"
+                )
             print(
-                f"[INDEX] Sử dụng collection: {self.collection_name} cho user_id: {user_id}"
+                f"[INDEX] Sử dụng collection chung: {self.collection_name} (không dùng user_id)"
             )
 
         print(
@@ -155,15 +160,11 @@ class VectorStore:
             self.ensure_collection_exists(vector_size)
 
         points = []
-        # Kiểm tra self.file_id nếu null thì thông báo
+        # Kiểm tra file_id
         if not file_id:
-            if file_id:
-                file_id = file_id
-                print(f"[INDEX] Sử dụng file_id được cung cấp: {file_id}")
-            else:
-                print(
-                    "[INDEX] Cảnh báo: file_id không được thiết lập và không có file_id được cung cấp"
-                )
+            print(
+                "[INDEX] Cảnh báo: file_id không được thiết lập"
+            )
         for idx, chunk in enumerate(chunks):
             # Tạo ID ngẫu nhiên cho mỗi điểm để tránh ghi đè
             point_id = str(uuid.uuid4())
@@ -198,204 +199,217 @@ class VectorStore:
             payload = {
                 "text": chunk["text"],
                 "metadata": chunk["metadata"],
-                "source": source,
-                "file_id": file_id,
-                "indexed_at": int(time.time()),
+                "source": source,  # Lưu trực tiếp vào root để dễ truy vấn
             }
 
-            # Thêm các trường file_id nếu có trong chunk để hỗ trợ xóa chính xác
-            if "file_id" in chunk:
-                payload["file_id"] = chunk["file_id"]
+            # CẬP NHẬT: Chỉ thêm user_id vào payload nếu user_id không phải None
+            if user_id is not None:
+                payload["user_id"] = user_id
 
-            # Thêm file_path đầy đủ nếu có
-            if "file_path" in chunk:
-                payload["file_path"] = chunk["file_path"]
+            # Thêm file_id vào payload để dễ filter và delete sau này
+            if file_id:
+                payload["file_id"] = file_id
 
+            # Thêm point vào danh sách
             points.append(
-                PointStruct(
-                    id=point_id,
-                    vector=current_embedding,
-                    payload=payload,
-                )
+                PointStruct(id=point_id, vector=current_embedding, payload=payload)
             )
 
-        # Upload theo batch
-        batch_size = 100
-        total_batches = (len(points) + batch_size - 1) // batch_size
-        print(
-            f"[INDEX] Uploading {len(points)} points in {total_batches} batches (batch_size={batch_size})"
-        )
-
-        for i in range(0, len(points), batch_size):
-            batch = points[i : i + batch_size]
-            batch_num = i // batch_size + 1
-            print(
-                f"[INDEX] Uploading batch {batch_num}/{total_batches} ({len(batch)} points)"
-            )
-            try:
-                result = self.client.upsert(
-                    collection_name=self.collection_name, points=batch
-                )
-                print(f"[INDEX] Batch {batch_num} uploaded successfully: {result}")
-            except Exception as e:
-                print(f"[INDEX] Error in batch {batch_num}: {str(e)}")
-                # Tiếp tục với batch tiếp theo thay vì dừng lại
-
-        # In thống kê indexing
-        end_time = time.time()
-        duration = end_time - start_time
-        print(
-            f"[INDEX] Completed indexing {len(chunks)} chunks in {duration:.2f} seconds"
-        )
-
-        # Kiểm tra số lượng điểm trong collection sau khi index
+        # Upload toàn bộ points lên Qdrant
         try:
-            collection_info = self.get_collection_info()
-            if collection_info:
-                print(
-                    f"[INDEX] Collection now has {collection_info.get('points_count', 'unknown')} points"
-                )
+            operation_info = self.client.upsert(
+                collection_name=self.collection_name, 
+                points=points
+            )
+            
+            # Tính thời gian xử lý
+            end_time = time.time()
+            processing_time = end_time - start_time
+            
+            print(
+                f"[INDEX] Đã index {len(points)} chunks trong {processing_time:.2f} giây. Collection: {self.collection_name}"
+            )
+            
+            return {
+                "indexed_count": len(points),
+                "processing_time": processing_time,
+                "collection_name": self.collection_name,
+                "operation_info": operation_info
+            }
+            
         except Exception as e:
-            print(f"[INDEX] Error getting collection info: {str(e)}")
+            print(f"[INDEX] Lỗi khi upload lên Qdrant: {str(e)}")
+            raise e
 
     def search(self, query_vector, limit=5, user_id=None):
-        """Tìm kiếm trong Qdrant"""
-        # Cập nhật collection_name nếu có user_id mới
-        if user_id and user_id != self.user_id:
-            self.collection_name = self.get_collection_name_for_user(user_id)
+        """
+        Tìm kiếm ngữ nghĩa trong collection
 
-        if not self.collection_name:
-            raise ValueError(
-                "collection_name không được để trống. Cần user_id để xác định collection."
-            )
+        Args:
+            query_vector: Vector query để tìm kiếm
+            limit: Số lượng kết quả tối đa
+            user_id: ID người dùng (tùy chọn, có thể None nếu dùng collection chung)
 
+        Returns:
+            Danh sách kết quả tìm kiếm
+        """
+        # CẬP NHẬT: Cho phép user_id=None khi đã có collection_name
+        if user_id is not None:
+            # Cập nhật collection_name theo user_id nếu cần
+            if self.user_id != user_id or not self.collection_name:
+                self.collection_name = self.get_collection_name_for_user(user_id)
+        else:
+            # Trường hợp user_id=None, kiểm tra collection_name đã được thiết lập
+            if not self.collection_name:
+                raise ValueError(
+                    "collection_name phải được thiết lập khi user_id=None"
+                )
+
+        print(f"[SEARCH] Tìm kiếm trong collection: {self.collection_name}")
+
+        # Kiểm tra collection có tồn tại không
         if not self.client.collection_exists(self.collection_name):
-            print(f"Collection {self.collection_name} không tồn tại")
+            print(f"[SEARCH] Collection {self.collection_name} không tồn tại")
             return []
 
-        results = self.client.search(
-            collection_name=self.collection_name,
-            query_vector=query_vector,
-            limit=limit,
-            with_payload=True,
-        )
+        try:
+            # Thực hiện tìm kiếm
+            search_result = self.client.search(
+                collection_name=self.collection_name,
+                query_vector=query_vector,
+                limit=limit,
+                with_payload=True,
+                with_vectors=False,
+            )
 
-        # Chuyển đổi kết quả thành định dạng chuẩn
-        search_results = []
-        for hit in results:
-            result = {
-                "text": hit.payload["text"],
-                "metadata": hit.payload["metadata"],
-                "score": hit.score,
-            }
+            # Chuyển đổi kết quả thành định dạng chuẩn
+            results = []
+            for point in search_result:
+                result = {
+                    "id": point.id,
+                    "score": point.score,
+                    "text": point.payload.get("text", ""),
+                    "metadata": point.payload.get("metadata", {}),
+                    "source": point.payload.get("source", "unknown"),
+                }
 
-            # Thêm source từ payload trực tiếp nếu có
-            if "source" in hit.payload:
-                result["source"] = hit.payload["source"]
+                # Thêm file_id vào kết quả nếu có
+                if "file_id" in point.payload:
+                    result["file_id"] = point.payload["file_id"]
 
-            # Thêm các trường khác nếu có
-            for field in ["file_id", "file_path", "indexed_at"]:
-                if field in hit.payload:
-                    result[field] = hit.payload[field]
+                # CẬP NHẬT: Chỉ thêm user_id nếu có trong payload
+                if "user_id" in point.payload:
+                    result["user_id"] = point.payload["user_id"]
 
-            search_results.append(result)
+                results.append(result)
 
-        return search_results
+            print(f"[SEARCH] Tìm thấy {len(results)} kết quả trong collection {self.collection_name}")
+            return results
+
+        except Exception as e:
+            print(f"[SEARCH] Lỗi khi tìm kiếm: {str(e)}")
+            return []
 
     def search_with_filter(
         self, query_vector, sources=None, file_id=None, user_id=None, limit=5
     ):
-        """Tìm kiếm trong Qdrant với filter theo nguồn tài liệu hoặc file_id"""
-        # Cập nhật collection_name nếu có user_id mới
-        if user_id and user_id != self.user_id:
-            self.collection_name = self.get_collection_name_for_user(user_id)
+        """
+        Tìm kiếm với bộ lọc theo sources hoặc file_id
 
-        if not self.collection_name:
-            raise ValueError(
-                "collection_name không được để trống. Cần user_id để xác định collection."
-            )
+        Args:
+            query_vector: Vector query
+            sources: Danh sách các nguồn cần lọc
+            file_id: Danh sách các file_id cần lọc
+            user_id: ID người dùng (tùy chọn, có thể None nếu dùng collection chung)
+            limit: Số lượng kết quả tối đa
 
-        if not self.client.collection_exists(self.collection_name):
-            print(f"Collection {self.collection_name} không tồn tại")
-            return []
-
-        # Nếu không có danh sách nguồn hoặc file_id, sử dụng search thông thường
-        if (not sources or len(sources) == 0) and (not file_id or len(file_id) == 0):
-            print(f"Không có sources hoặc file_id được chỉ định, tìm kiếm trong tất cả các tài liệu.")
-            return self.search(query_vector, limit, user_id)
-
-        # Tạo các điều kiện lọc dựa vào tham số đầu vào
-        should_conditions = []
-
-        # Xử lý tìm kiếm theo sources nếu được cung cấp
-        if sources and len(sources) > 0:
-            # Xử lý danh sách nguồn để hỗ trợ so sánh với cả tên file đơn thuần và đường dẫn
-            normalized_sources = []
-            for source in sources:
-                normalized_sources.append(source)  # Giữ nguyên source gốc
-                # Thêm tên file đơn thuần (nếu source chứa đường dẫn)
-                if os.path.sep in source:
-                    filename = os.path.basename(source)
-                    if filename and filename not in normalized_sources:
-                        normalized_sources.append(filename)
-
-            print(
-                f"Tìm kiếm với sources={sources}, normalized_sources={normalized_sources}"
-            )
-
-            # Tạo filter để giới hạn kết quả theo source
-            for source in normalized_sources:
-                should_conditions.append({"key": "source", "match": {"value": source}})
-                should_conditions.append(
-                    {"key": "metadata.source", "match": {"value": source}}
+        Returns:
+            Danh sách kết quả tìm kiếm
+        """
+        # CẬP NHẬT: Cho phép user_id=None khi đã có collection_name
+        if user_id is not None:
+            # Cập nhật collection_name theo user_id nếu cần
+            if self.user_id != user_id or not self.collection_name:
+                self.collection_name = self.get_collection_name_for_user(user_id)
+        else:
+            # Trường hợp user_id=None, kiểm tra collection_name đã được thiết lập
+            if not self.collection_name:
+                raise ValueError(
+                    "collection_name phải được thiết lập khi user_id=None"
                 )
 
-                # Nếu source là đường dẫn đầy đủ, thêm điều kiện cho file_path
-                if os.path.sep in source:
-                    should_conditions.append(
-                        {"key": "file_path", "match": {"value": source}}
-                    )
+        print(f"[SEARCH] Tìm kiếm trong collection: {self.collection_name}")
 
-        # Xử lý tìm kiếm theo file_id nếu được cung cấp
+        # Tạo filter conditions
+        should_conditions = []
+
+        # Filter theo sources nếu có
+        if sources and len(sources) > 0:
+            print(f"[SEARCH] Filtering by sources: {sources}")
+            for source in sources:
+                should_conditions.extend([
+                    {"key": "source", "match": {"value": source}},
+                    {"key": "metadata.source", "match": {"value": source}},
+                ])
+
+        # Filter theo file_id nếu có
         if file_id and len(file_id) > 0:
-            print(f"Tìm kiếm với file_id={file_id}")
-            # Thêm điều kiện lọc theo file_id
+            print(f"[SEARCH] Filtering by file_id: {file_id}")
             for fid in file_id:
                 should_conditions.append({"key": "file_id", "match": {"value": fid}})
 
-        # Tạo filter phù hợp cho Qdrant
-        search_filter = {"should": should_conditions}
+        # CẬP NHẬT: Không filter theo user_id nếu user_id=None (dùng collection chung)
+        if user_id is not None:
+            should_conditions.append({"key": "user_id", "match": {"value": user_id}})
 
-        # Thực hiện tìm kiếm với filter
-        results = self.client.search(
-            collection_name=self.collection_name,
-            query_vector=query_vector,
-            limit=limit,
-            with_payload=True,
-            query_filter=models.Filter(**search_filter),
-        )
+        # Nếu không có điều kiện filter nào, thực hiện tìm kiếm thông thường
+        if not should_conditions:
+            print(f"[SEARCH] Không có filter, tìm kiếm trên toàn collection")
+            return self.search(query_vector, limit=limit, user_id=user_id)
 
-        # Chuyển đổi kết quả thành định dạng chuẩn
-        search_results = []
-        for hit in results:
-            result = {
-                "text": hit.payload["text"],
-                "metadata": hit.payload["metadata"],
-                "score": hit.score,
-            }
+        # Tạo filter object
+        search_filter = Filter(should=should_conditions)
 
-            # Thêm source từ payload trực tiếp nếu có
-            if "source" in hit.payload:
-                result["source"] = hit.payload["source"]
+        try:
+            # Thực hiện tìm kiếm với filter
+            search_result = self.client.search(
+                collection_name=self.collection_name,
+                query_vector=query_vector,
+                query_filter=search_filter,
+                limit=limit,
+                with_payload=True,
+                with_vectors=False,
+            )
 
-            # Thêm các trường khác nếu có
-            for field in ["file_id", "file_path", "indexed_at"]:
-                if field in hit.payload:
-                    result[field] = hit.payload[field]
+            # Chuyển đổi kết quả
+            results = []
+            for point in search_result:
+                result = {
+                    "id": point.id,
+                    "score": point.score,
+                    "text": point.payload.get("text", ""),
+                    "metadata": point.payload.get("metadata", {}),
+                    "source": point.payload.get("source", "unknown"),
+                }
 
-            search_results.append(result)
+                # Thêm file_id vào kết quả nếu có
+                if "file_id" in point.payload:
+                    result["file_id"] = point.payload["file_id"]
 
-        return search_results
+                # CẬP NHẬT: Chỉ thêm user_id nếu có trong payload
+                if "user_id" in point.payload:
+                    result["user_id"] = point.payload["user_id"]
+
+                results.append(result)
+
+            print(
+                f"[SEARCH] Tìm thấy {len(results)} kết quả với filter trong collection {self.collection_name}"
+            )
+            return results
+
+        except Exception as e:
+            print(f"[SEARCH] Lỗi khi tìm kiếm với filter: {str(e)}")
+            return []
 
     def get_all_documents(self, limit=1000, user_id=None):
         """Lấy tất cả tài liệu từ collection"""
@@ -664,192 +678,156 @@ class VectorStore:
             print(f"[VECTOR_STORE] Traceback: {traceback_str}")
             return False, f"Lỗi khi xóa điểm theo filter: {str(e)}"
 
-    def delete_by_file_path(self, file_path, user_id=None):
-        """
-        Xóa tất cả các điểm của một file theo đường dẫn chính xác
-
-        Args:
-            file_path (str): Đường dẫn đầy đủ của file cần xóa
-            user_id (str): ID của người dùng (tùy chọn, nếu không có sẽ dùng collection hiện tại)
-
-        Returns:
-            tuple: (success: bool, message: str) - Kết quả xóa và thông báo
-        """
-        # Cập nhật collection_name nếu có user_id mới
-        if user_id and user_id != self.user_id:
-            self.collection_name = self.get_collection_name_for_user(user_id)
-
-        # **FIX: Chỉ yêu cầu collection_name, không bắt buộc phải có user_id**
-        if not self.collection_name:
-            if user_id:
-                self.collection_name = self.get_collection_name_for_user(user_id)
-            else:
-                raise ValueError(
-                    "collection_name không được để trống. Cần user_id để xác định collection hoặc đã set collection_name trước đó."
-                )
-
-        try:
-            print(f"[VECTOR_STORE] Bắt đầu xóa các điểm của file: {file_path}")
-
-            if not self.client.collection_exists(self.collection_name):
-                print(
-                    f"[VECTOR_STORE] Lỗi: Collection {self.collection_name} không tồn tại"
-                )
-                return False, "Collection không tồn tại"
-
-            # Xác định filter chính xác theo file_path
-            # Ưu tiên dùng file_path chính xác nếu có
-            filter_condition = {
-                "filter": {
-                    "must": [{"key": "file_path", "match": {"value": file_path}}]
-                }
-            }
-
-            # Đếm số điểm khớp với filter theo file_path
-            try:
-                count_results = self.client.count(
-                    collection_name=self.collection_name,
-                    count_filter=models.Filter(**filter_condition["filter"]),
-                )
-                file_path_points = count_results.count
-                print(
-                    f"[VECTOR_STORE] Số điểm khớp với file_path chính xác: {file_path_points}"
-                )
-
-                # Nếu không tìm thấy theo file_path, thử tìm theo source
-                if file_path_points == 0:
-                    source_filter = {
-                        "filter": {
-                            "must": [{"key": "source", "match": {"value": file_path}}]
-                        }
-                    }
-
-                    count_results = self.client.count(
-                        collection_name=self.collection_name,
-                        count_filter=models.Filter(**source_filter["filter"]),
-                    )
-                    source_points = count_results.count
-                    print(f"[VECTOR_STORE] Số điểm khớp với source: {source_points}")
-
-                    if source_points > 0:
-                        filter_condition = source_filter
-            except Exception as count_e:
-                print(f"[VECTOR_STORE] Lỗi khi đếm số điểm: {str(count_e)}")
-
-            # Lấy thông tin collection trước khi xóa
-            info_before = self.client.get_collection(self.collection_name)
-            points_before = info_before.points_count
-
-            # Xóa điểm từ collection theo filter
-            print(f"[VECTOR_STORE] Thực hiện xóa điểm theo filter: {filter_condition}")
-            result = self.client.delete(
-                collection_name=self.collection_name,
-                points_selector=models.FilterSelector(
-                    filter=filter_condition["filter"]
-                ),
-            )
-
-            # Sau khi xóa, kiểm tra số lượng điểm còn lại
-            info_after = self.client.get_collection(self.collection_name)
-            points_after = info_after.points_count
-            points_deleted = points_before - points_after
-
-            print(f"[VECTOR_STORE] Kết quả xóa điểm: {result}")
-            print(f"[VECTOR_STORE] Số điểm trước khi xóa: {points_before}")
-            print(f"[VECTOR_STORE] Số điểm sau khi xóa: {points_after}")
-            print(f"[VECTOR_STORE] Số điểm đã xóa: {points_deleted}")
-
-            if points_deleted > 0:
-                return True, f"Đã xóa {points_deleted} điểm từ file {file_path}"
-            else:
-                return False, f"Không tìm thấy điểm nào thuộc file {file_path}"
-
-        except Exception as e:
-            print(f"[VECTOR_STORE] Lỗi khi xóa điểm theo file_path: {str(e)}")
-            import traceback
-
-            traceback_str = traceback.format_exc()
-            print(f"[VECTOR_STORE] Traceback: {traceback_str}")
-            return False, f"Lỗi khi xóa điểm theo file_path: {str(e)}"
-
     def delete_by_file_id(self, file_id, user_id=None):
         """
-        Xóa tất cả các điểm của một file theo file_id
+        Xóa tất cả điểm dữ liệu liên quan đến file_id
 
         Args:
-            file_id (str): ID của file cần xóa (đặc biệt hữu ích khi có nhiều file cùng tên)
-            user_id (str): ID của người dùng
+            file_id: ID của file cần xóa
+            user_id: ID người dùng (tùy chọn, có thể None nếu dùng collection chung)
 
         Returns:
-            tuple: (success: bool, message: str) - Kết quả xóa và thông báo
+            Tuple (success: bool, message: str)
         """
-        # Cập nhật collection_name nếu có user_id mới
-        if user_id and user_id != self.user_id:
-            self.collection_name = self.get_collection_name_for_user(user_id)
+        # CẬP NHẬT: Cho phép user_id=None khi đã có collection_name
+        if user_id is not None:
+            # Cập nhật collection_name theo user_id nếu cần
+            if self.user_id != user_id or not self.collection_name:
+                self.collection_name = self.get_collection_name_for_user(user_id)
+        else:
+            # Trường hợp user_id=None, kiểm tra collection_name đã được thiết lập
+            if not self.collection_name:
+                raise ValueError(
+                    "collection_name phải được thiết lập khi user_id=None"
+                )
 
-        if not self.collection_name:
-            raise ValueError(
-                "collection_name không được để trống. Cần user_id để xác định collection."
-            )
+        print(f"[DELETE] Xóa theo file_id: {file_id} trong collection: {self.collection_name}")
+
+        if not file_id:
+            return False, "file_id không được để trống"
+
+        # Kiểm tra collection có tồn tại không
+        if not self.client.collection_exists(self.collection_name):
+            return False, f"Collection {self.collection_name} không tồn tại"
 
         try:
-            print(f"[VECTOR_STORE] Bắt đầu xóa các điểm của file có ID: {file_id}")
-
-            if not self.client.collection_exists(self.collection_name):
-                print(
-                    f"[VECTOR_STORE] Lỗi: Collection {self.collection_name} không tồn tại"
-                )
-                return False, "Collection không tồn tại"
-
-            # Tạo filter theo file_id
-            filter_condition = {
-                "filter": {"must": [{"key": "file_id", "match": {"value": file_id}}]}
-            }
-
-            # Đếm số điểm khớp với filter theo file_id
-            try:
-                count_results = self.client.count(
-                    collection_name=self.collection_name,
-                    count_filter=models.Filter(**filter_condition["filter"]),
-                )
-                file_id_points = count_results.count
-                print(f"[VECTOR_STORE] Số điểm khớp với file_id: {file_id_points}")
-
-                if file_id_points == 0:
-                    return False, f"Không tìm thấy điểm nào thuộc file ID {file_id}"
-            except Exception as count_e:
-                print(f"[VECTOR_STORE] Lỗi khi đếm số điểm: {str(count_e)}")
-
-            # Lấy thông tin collection trước khi xóa
-            info_before = self.client.get_collection(self.collection_name)
-            points_before = info_before.points_count
-
-            # Xóa điểm từ collection theo filter
-            print(f"[VECTOR_STORE] Thực hiện xóa điểm theo filter: {filter_condition}")
-            result = self.client.delete(
-                collection_name=self.collection_name,
-                points_selector=models.FilterSelector(
-                    filter=filter_condition["filter"]
-                ),
+            # Tạo filter để tìm các điểm có file_id tương ứng
+            delete_filter = Filter(
+                must=[
+                    models.FieldCondition(
+                        key="file_id",
+                        match=models.MatchValue(value=file_id)
+                    )
+                ]
             )
 
-            # Sau khi xóa, kiểm tra số lượng điểm còn lại
-            info_after = self.client.get_collection(self.collection_name)
-            points_after = info_after.points_count
-            points_deleted = points_before - points_after
+            # Đếm số lượng điểm sẽ bị xóa trước khi xóa
+            count_result = self.client.count(
+                collection_name=self.collection_name,
+                count_filter=delete_filter,
+                exact=True
+            )
+            
+            points_to_delete = count_result.count
 
-            print(f"[VECTOR_STORE] Kết quả xóa điểm: {result}")
-            print(f"[VECTOR_STORE] Số điểm đã xóa: {points_deleted}")
+            if points_to_delete == 0:
+                return False, f"Không tìm thấy điểm dữ liệu nào với file_id: {file_id}"
 
-            return True, f"Đã xóa {points_deleted} điểm thuộc file ID {file_id}"
+            # Thực hiện xóa các điểm
+            delete_result = self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=models.FilterSelector(filter=delete_filter)
+            )
+
+            if delete_result:
+                message = f"Đã xóa {points_to_delete} điểm dữ liệu với file_id: {file_id}"
+                print(f"[DELETE] {message}")
+                return True, message
+            else:
+                return False, f"Không thể xóa các điểm với file_id: {file_id}"
 
         except Exception as e:
-            print(f"[VECTOR_STORE] Lỗi khi xóa điểm theo file_id: {str(e)}")
-            import traceback
+            error_msg = f"Lỗi khi xóa file_id {file_id}: {str(e)}"
+            print(f"[DELETE] {error_msg}")
+            return False, error_msg
 
-            traceback_str = traceback.format_exc()
-            print(f"[VECTOR_STORE] Traceback: {traceback_str}")
-            return False, f"Lỗi khi xóa điểm theo file_id: {str(e)}"
+    def delete_by_file_path(self, file_path, user_id=None):
+        """
+        Xóa tất cả điểm dữ liệu liên quan đến đường dẫn file
+
+        Args:
+            file_path: Đường dẫn file cần xóa
+            user_id: ID người dùng (tùy chọn, có thể None nếu dùng collection chung)
+
+        Returns:
+            Tuple (success: bool, message: str)
+        """
+        # CẬP NHẬT: Cho phép user_id=None khi đã có collection_name
+        if user_id is not None:
+            # Cập nhật collection_name theo user_id nếu cần
+            if self.user_id != user_id or not self.collection_name:
+                self.collection_name = self.get_collection_name_for_user(user_id)
+        else:
+            # Trường hợp user_id=None, kiểm tra collection_name đã được thiết lập
+            if not self.collection_name:
+                raise ValueError(
+                    "collection_name phải được thiết lập khi user_id=None"
+                )
+
+        print(f"[DELETE] Xóa theo file_path: {file_path} trong collection: {self.collection_name}")
+
+        if not file_path:
+            return False, "file_path không được để trống"
+
+        # Kiểm tra collection có tồn tại không
+        if not self.client.collection_exists(self.collection_name):
+            return False, f"Collection {self.collection_name} không tồn tại"
+
+        try:
+            # Tạo filter để tìm các điểm có file_path tương ứng
+            # Tìm kiếm trong cả source và metadata.source
+            delete_filter = Filter(
+                should=[
+                    models.FieldCondition(
+                        key="source",
+                        match=models.MatchValue(value=file_path)
+                    ),
+                    models.FieldCondition(
+                        key="metadata.source",
+                        match=models.MatchValue(value=file_path)
+                    )
+                ]
+            )
+
+            # Đếm số lượng điểm sẽ bị xóa trước khi xóa
+            count_result = self.client.count(
+                collection_name=self.collection_name,
+                count_filter=delete_filter,
+                exact=True
+            )
+            
+            points_to_delete = count_result.count
+
+            if points_to_delete == 0:
+                return False, f"Không tìm thấy điểm dữ liệu nào với file_path: {file_path}"
+
+            # Thực hiện xóa các điểm
+            delete_result = self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=models.FilterSelector(filter=delete_filter)
+            )
+
+            if delete_result:
+                message = f"Đã xóa {points_to_delete} điểm dữ liệu với file_path: {file_path}"
+                print(f"[DELETE] {message}")
+                return True, message
+            else:
+                return False, f"Không thể xóa các điểm với file_path: {file_path}"
+
+        except Exception as e:
+            error_msg = f"Lỗi khi xóa file_path {file_path}: {str(e)}"
+            print(f"[DELETE] {error_msg}")
+            return False, error_msg
 
     def delete_by_file_uuid(self, file_uuid, user_id=None):
         """

@@ -59,9 +59,9 @@ export function Header({ onMenuClick, onSqlClick, sqlPanelOpen, onSidebarToggle,
             <Database className="h-5 w-5 text-primary" />
           </div>
           <span>Hệ thống RAG - Cơ sở dữ liệu</span>
-          <Badge variant="outline" className="ml-1 font-normal">
+          {/* <Badge variant="outline" className="ml-1 font-normal">
             Beta
-          </Badge>
+          </Badge> */}
         </div>
         <div className="ml-auto flex items-center gap-2">
           {!isMobile && (

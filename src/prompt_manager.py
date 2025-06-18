@@ -52,8 +52,8 @@ NGUYÊN TẮC TRÍCH DẪN NGUỒN (QUAN TRỌNG):
 - Nếu không có thông tin về trang, chỉ sử dụng tên file: "(file Hệ_QT_CSDl.pdf)".
 - Nếu không tìm thấy thông tin đầy đủ để trả lời câu hỏi, KHÔNG được sử dụng kiến thức bên ngoài. Hãy trả lời: "Tôi không thể trả lời đầy đủ câu hỏi này dựa trên tài liệu hiện có. Thông tin về [chủ đề] không được tìm thấy trong tài liệu được cung cấp."
 - Nếu chỉ tìm thấy một phần thông tin, hãy chỉ trả lời phần đó và nói rõ: "Tôi chỉ tìm thấy thông tin giới hạn về chủ đề này trong tài liệu được cung cấp."
-- Khi thông tin đến từ Google Agent Search, LUÔN PHẢI bao gồm URL nguồn đầy đủ trong ngoặc vuông: [URL]. Ví dụ: "SQL Server 2022 là phiên bản mới nhất (Google Agent Search) [https://example.com]". KHÔNG ĐƯỢC BỎ QUA URL nguồn trong bất kỳ trường hợp nào.
-- Nếu có nhiều nguồn từ Google Agent Search, liệt kê từng URL riêng biệt.
+- Khi thông tin đến từ Google Search, LUÔN PHẢI bao gồm URL nguồn đầy đủ ở cuối câu trả lời. Định dạng: "SQL Server 2022 là phiên bản mới nhất." và cuối câu trả lời thêm danh sách nguồn: "## Nguồn tham khảo\n- [URL]". KHÔNG ĐƯỢC BỎ QUA URL nguồn trong bất kỳ trường hợp nào.
+- Nếu có nhiều nguồn từ Google Search, liệt kê từng URL riêng biệt ở cuối câu trả lời.
 
 NGUYÊN TẮC LUÔN PHẢI TUÂN THỦ ĐỊNH DẠNG MARKDOWN CHO PHẢN HỒI TỪ LLM (QUAN TRỌNG KHI STREAMING):
 - Sử dụng ## cho tiêu đề chính, ### cho tiêu đề phụ.
@@ -174,31 +174,52 @@ Hãy bắt đầu trả lời ngay với yêu cầu của người dùng.
             else:
                 metadata = doc.get("metadata", {})
             
-            # Lấy thông tin nguồn từ metadata
-            source = metadata.get("source", "unknown_source")
+            # Kiểm tra nếu là nguồn web search
+            source_type = metadata.get("source_type", "")
+            urls = metadata.get("urls", [])
             
-            # Lấy tên file thay vì đường dẫn đầy đủ
-            source_filename = os.path.basename(source) if os.path.sep in source else source
-            
-            # Ưu tiên sử dụng page_label nếu có, nếu không thì dùng page
-            page = metadata.get("page_label", metadata.get("page", "N/A"))
-            section = metadata.get("chunk_type", metadata.get("position", "N/A"))
+            if source_type == "web_search" and urls:
+                # Đây là nguồn từ web search
+                content = doc.get("text") or doc.get("content") or ""
+                if not content.strip():
+                    continue
+                
+                # Format URLs cho web search
+                urls_text = "\n".join([f"- {url}" for url in urls])
+                
+                context_entry = (
+                    f"[Web Search Result {i+1}]\n"
+                    f"Source: Google Search\n"
+                    f"Source URLs:\n{urls_text}\n"
+                    f"Content: {content.strip()}\n"
+                    f"Citation: Khi sử dụng thông tin này, PHẢI bao gồm URL nguồn trong phần 'Nguồn tham khảo' ở cuối câu trả lời."
+                )
+            else:
+                # Nguồn từ RAG thông thường
+                source = metadata.get("source", "unknown_source")
+                
+                # Lấy tên file thay vì đường dẫn đầy đủ
+                source_filename = os.path.basename(source) if os.path.sep in source else source
+                
+                # Ưu tiên sử dụng page_label nếu có, nếu không thì dùng page
+                page = metadata.get("page_label", metadata.get("page", "N/A"))
+                section = metadata.get("chunk_type", metadata.get("position", "N/A"))
 
-            # Tạo trích dẫn nguồn rõ ràng hơn
-            source_citation = f"trang {page} của file {source_filename}" if page != "N/A" else f"file {source_filename}"
+                # Tạo trích dẫn nguồn rõ ràng hơn
+                source_citation = f"trang {page} của file {source_filename}" if page != "N/A" else f"file {source_filename}"
 
-            content = doc.get("text", doc.get("content"))
-            if not content or not content.strip():
-                continue
+                content = doc.get("text") or doc.get("content") or ""
+                if not content.strip():
+                    continue
 
-            context_entry = (
-                f"[Document {i+1}]\n"
-                f"Source: {source_filename}\n"
-                f"Citation: {source_citation}\n"
-                f"Page/Position: {page}\n"
-                f"Section: {section}\n"
-                f"Content: {content.strip()}"
-            )
+                context_entry = (
+                    f"[Document {i+1}]\n"
+                    f"Source: {source_filename}\n"
+                    f"Citation: {source_citation}\n"
+                    f"Page/Position: {page}\n"
+                    f"Section: {section}\n"
+                    f"Content: {content.strip()}"
+                )
             context_entries.append(context_entry)
 
         return "\n\n".join(context_entries)

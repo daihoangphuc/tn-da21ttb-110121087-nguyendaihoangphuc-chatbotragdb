@@ -35,7 +35,12 @@ export default function SignUpPage() {
 
     try {
       await signup(email, password);
-      router.push("/");
+      
+      // Đợi một chút để toast hiển thị, sau đó chuyển hướng
+      setTimeout(() => {
+        // Sử dụng window.location.href thay vì router.push để đảm bảo tải lại trang
+        window.location.href = "/";
+      }, 100);
     } catch (error: any) {
       // Lỗi đã được xử lý trong hook useAuth
     } finally {

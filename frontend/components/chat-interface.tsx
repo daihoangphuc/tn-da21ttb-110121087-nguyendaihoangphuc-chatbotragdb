@@ -294,19 +294,23 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
                   if (data.sources && Array.isArray(data.sources)) {
                     sources = data.sources.map((source: any) => {
                       const sourceId = source.file_id || source.source || `source-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+                      
+                      // Kiểm tra nếu đây là web search source
+                      const isWebSearch = source.is_web_search || source.file_id === 'web_search' || source.file_id === 'web_search_fallback';
+                      
                       if (source.content_snippet) {
                         newSourcesData[sourceId] = {
                           id: sourceId,
-                          title: source.source || "Tài liệu không xác định",
+                          title: isWebSearch ? source.content_snippet : (source.source || "Tài liệu không xác định"),
                           page: source.page ? source.page.toString() : "1",
                           relevance: source.score || 0,
-                          content: source.content_snippet,
+                          content: isWebSearch ? `Nguồn web: ${source.content_snippet}` : source.content_snippet,
                           highlight: source.highlight || source.content_snippet.substring(0, 150)
                         };
                       }
                       return {
                         id: sourceId,
-                        title: source.source || "Tài liệu không xác định",
+                        title: isWebSearch ? source.content_snippet : (source.source || "Tài liệu không xác định"),
                         page: source.page ? source.page.toString() : "1",
                         relevance: source.score || 0
                       };

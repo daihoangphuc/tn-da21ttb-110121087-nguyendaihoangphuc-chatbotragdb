@@ -4,6 +4,7 @@ Supabase Conversation Manager for handling conversation history with Supabase.
 
 import json
 import datetime
+import pytz
 from typing import Dict, List, Optional, Any
 from .client import SupabaseClient
 from .database import SupabaseDatabase
@@ -19,6 +20,17 @@ original_print = print
 def print(*args, **kwargs):
     prefix = "[Conversation_Manager] "
     original_print(prefix + " ".join(map(str, args)), **kwargs)
+
+# Hàm utility để lấy thời gian Việt Nam
+def get_vietnam_time():
+    """Lấy thời gian hiện tại theo múi giờ Việt Nam"""
+    vietnam_tz = pytz.timezone('Asia/Ho_Chi_Minh')
+    return datetime.datetime.now(vietnam_tz)
+
+def format_vietnam_time_for_db():
+    """Format thời gian Việt Nam cho database"""
+    vietnam_time = get_vietnam_time()
+    return vietnam_time.isoformat()
 
 
 class SupabaseConversationManager:
@@ -172,7 +184,7 @@ class SupabaseConversationManager:
                         {
                             "conversation_id": conversation_id,
                             "user_id": user_id if user_id else uuid.uuid4(),
-                            "last_updated": "NOW()",
+                            "last_updated": format_vietnam_time_for_db(),
                         }
                     )
                     .execute()
@@ -202,7 +214,7 @@ class SupabaseConversationManager:
         """
         try:
             self.supabase_client.table("conversations").update(
-                {"last_updated": "NOW()"}
+                {"last_updated": format_vietnam_time_for_db()}
             ).eq("conversation_id", conversation_id).execute()
         except Exception as e:
             print(f"Lỗi khi cập nhật timestamp: {str(e)}")
@@ -604,7 +616,7 @@ class SupabaseConversationManager:
                     {
                         "conversation_id": conversation_id,
                         "user_id": user_id,
-                        "last_updated": "NOW()",
+                        "last_updated": format_vietnam_time_for_db(),
                     }
                 )
                 .execute()

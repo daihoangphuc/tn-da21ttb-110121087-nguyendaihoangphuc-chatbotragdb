@@ -36,12 +36,13 @@ import httpx
 from urllib.parse import urljoin
 import json
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from os import path
 from dotenv import load_dotenv
 import supabase
 import re
 import asyncio
+import pytz
 
 from src.rag import AdvancedDatabaseRAG
 from src.supabase.conversation_manager import SupabaseConversationManager
@@ -75,6 +76,36 @@ app.add_middleware(
 
 # Khởi tạo hệ thống RAG
 rag_system = AdvancedDatabaseRAG()
+
+# Hàm utility để lấy thời gian Việt Nam
+def get_vietnam_time():
+    """Lấy thời gian hiện tại theo múi giờ Việt Nam"""
+    vietnam_tz = pytz.timezone('Asia/Ho_Chi_Minh')
+    return datetime.now(vietnam_tz)
+
+def format_vietnam_time_iso(dt=None):
+    """Format thời gian Việt Nam thành ISO string"""
+    if dt is None:
+        dt = get_vietnam_time()
+    return dt.isoformat()
+
+def parse_and_format_vietnam_time(time_str):
+    """Parse thời gian từ database và chuyển về múi giờ Việt Nam"""
+    try:
+        if isinstance(time_str, str):
+            # Parse thời gian từ string ISO
+            dt = datetime.fromisoformat(time_str.replace('Z', '+00:00'))
+            # Chuyển về múi giờ Việt Nam
+            vietnam_tz = pytz.timezone('Asia/Ho_Chi_Minh')
+            if dt.tzinfo is None:
+                # Nếu không có timezone info, coi như UTC
+                dt = pytz.UTC.localize(dt)
+            vietnam_time = dt.astimezone(vietnam_tz)
+            return vietnam_time.isoformat()
+        return time_str
+    except Exception as e:
+        print(f"Lỗi khi parse thời gian: {e}")
+        return time_str
 
 # Khởi tạo quản lý hội thoại
 try:
@@ -621,32 +652,36 @@ async def upload_document(
     current_user=Depends(get_current_user),
 ):
     """
-    Upload tài liệu và index vào vector database
+    Upload tài liệu và index vào vector database - CHỈ ADMIN
 
     - **file**: File cần upload (PDF, DOCX, TXT)
     - **category**: Danh mục của tài liệu (tùy chọn)
     """
-    # Đã xóa kiểm tra quyền admin để cho phép tất cả người dùng tải lên tài liệu
+    # KIỂM TRA QUYỀN ADMIN
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403, 
+            detail="Chỉ admin mới có quyền upload tài liệu"
+        )
+    
     try:
-        # Tạo thư mục upload cho user nếu chưa tồn tại
-        user_id = current_user.id
+        # LƯU FILE VÀO THỂ MỤC DATA CHUNG (không phân chia theo user)
         upload_dir = os.getenv("UPLOAD_DIR", "src/data")
-        user_dir = os.path.join(upload_dir, user_id)
-        os.makedirs(user_dir, exist_ok=True)
+        os.makedirs(upload_dir, exist_ok=True)
 
-        # Lưu file vào thư mục uploads
+        # Lưu file vào thư mục data chung
         file_name = file.filename
-        original_file_name = file_name  # Lưu tên file gốc
-        file_path = os.path.join(user_dir, file_name)
-        original_file_path = file_path  # Lưu đường dẫn file gốc
+        original_file_name = file_name
+        file_path = os.path.join(upload_dir, file_name)
+        original_file_path = file_path
         
-        # Cập nhật user_id cho vector_store
-        rag_system.vector_store.user_id = user_id
-        # Đặt collection_name cho vector store - sử dụng collection chung cho tất cả người dùng
+        # CẤU HÌNH VECTOR STORE KHÔNG DÙNG USER_ID
+        # Đặt collection_name cho vector store - sử dụng collection chung
         rag_system.vector_store.collection_name = "global_documents"
+        # Không set user_id cho vector_store vì giờ dùng chung
+        rag_system.vector_store.user_id = None
         
-        # Lưu ý: Không cập nhật SearchManager.vector_store ở đây
-        # Sẽ cập nhật sau khi đã index dữ liệu thành công
+        print(f"[UPLOAD] Admin {current_user.email} đang upload file vào thư mục chung")
 
         with open(file_path, "wb+") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -655,13 +690,12 @@ async def upload_document(
 
         # Xác định loại file
         file_extension = os.path.splitext(file_name)[1].lower()
-        original_file_extension = file_extension  # Lưu phần mở rộng file gốc
+        original_file_extension = file_extension
         file_type = None
         
         # Đọc nội dung file và xử lý
         documents = None
         try:
-            # Sử dụng DocumentProcessor thay vì các hàm riêng lẻ
             document_processor = rag_system.document_processor
             documents = document_processor.load_document_with_category(file_path, category)
             
@@ -705,7 +739,7 @@ async def upload_document(
         # Sử dụng phương pháp chunking thông thường
         processed_chunks = rag_system.document_processor.process_documents(documents)
 
-        # Index lên vector store
+        # Index lên vector store KHÔNG DÙNG USER_ID
         if processed_chunks:
             # Tạo embeddings cho các chunks
             texts = [chunk["text"] for chunk in processed_chunks]
@@ -714,19 +748,19 @@ async def upload_document(
             # Đảm bảo collection đã tồn tại với kích thước vector đúng
             rag_system.vector_store.ensure_collection_exists(len(embeddings[0]))
 
-            # Index embeddings với user_id của người dùng hiện tại
-            print(
-                f"[UPLOAD] Đang index {len(processed_chunks)} chunks với user_id='{current_user.id}'"
-            )
+            # Index embeddings KHÔNG DÙNG USER_ID - file sẽ được chia sẻ cho tất cả user
+            print(f"[UPLOAD] Đang index {len(processed_chunks)} chunks vào collection chung global_documents")
             file_id = str(uuid.uuid4())
+            
+            # Gọi index_documents với user_id=None để lưu vào collection chung
             rag_system.vector_store.index_documents(
                 processed_chunks,
                 embeddings,
-                user_id=current_user.id,
+                user_id=None,  # Không dùng user_id
                 file_id=file_id,
             )
             
-            # Lưu thông tin file vào bảng document_files trong Supabase
+            # LƯU THÔNG TIN FILE VÀO DATABASE VỚI USER_ID CỦA ADMIN
             try:
                 from src.supabase.files_manager import FilesManager
                 from src.supabase.client import SupabaseClient
@@ -736,7 +770,7 @@ async def upload_document(
                 if file_size == 0 and os.path.exists(original_file_path):
                     file_size = os.path.getsize(original_file_path)
                 
-                # Tạo metadata
+                # Tạo metadata - ghi nhận ai upload
                 metadata = {
                     "category": category,
                     "file_size": file_size,
@@ -745,23 +779,24 @@ async def upload_document(
                     "last_indexed": datetime.now().isoformat(),
                     "original_file_name": original_file_name,
                     "original_extension": original_file_extension,
-                    "converted_to_pdf": original_file_extension != ".pdf" and file_extension == ".pdf"
+                    "converted_to_pdf": original_file_extension != ".pdf" and file_extension == ".pdf",
+                    "uploaded_by_admin": current_user.email,  # Ghi nhận admin upload
+                    "uploaded_by_admin_id": current_user.id,
+                    "is_shared_resource": True  # Đánh dấu là tài nguyên chia sẻ
                 }
                 
                 # Sử dụng client với service role để bypass RLS
                 supabase_client_with_service_role = SupabaseClient(use_service_key=True)
                 client = supabase_client_with_service_role.get_client()
-                
-                # Tạo files_manager với service role client
                 files_manager = FilesManager(client)
                 
-                # Lưu metadata vào Supabase - sử dụng tên file gốc
+                # Lưu metadata vào Supabase với user_id của admin
                 save_result = files_manager.save_file_metadata(
                     file_id=file_id,
-                    filename=original_file_name,  # Sử dụng tên file gốc
-                    file_path=file_path,  # Vẫn lưu đường dẫn file đã chuyển đổi để xử lý
-                    user_id=user_id,
-                    file_type=file_type,  # Loại file gốc
+                    filename=original_file_name,
+                    file_path=file_path,
+                    user_id=current_user.id,  # Lưu ID admin upload
+                    file_type=file_type,
                     metadata=metadata
                 )
                 
@@ -771,12 +806,13 @@ async def upload_document(
                 # Không dừng quá trình nếu lưu vào Supabase thất bại
 
         return {
-            "filename": original_file_name,  # Trả về tên file gốc
+            "filename": original_file_name,
             "status": "success",
-            "message": f"Đã tải lên và index thành công {len(processed_chunks)} chunks từ tài liệu",
+            "message": f"Admin đã tải lên và index thành công {len(processed_chunks)} chunks từ tài liệu vào hệ thống chung",
             "chunks_count": len(processed_chunks),
             "category": category,
             "file_id": file_id,
+            "shared_resource": True
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý tài liệu: {str(e)}")
@@ -822,14 +858,13 @@ async def reset_collection():
 @app.get(f"{PREFIX}/files", response_model=FileListResponse)
 async def get_uploaded_files(current_user=Depends(get_current_user)):
     """
-    Lấy danh sách các file đã upload của tất cả người dùng
+    Lấy danh sách các file đã upload trong hệ thống chung (do admin upload)
 
     Returns:
-        Danh sách các file đã upload
+        Danh sách các file đã upload trong hệ thống chung
     """
     try:
         files = []
-        user_id = current_user.id
 
         # Lấy danh sách file từ database
         try:
@@ -841,9 +876,9 @@ async def get_uploaded_files(current_user=Depends(get_current_user)):
             client = supabase_client_with_service_role.get_client()
             files_manager = FilesManager(client)
 
-            # Lấy tất cả file từ database thay vì chỉ file của user hiện tại
+            # Lấy tất cả file từ database (do admin upload)
             db_files = files_manager.get_all_files(include_deleted=False)
-            print(f"[FILES] Tìm thấy {len(db_files)} file trong database")
+            print(f"[FILES] Tìm thấy {len(db_files)} file trong hệ thống chung")
         except Exception as e:
             print(f"[FILES] Lỗi khi lấy danh sách file từ database: {str(e)}")
             db_files = []
@@ -870,6 +905,10 @@ async def get_uploaded_files(current_user=Depends(get_current_user)):
                 category = metadata.get("category", None)
                 # Lấy kích thước file từ metadata hoặc mặc định là 0
                 file_size = metadata.get("file_size", 0)
+                
+                # Lấy thông tin admin upload
+                uploaded_by_admin = metadata.get("uploaded_by_admin", "Unknown Admin")
+                is_shared_resource = metadata.get("is_shared_resource", False)
 
                 files.append(
                     FileInfo(
@@ -885,43 +924,40 @@ async def get_uploaded_files(current_user=Depends(get_current_user)):
         else:
             # Fallback: Nếu không có dữ liệu trong database, đọc từ filesystem
             print(f"[FILES] Không tìm thấy dữ liệu trong database, đọc từ filesystem")
-            # Đọc từ thư mục dữ liệu chung thay vì thư mục của user
+            # Đọc từ thư mục dữ liệu chung
             upload_dir = os.getenv("UPLOAD_DIR", "src/data")
 
             # Kiểm tra thư mục có tồn tại không
             if os.path.exists(upload_dir):
-                # Duyệt qua tất cả thư mục người dùng
-                for user_folder in os.listdir(upload_dir):
-                    user_dir = os.path.join(upload_dir, user_folder)
-                    if os.path.isdir(user_dir):
-                        for filename in os.listdir(user_dir):
-                            file_path = os.path.join(user_dir, filename)
+                # Duyệt qua các file trong thư mục data chung
+                for filename in os.listdir(upload_dir):
+                    file_path = os.path.join(upload_dir, filename)
 
-                            # Bỏ qua các thư mục
-                            if os.path.isdir(file_path):
-                                continue
+                    # Bỏ qua các thư mục
+                    if os.path.isdir(file_path):
+                        continue
 
-                            # Lấy thông tin file
-                            file_stats = os.stat(file_path)
-                            extension = os.path.splitext(filename)[1].lower()
+                    # Lấy thông tin file
+                    file_stats = os.stat(file_path)
+                    extension = os.path.splitext(filename)[1].lower()
 
-                            # Lấy thời gian tạo file
-                            created_time = datetime.fromtimestamp(
-                                file_stats.st_ctime
-                            ).isoformat()
+                    # Lấy thời gian tạo file
+                    created_time = datetime.fromtimestamp(
+                        file_stats.st_ctime
+                    ).isoformat()
 
-                            # Thêm vào danh sách
-                            files.append(
-                                FileInfo(
-                                    filename=filename,
-                                    path=file_path,
-                                    size=file_stats.st_size,
-                                    upload_date=created_time,
-                                    extension=extension,
-                                    category=None,
-                                    id=None,
-                                )
-                            )
+                    # Thêm vào danh sách
+                    files.append(
+                        FileInfo(
+                            filename=filename,
+                            path=file_path,
+                            size=file_stats.st_size,
+                            upload_date=created_time,
+                            extension=extension,
+                            category=None,
+                            id=None,
+                        )
+                    )
 
         # Sắp xếp theo thời gian tạo mới nhất
         files.sort(key=lambda x: x.upload_date, reverse=True)
@@ -937,261 +973,138 @@ async def get_uploaded_files(current_user=Depends(get_current_user)):
 @app.delete(f"{PREFIX}/files/{{filename}}", response_model=FileDeleteResponse)
 async def delete_file(filename: str, current_user=Depends(get_current_user)):
     """
-    Xóa file đã upload và các index liên quan trong vector store
+    Xóa file đã upload và các index liên quan trong vector store - CHỈ ADMIN
     """
-    # Đã xóa kiểm tra quyền admin để cho phép người dùng xóa file của họ
+    # KIỂM TRA QUYỀN ADMIN
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Chỉ admin mới có quyền xóa file"
+        )
+        
     try:
-        # Lấy thư mục upload của user
-        user_upload_dir = get_user_upload_dir(current_user.id)
+        # LẤY THÔNG TIN FILE TỪ DATABASE TRƯỚC
+        from src.supabase.files_manager import FilesManager
+        from src.supabase.client import SupabaseClient
         
-        # **LOGIC MỚI: Chuyển đổi tên file sang PDF nếu cần**
-        original_ext = os.path.splitext(filename)[1].lower()
+        supabase_client_with_service_role = SupabaseClient(use_service_key=True)
+        client = supabase_client_with_service_role.get_client()
+        files_manager = FilesManager(client)
         
-        if original_ext == ".pdf":
-            # File gốc đã là PDF
-            actual_filename = filename
-        else:
-            # File gốc không phải PDF, chuyển sang tên file PDF
-            base_name = os.path.splitext(filename)[0]
-            actual_filename = f"{base_name}.pdf"
-            print(f"[DELETE] Chuyển đổi tên file từ {filename} thành {actual_filename}")
+        # Tìm file trong database theo tên
+        db_files = files_manager.get_file_by_name_for_admin(filename)
         
-        # Sử dụng file thực tế để kiểm tra và xóa
-        file_path = os.path.join(user_upload_dir, actual_filename)
-        print(f"[DELETE] Bắt đầu xóa file: {filename}, đường dẫn thực tế: {file_path}")
-
-        # Kiểm tra file có tồn tại không
-        if not os.path.exists(file_path):
-            print(f"[DELETE] Lỗi: File {actual_filename} không tồn tại")
+        if not db_files:
             raise HTTPException(
-                status_code=404, detail=f"File {filename} không tồn tại"
+                status_code=404, 
+                detail=f"Không tìm thấy file {filename} trong hệ thống"
             )
+        
+        # Lấy file đầu tiên (nếu có nhiều file cùng tên)
+        file_record = db_files[0]
+        file_id = file_record.get("file_id")
+        file_path = file_record.get("file_path")
+        
+        print(f"[DELETE] Admin {current_user.email} đang xóa file: {filename}")
+        print(f"[DELETE] File path từ database: {file_path}")
+        print(f"[DELETE] File ID: {file_id}")
+
+        # XÁC ĐỊNH ĐƯỜNG DẪN FILE THỰC TẾ
+        upload_dir = os.getenv("UPLOAD_DIR", "src/data")
+        
+        # Thử các đường dẫn có thể có
+        possible_paths = [
+            file_path,  # Đường dẫn từ database
+            os.path.join(upload_dir, filename),  # Đường dẫn mới (data chung)
+            os.path.join(upload_dir, os.path.basename(file_path)) if file_path else None,  # Chỉ tên file trong thư mục data
+        ]
+        
+        # Loại bỏ các đường dẫn None
+        possible_paths = [p for p in possible_paths if p is not None]
+        
+        actual_file_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                actual_file_path = path
+                print(f"[DELETE] Tìm thấy file tại: {actual_file_path}")
+                break
+        
+        if not actual_file_path:
+            print(f"[DELETE] Cảnh báo: Không tìm thấy file vật lý, tiếp tục xóa dữ liệu trong database và vector store")
 
         print(f"[DELETE] Đang xóa các điểm dữ liệu liên quan đến file: {filename}")
 
-        # **FIX: Đảm bảo sử dụng collection global_documents thay vì user-specific collection**
-        # Cập nhật collection_name cho vector store để sử dụng global_documents
+        # CẤU HÌNH VECTOR STORE ĐỂ XÓA TỪ COLLECTION CHUNG
         original_collection = rag_system.vector_store.collection_name
         rag_system.vector_store.collection_name = "global_documents"
+        rag_system.vector_store.user_id = None  # Không dùng user_id
         print(f"[DELETE] Sử dụng collection: {rag_system.vector_store.collection_name}")
 
-        # **CẬP NHẬT: Tạo danh sách các biến thể với cả tên gốc và tên PDF**
-        file_paths = [
-            file_path,  # Đường dẫn file thực tế (PDF)
-            file_path.replace("\\", "/"),  # Đường dẫn với dấu /
-            os.path.join(user_upload_dir, actual_filename).replace("\\", "/"),  # Đường dẫn đầy đủ với dấu /
-            f"src/data/{current_user.id}/{actual_filename}",  # Tiền tố src/data/user_id/ với file PDF
-            f"src/data\\{current_user.id}\\{actual_filename}",  # Tiền tố src/data\user_id\ với backslash
-            # Thêm các biến thể cho tên file gốc (trong trường hợp vector store lưu tên gốc)
-            os.path.join(user_upload_dir, filename),
-            os.path.join(user_upload_dir, filename).replace("\\", "/"),
-            f"src/data/{current_user.id}/{filename}",
-            f"src/data\\{current_user.id}\\{filename}",
-        ]
-
-        # Khởi tạo biến để lưu số lượng điểm đã xóa
+        # XÓA TỪ VECTOR STORE THEO FILE_ID
         deleted_points_count = 0
         deletion_success = False
 
-        # Thử xóa với từng đường dẫn
-        for path in file_paths:
-            print(f"[DELETE] Thử xóa với đường dẫn: {path}")
+        if file_id:
             try:
-                # **FIX: Không truyền user_id vào delete_by_file_path vì đang dùng global collection**
-                success, message = rag_system.vector_store.delete_by_file_path(path)
-
+                print(f"[DELETE] Thử xóa theo file_id: {file_id}")
+                success, message = rag_system.vector_store.delete_by_file_id(file_id)
+                
                 if success:
-                    # Phân tích số lượng điểm đã xóa từ message
                     import re
-
                     match = re.search(r"Đã xóa (\d+) điểm", message)
                     if match:
                         deleted_points_count = int(match.group(1))
-                    print(f"[DELETE] Xóa thành công với đường dẫn {path}: {message}")
+                    print(f"[DELETE] Xóa thành công theo file_id: {message}")
                     deletion_success = True
-                    break
             except Exception as e:
-                print(f"[DELETE] Lỗi khi xóa với đường dẫn {path}: {str(e)}")
-                continue
+                print(f"[DELETE] Lỗi khi xóa theo file_id: {str(e)}")
 
-        # **CẬP NHẬT: Thử xóa với cả tên file gốc và tên file PDF**
-        if not deletion_success:
-            filenames_to_try = [filename, actual_filename]  # Thử cả tên gốc và tên PDF
-            
-            for fname in filenames_to_try:
-                print(f"[DELETE] Thử xóa với tên file: {fname}")
-                try:
-                    # **FIX: Không truyền user_id vào delete_by_file_path vì đang dùng global collection**
-                    success, message = rag_system.vector_store.delete_by_file_path(fname)
+        # NẾU XÓA THEO FILE_ID THẤT BẠI, THỬ XÓA THEO ĐƯỜNG DẪN
+        if not deletion_success and actual_file_path:
+            try:
+                print(f"[DELETE] Thử xóa theo đường dẫn file: {actual_file_path}")
+                success, message = rag_system.vector_store.delete_by_file_path(actual_file_path)
+                
+                if success:
+                    import re
+                    match = re.search(r"Đã xóa (\d+) điểm", message)
+                    if match:
+                        deleted_points_count = int(match.group(1))
+                    print(f"[DELETE] Xóa thành công theo đường dẫn: {message}")
+                    deletion_success = True
+            except Exception as e:
+                print(f"[DELETE] Lỗi khi xóa theo đường dẫn: {str(e)}")
 
-                    if success:
-                        # Phân tích số lượng điểm đã xóa từ message
-                        import re
+        # XÓA FILE VẬT LÝ
+        if actual_file_path and os.path.exists(actual_file_path):
+            try:
+                os.remove(actual_file_path)
+                print(f"[DELETE] Đã xóa file vật lý: {actual_file_path}")
+            except Exception as e:
+                print(f"[DELETE] Lỗi khi xóa file vật lý: {str(e)}")
 
-                        match = re.search(r"Đã xóa (\d+) điểm", message)
-                        if match:
-                            deleted_points_count = int(match.group(1))
-                        print(f"[DELETE] Xóa thành công với tên file: {message}")
-                        deletion_success = True
-                        break
-                except Exception as e:
-                    print(f"[DELETE] Lỗi khi xóa với tên file {fname}: {str(e)}")
-                    continue
-
-        # Nếu vẫn không thành công, thử xóa bằng phương thức cũ
-        if not deletion_success:
-            print(f"[DELETE] Thử xóa bằng phương thức cũ...")
-
-            # **FIX: Không truyền user_id vào get_all_documents vì đang dùng global collection**
-            all_docs = rag_system.vector_store.get_all_documents()
-            related_docs = []
-
-            for doc in all_docs:
-                # Kiểm tra trong metadata.source và source trực tiếp
-                meta_source = doc.get("metadata", {}).get("source", "unknown")
-                direct_source = doc.get("source", "unknown")
-
-                # So sánh với tất cả các biến thể của đường dẫn
-                for path in file_paths:
-                    if meta_source == path or direct_source == path:
-                        related_docs.append(doc)
-                        break
-
-                # **CẬP NHẬT: So sánh với cả tên file gốc và tên file PDF**
-                if meta_source == filename or direct_source == filename or \
-                   meta_source == actual_filename or direct_source == actual_filename:
-                    related_docs.append(doc)
-
-            # Nếu tìm thấy tài liệu liên quan, xóa chúng
-            if related_docs:
-                print(f"[DELETE] Tìm thấy {len(related_docs)} tài liệu liên quan")
-
-                # Thử xóa bằng filter
-                filter_conditions = []
-
-                # Thêm điều kiện cho source
-                for path in file_paths:
-                    filter_conditions.append(
-                        {"key": "source", "match": {"value": path}}
-                    )
-                    filter_conditions.append(
-                        {"key": "metadata.source", "match": {"value": path}}
-                    )
-
-                # **CẬP NHẬT: Thêm điều kiện cho cả tên file gốc và tên file PDF**
-                for fname in [filename, actual_filename]:
-                    filter_conditions.append(
-                        {"key": "source", "match": {"value": fname}}
-                    )
-                    filter_conditions.append(
-                        {"key": "metadata.source", "match": {"value": fname}}
-                    )
-
-                filter_request = {"filter": {"should": filter_conditions}}
-
-                try:
-                    # **FIX: Không truyền user_id vào delete_points_by_filter vì đang dùng global collection**
-                    success, message = rag_system.vector_store.delete_points_by_filter(
-                        filter_request
-                    )
-
-                    if success:
-                        # Phân tích số lượng điểm đã xóa từ message
-                        import re
-
-                        match = re.search(r"Đã xóa (\d+) điểm", message)
-                        if match:
-                            deleted_points_count = int(match.group(1))
-                        print(f"[DELETE] Xóa thành công bằng filter: {message}")
-                        deletion_success = True
-                except Exception as e:
-                    print(f"[DELETE] Lỗi khi xóa bằng filter: {str(e)}")
-
-                    # Nếu không thành công với filter, thử xóa bằng ID
-                    try:
-                        point_ids = [
-                            doc.get("id")
-                            for doc in related_docs
-                            if doc.get("id") is not None
-                        ]
-                        if point_ids:
-                            # **FIX: Không truyền user_id vào delete_points vì đang dùng global collection**
-                            delete_result = rag_system.vector_store.delete_points(point_ids)
-                            if delete_result:
-                                deleted_points_count = len(point_ids)
-                                print(
-                                    f"[DELETE] Đã xóa {deleted_points_count} điểm dữ liệu bằng ID"
-                                )
-                                deletion_success = True
-                    except Exception as e2:
-                        print(f"[DELETE] Lỗi khi xóa bằng ID: {str(e2)}")
+        # XÓA VĨNH VIỄN FILE TRONG DATABASE (HARD DELETE)
+        try:
+            if file_id:
+                files_manager.delete_file_permanently(file_id)
+                print(f"[DELETE] Đã xóa vĩnh viễn file {filename} khỏi database")
+        except Exception as e:
+            print(f"[DELETE] Lỗi khi xóa file khỏi database: {str(e)}")
 
         # Khôi phục collection_name gốc
         rag_system.vector_store.collection_name = original_collection
 
-        # **XÓA FILE VẬT LÝ - Sử dụng đường dẫn file thực tế**
-        print(f"[DELETE] Đang xóa file vật lý: {file_path}")
-        os.remove(file_path)
-        print(f"[DELETE] Đã xóa file vật lý thành công")
-
-        # **FIX: Cải thiện logic xóa file trong database**
-        try:
-            from src.supabase.files_manager import FilesManager
-            from src.supabase.client import SupabaseClient
-
-            # **FIX: Sử dụng service key để bypass RLS policies**
-            supabase_client_with_service_role = SupabaseClient(use_service_key=True)
-            client = supabase_client_with_service_role.get_client()
-            files_manager = FilesManager(client)
-
-            # Tìm file trong database theo tên gốc và user_id
-            files = files_manager.get_file_by_name_and_user(filename, current_user.id)
-            if files and len(files) > 0:
-                # Lấy file_id từ kết quả tìm kiếm
-                file_id = files[0].get("file_id")
-                if file_id:
-                    # Xóa vĩnh viễn file khỏi database thay vì chỉ đánh dấu đã xóa
-                    files_manager.delete_file_permanently(file_id)
-                    print(
-                        f"[DELETE] Đã xóa vĩnh viễn file {filename} (ID: {file_id}) khỏi database"
-                    )
-                else:
-                    print(f"[DELETE] Không tìm thấy file_id cho file {filename}")
-            else:
-                print(f"[DELETE] Không tìm thấy file {filename} trong database cho user {current_user.id}")
-                
-                # **FIX: Thử tìm file không phân biệt user_id (cho trường hợp admin có thể xóa file của user khác)**
-                if current_user.role == 'admin':
-                    print(f"[DELETE] Admin đang thử xóa file, tìm kiếm trong toàn bộ database...")
-                    matching_files = files_manager.get_file_by_name_for_admin(filename)
-                    
-                    if matching_files:
-                        for file_record in matching_files:
-                            file_id = file_record.get("file_id")
-                            if file_id:
-                                files_manager.delete_file_permanently(file_id)
-                                print(f"[DELETE] Admin đã xóa vĩnh viễn file {filename} (ID: {file_id}) khỏi database")
-                    else:
-                        print(f"[DELETE] Không tìm thấy file {filename} trong toàn bộ database")
-                        
-        except Exception as e:
-            print(f"[DELETE] Lỗi khi xóa file trong database: {str(e)}")
-            import traceback
-            traceback.print_exc()
-
         return {
-            "filename": filename,  # Trả về tên file gốc
+            "filename": filename,
             "status": "success",
-            "message": f"Đã xóa file {filename} và {deleted_points_count} index liên quan",
+            "message": f"Admin đã xóa thành công file {filename} khỏi hệ thống chung",
             "removed_points": deleted_points_count,
         }
-    except HTTPException as e:
-        print(f"[DELETE] HTTP Exception: {e.detail}")
-        raise e
+
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"[DELETE] Lỗi không xác định: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        print(f"[DELETE] Lỗi không mong muốn: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Lỗi khi xóa file: {str(e)}")
 
 @app.post(f"{PREFIX}/collections/delete-by-filter")
@@ -1310,7 +1223,7 @@ async def get_conversation_detail(
         # Tạo dữ liệu trả về
         conversation_data = {
             "conversation_id": conversation_id,
-            "last_updated": datetime.now().isoformat(),
+            "last_updated": format_vietnam_time_iso(),
             "messages": messages,
         }
 
@@ -1352,6 +1265,38 @@ async def signup(request: UserSignUpRequest):
                 detail="Đăng ký thất bại, vui lòng thử lại",
             )
 
+        user_id = result.user.id
+        user_email = result.user.email
+
+        # Đảm bảo user có role trong bảng user_roles
+        try:
+            # Kiểm tra xem user đã có role chưa
+            role_check = supabase_client.table("user_roles").select("role").eq("user_id", user_id).execute()
+            
+            if not role_check.data or len(role_check.data) == 0:
+                # Nếu chưa có role, thêm role mặc định "student"
+                print(f"Thêm role mặc định 'student' cho user {user_email}")
+                
+                # Sử dụng service key để có quyền insert vào user_roles
+                from src.supabase.client import SupabaseClient
+                service_client = SupabaseClient(use_service_key=True).get_client()
+                
+                service_client.table("user_roles").insert({
+                    "id": str(uuid.uuid4()),
+                    "user_id": user_id,
+                    "role": "student",
+                    "created_at": "now()",
+                    "updated_at": "now()"
+                }).execute()
+                
+                print(f"✅ Đã thêm role 'student' cho user {user_email}")
+            else:
+                print(f"User {user_email} đã có role: {role_check.data[0]['role']}")
+                
+        except Exception as role_error:
+            print(f"⚠️ Không thể thêm role cho user {user_email}: {str(role_error)}")
+            # Không raise exception để không cản trở việc đăng ký
+
         # Chuyển đổi created_at từ datetime sang string nếu cần
         created_at = result.user.created_at
         if hasattr(created_at, "isoformat"):
@@ -1365,16 +1310,41 @@ async def signup(request: UserSignUpRequest):
                 "created_at": created_at,
                 "name": result.user.user_metadata.get("name", result.user.email),
                 "avatar_url": result.user.user_metadata.get("avatar_url", None),
-                "role": result.user.user_metadata.get("role", "student"),
+                "role": "student",  # Luôn trả về "student" cho user mới đăng ký
             },
             "access_token": result.session.access_token if result.session else "",
             "expires_in": result.session.expires_in if result.session else None,
         }
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Lỗi khi đăng ký tài khoản: {str(e)}",
-        )
+        error_message = str(e)
+        
+        # Xử lý các trường hợp lỗi cụ thể
+        if "User already registered" in error_message or "already registered" in error_message.lower():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Email này đã được đăng ký. Vui lòng sử dụng email khác hoặc đăng nhập.",
+            )
+        elif "Invalid email" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email không hợp lệ. Vui lòng kiểm tra lại.",
+            )
+        elif "Password should be at least" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Mật khẩu quá yếu. Mật khẩu phải có ít nhất 6 ký tự.",
+            )
+        elif "signup is disabled" in error_message.lower():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Đăng ký tài khoản đã bị tắt. Vui lòng liên hệ quản trị viên.",
+            )
+        else:
+            # Trả về lỗi chung cho các trường hợp không xác định
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Lỗi khi đăng ký tài khoản: {error_message}",
+            )
 
 
 @app.post(f"{PREFIX}/auth/login", response_model=AuthResponse)
@@ -2050,28 +2020,35 @@ async def get_user_conversations(
         CROSS JOIN total_count tc
         """
 
-        # Thực hiện query tối ưu
-        result = supabase_client.rpc('execute_sql', {'query': query}).execute()
-        
-        if not result.data:
-            # Fallback về phương pháp cũ nếu RPC không hoạt động
-            return await get_user_conversations_fallback(page, page_size, current_user)
+        # TẮM RPC EXECUTE_SQL - LUÔN DÙNG FALLBACK METHOD
+        # RPC execute_sql đang gây lỗi "string indices must be integers"
+        print("Skipping RPC execute_sql - using fallback method directly")
+        return await get_user_conversations_fallback(page, page_size, current_user)
 
         conversations = []
         total_items = 0
         
-        for row in result.data:
-            if 'total_conversations' in row:
-                total_items = row['total_conversations']
-            
-            conversations.append({
-                "conversation_id": row["conversation_id"],
-                "user_id": row["user_id"],
-                "created_at": row["created_at"],
-                "last_updated": row["last_updated"],
-                "first_message": row["first_message"] or "Hội thoại mới",
-                "message_count": row["message_count"]
-            })
+        try:
+            for row in result.data:
+                # Kiểm tra xem row có phải là dict không
+                if not isinstance(row, dict):
+                    print(f"Row is not dict: {type(row)}, {row}")
+                    continue
+                    
+                if 'total_conversations' in row:
+                    total_items = row['total_conversations']
+                
+                conversations.append({
+                    "conversation_id": row.get("conversation_id", ""),
+                    "user_id": row.get("user_id", ""),
+                    "created_at": parse_and_format_vietnam_time(row.get("created_at", "")),
+                    "last_updated": parse_and_format_vietnam_time(row.get("last_updated", "")),
+                    "first_message": row.get("first_message") or "Hội thoại mới",
+                    "message_count": row.get("message_count", 0)
+                })
+        except Exception as row_error:
+            print(f"Error processing rows: {str(row_error)}")
+            return await get_user_conversations_fallback(page, page_size, current_user)
 
         return {
             "status": "success",
@@ -2085,6 +2062,8 @@ async def get_user_conversations(
         }
     except Exception as e:
         print(f"Lỗi khi lấy danh sách hội thoại: {str(e)}")
+        import traceback
+        print(f"Chi tiết lỗi: {traceback.format_exc()}")
         # Fallback về phương pháp cũ
         return await get_user_conversations_fallback(page, page_size, current_user)
 
@@ -2121,51 +2100,72 @@ async def get_user_conversations_fallback(
             .execute()
         )
 
+        # Kiểm tra conversations.data trước khi xử lý
+        if not conversations.data or not isinstance(conversations.data, list):
+            return {
+                "status": "success",
+                "data": [],
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total_items": 0,
+                    "total_pages": 0,
+                },
+            }
+
         # Tối ưu: Lấy tất cả first_message và message_count trong 2 query batch
-        conversation_ids = [conv["conversation_id"] for conv in conversations.data]
+        conversation_ids = [conv.get("conversation_id") for conv in conversations.data if conv.get("conversation_id")]
         
         if conversation_ids:
-            # Batch query cho first messages
-            first_messages = (
-                supabase_client.table("messages")
-                .select("conversation_id, content")
-                .in_("conversation_id", conversation_ids)
-                .eq("role", "user")
-                .order("sequence")
-                .execute()
-            )
-            
-            # Batch query cho message counts
-            message_counts = (
-                supabase_client.table("messages")
-                .select("conversation_id", count="exact")
-                .in_("conversation_id", conversation_ids)
-                .execute()
-            )
-            
-            # Tạo dictionary để lookup nhanh
-            first_msg_dict = {}
-            for msg in first_messages.data:
-                conv_id = msg["conversation_id"]
-                if conv_id not in first_msg_dict:
-                    first_msg_dict[conv_id] = msg["content"]
-            
-            # Đếm messages cho mỗi conversation
-            msg_count_dict = {}
-            for conv_id in conversation_ids:
-                count_result = (
+            try:
+                # Batch query cho first messages
+                first_messages = (
                     supabase_client.table("messages")
-                    .select("*", count="exact")
-                    .eq("conversation_id", conv_id)
+                    .select("conversation_id, content")
+                    .in_("conversation_id", conversation_ids)
+                    .eq("role", "user")
+                    .order("sequence")
                     .execute()
                 )
-                msg_count_dict[conv_id] = count_result.count if hasattr(count_result, "count") else 0
+                
+                # Tạo dictionary để lookup nhanh
+                first_msg_dict = {}
+                if hasattr(first_messages, "data") and isinstance(first_messages.data, list):
+                    for msg in first_messages.data:
+                        if isinstance(msg, dict) and msg.get("conversation_id"):
+                            conv_id = msg["conversation_id"]
+                            if conv_id not in first_msg_dict:
+                                first_msg_dict[conv_id] = msg.get("content", "")
+                
+                # Đếm messages cho mỗi conversation
+                msg_count_dict = {}
+                for conv_id in conversation_ids:
+                    try:
+                        count_result = (
+                            supabase_client.table("messages")
+                            .select("*", count="exact")
+                            .eq("conversation_id", conv_id)
+                            .execute()
+                        )
+                        msg_count_dict[conv_id] = count_result.count if hasattr(count_result, "count") else 0
+                    except Exception as count_error:
+                        print(f"Error counting messages for {conv_id}: {count_error}")
+                        msg_count_dict[conv_id] = 0
 
-            # Gán dữ liệu vào conversations
-            for conv in conversations.data:
-                conv_id = conv["conversation_id"]
-                conv["first_message"] = first_msg_dict.get(conv_id, "Hội thoại mới")
-                conv["message_count"] = msg_count_dict.get(conv_id, 0)
+                # Gán dữ liệu vào conversations
+                for conv in conversations.data:
+                    if isinstance(conv, dict) and conv.get("conversation_id"):
+                        conv_id = conv["conversation_id"]
+                        conv["first_message"] = first_msg_dict.get(conv_id, "Hội thoại mới")
+                        conv["message_count"] = msg_count_dict.get(conv_id, 0)
+                        
+            except Exception as batch_error:
+                print(f"Error in batch processing: {batch_error}")
+                # Tiếp tục với dữ liệu cơ bản nếu batch processing fail
+                for conv in conversations.data:
+                    if isinstance(conv, dict):
+                        conv["first_message"] = conv.get("first_message", "Hội thoại mới")
+                        conv["message_count"] = 0
 
         return {
             "status": "success",

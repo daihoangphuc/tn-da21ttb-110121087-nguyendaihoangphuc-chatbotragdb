@@ -294,18 +294,33 @@ class AdvancedDatabaseRAG:
         file_id: List[str] = None,
     ) -> List[Dict]:
         """
-        Tìm kiếm ngữ nghĩa (semantic search)
+        Tìm kiếm ngữ nghĩa với khả năng lọc theo nguồn
 
         Args:
-            query: Câu hỏi người dùng
+            query: Câu truy vấn
             k: Số lượng kết quả trả về
-            sources: Danh sách các file nguồn cần tìm kiếm (cách cũ, sử dụng file_id thay thế)
-            file_id: Danh sách các file_id cần tìm kiếm (cách mới). Nếu là None, sẽ tìm kiếm trong tất cả các file
+            sources: Danh sách nguồn tài liệu (legacy, sử dụng file_id thay thế)
+            file_id: Danh sách ID file cần tìm kiếm
 
         Returns:
-            Danh sách các kết quả tìm kiếm
+            Danh sách kết quả tìm kiếm đã được sắp xếp theo điểm số
         """
-        return self.search_manager.semantic_search(query, k, sources, file_id)
+        print(f"Thực hiện semantic search cho: '{query}'")
+        print(f"Tham số: k={k}, sources={sources}, file_id={file_id}")
+
+        # CẬP NHẬT: Không dùng user_id nữa vì sử dụng collection chung
+        if sources or file_id:
+            # Gọi search_with_filter trên SearchManager (không truyền user_id)
+            results = self.search_manager.semantic_search(
+                query=query, k=k, sources=sources, file_id=file_id
+            )
+        else:
+            # Tìm kiếm thông thường trên toàn bộ collection (không truyền user_id)
+            results = self.search_manager.semantic_search(query=query, k=k)
+
+        print(f"Semantic search trả về {len(results)} kết quả")
+
+        return results
 
     def rerank_results(self, query: str, results: List[Dict]) -> List[Dict]:
         """Tái xếp hạng kết quả"""
@@ -455,18 +470,18 @@ class AdvancedDatabaseRAG:
                 },
             }
 
-            # Sử dụng Google Agent Search để tìm kiếm
+            # Sử dụng Google Search để tìm kiếm
             try:
                 gas_summary, gas_urls = google_agent_search(query_to_use)
                 
-                # Tạo document từ kết quả Google Agent Search
+                # Tạo document từ kết quả Google Search
                 gas_content = gas_summary.content if hasattr(gas_summary, 'content') else str(gas_summary)
                 
-                # Tạo một danh sách retrieved chỉ chứa kết quả từ Google Agent Search
+                # Tạo một danh sách retrieved chỉ chứa kết quả từ Google Search
                 retrieved = [{
                     "text": gas_content,
                     "metadata": {
-                        "source": "Google Agent Search",
+                        "source": "Google Search",
                         "page": "Web Result",
                         "source_type": "web_search",
                         "urls": gas_urls
@@ -475,18 +490,19 @@ class AdvancedDatabaseRAG:
                     "rerank_score": 1.0
                 }]
                 
-                # Chuẩn bị danh sách nguồn từ Google Agent Search
+                # Chuẩn bị danh sách nguồn từ Google Search
                 gas_sources_list = []
                 if gas_urls:
                     for url_idx, url in enumerate(gas_urls):
                         gas_sources_list.append({
-                            "source": url,  # Sử dụng URL trực tiếp làm nguồn
-                            "page": "Web Search",
-                            "section": f"Web Source {url_idx+1}",
+                            "source": url,  # URL thực tế
+                            "page": f"Web Search {url_idx+1}",
+                            "section": "Online Source",
                             "score": 1.0,
-                            "content_snippet": f"Thông tin từ web: {url}",
+                            "content_snippet": url,  # Hiển thị URL làm snippet
                             "file_id": "web_search",
-                            "is_web_search": True
+                            "is_web_search": True,
+                            "url": url  # Thêm field url riêng
                         })
                 
                 # Trả về nguồn
@@ -499,7 +515,7 @@ class AdvancedDatabaseRAG:
                     },
                 }
 
-                # Chuẩn bị prompt cho LLM với kết quả từ Google Agent Search
+                # Chuẩn bị prompt cho LLM với kết quả từ Google Search
                 prompt = self.prompt_manager.create_prompt_with_history(
                     query_to_use, retrieved, conversation_history=conversation_history
                 )
@@ -518,7 +534,7 @@ class AdvancedDatabaseRAG:
                         },
                     }
             except Exception as e:
-                print(f"Lỗi khi sử dụng Google Agent Search (stream): {str(e)}")
+                print(f"Lỗi khi sử dụng Google Search (stream): {str(e)}")
                 # Trả về nguồn rỗng
                 yield {
                     "type": "sources",
@@ -529,7 +545,7 @@ class AdvancedDatabaseRAG:
                     },
                 }
                 # Trả về thông báo lỗi
-                yield {"type": "content", "data": {"content": f"Không thể sử dụng Google Agent Search: {str(e)}. Vui lòng kiểm tra lại API key hoặc cấu hình."}}
+                yield {"type": "content", "data": {"content": f"Không thể sử dụng Google Search: {str(e)}. Vui lòng kiểm tra lại API key hoặc cấu hình."}}
 
             # Trả về kết thúc
             elapsed_time = time.time() - start_time
@@ -552,7 +568,7 @@ class AdvancedDatabaseRAG:
         gas_fallback_used = False
         
         if perform_fallback_stream:
-            print(f"Không có kết quả RAG (stream). Thực hiện fallback với Google Agent Search cho: '{query_to_use}'")
+            print(f"Không có kết quả RAG (stream). Thực hiện fallback với Google Search cho: '{query_to_use}'")
             try:
                 # Khởi tạo sources_list trước khi sử dụng
                 sources_list = []
@@ -567,7 +583,7 @@ class AdvancedDatabaseRAG:
                     fallback_doc = {
                         "text": fallback_content,
                         "metadata": {
-                            "source": "Google Agent Search",
+                            "source": "Google Search",
                             "page": "Web Result",
                             "source_type": "web_search",
                             "urls": fallback_urls
@@ -583,18 +599,19 @@ class AdvancedDatabaseRAG:
                     # Cập nhật danh sách nguồn với kết quả fallback
                     for url_idx, url in enumerate(fallback_urls):
                         sources_list.append({
-                            "source": url,  # Sử dụng URL trực tiếp làm nguồn
-                            "page": "Web Search",
-                            "section": f"Fallback Source {url_idx+1}",
+                            "source": url,  # URL thực tế
+                            "page": f"Fallback Search {url_idx+1}",
+                            "section": "Online Source",
                             "score": 0.9,
-                            "content_snippet": f"Thông tin bổ sung từ web: {url}",
+                            "content_snippet": url,  # Hiển thị URL làm snippet
                             "file_id": "web_search_fallback",
-                            "is_web_search": True
+                            "is_web_search": True,
+                            "url": url  # Thêm field url riêng
                         })
                 else:
-                    print("Google Agent Search không tìm thấy kết quả fallback.")
+                    print("Google Search không tìm thấy kết quả fallback.")
             except Exception as e:
-                print(f"Lỗi khi thực hiện fallback với Google Agent Search: {str(e)}")
+                print(f"Lỗi khi thực hiện fallback với Google Search: {str(e)}")
                 # Tiếp tục với kết quả hiện tại
 
         # Nếu không có kết quả tìm kiếm, trả về thông báo không tìm thấy
@@ -674,7 +691,7 @@ class AdvancedDatabaseRAG:
             # Trích xuất thông tin từ metadata
             metadata = doc.get("metadata", {})
             
-            # Kiểm tra nếu là nguồn từ Google Agent Search
+            # Kiểm tra nếu là nguồn từ Google Search
             if metadata.get("source_type") == "web_search":
                 urls_from_gas = metadata.get("urls", [])
                 snippet = doc["text"]
@@ -682,7 +699,7 @@ class AdvancedDatabaseRAG:
                     snippet += "\n\nNguồn tham khảo từ web:\n" + "\n".join([f"- {url}" for url in urls_from_gas])
                 
                 sources_list.append({
-                    "source": "Google Agent Search",
+                    "source": "Google Search",
                     "page": "Web Search Result",
                     "section": "Web Content",
                     "score": doc.get("score", 0.9),
