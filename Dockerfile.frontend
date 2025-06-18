@@ -15,8 +15,9 @@ COPY frontend/package.json ./
 # Make pnpm-lock.yaml optional in case it's missing or incompatible
 COPY frontend/pnpm-lock.yaml* ./
 
-# Install dependencies with proper pnpm configuration
+# Install dependencies with proper pnpm configuration and timeout
 RUN pnpm config set auto-install-peers true && \
+    pnpm config set network-timeout 600000 && \
     pnpm install --no-frozen-lockfile --shamefully-hoist || \
     pnpm install --shamefully-hoist
 
@@ -60,8 +61,8 @@ RUN ls -la && echo "Package.json exists: $(test -f package.json && echo 'yes' ||
 # Check if dependencies are installed
 RUN ls -la node_modules/ | head -10
 
-# Build with verbose output for debugging
-RUN pnpm next build --verbose
+# Build the application
+RUN pnpm run build
 
 # Production stage
 FROM node:20-alpine AS runner

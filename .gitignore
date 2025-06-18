@@ -87,3 +87,9 @@ tmp/
 *.temp
 *.cache
 *.pid
+
+############################
+# 9. CI/CD & Testing
+############################
+.env.frontend
+.env.backend

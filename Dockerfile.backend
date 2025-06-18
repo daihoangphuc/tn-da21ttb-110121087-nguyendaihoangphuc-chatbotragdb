@@ -16,7 +16,8 @@ FROM base AS dependencies
 
 # Copy requirements và cài đặt dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Cài dependencies với timeout settings và parallel processing  
+RUN pip install --no-cache-dir --timeout 600 --retries 3 -r requirements.txt
 
 # Stage cho build
 FROM dependencies AS build
