@@ -115,7 +115,7 @@ export function ConversationList({ onSelectConversation, currentConversationId, 
     }
   }, [])
 
-  const truncateMessage = useMemo(() => (message: string, maxLength: number = 15): string => {
+  const truncateMessage = useMemo(() => (message: string, maxLength: number = 20): string => {
     if (!message) return "Hội thoại mới"
     // Trim whitespace và check độ dài
     const trimmed = message.trim()
@@ -139,7 +139,7 @@ export function ConversationList({ onSelectConversation, currentConversationId, 
       const isActive = currentConversationId === conversation.conversation_id
       const fullMessage = conversation.first_message || "Hội thoại mới"
       const truncatedMessage = truncateMessage(fullMessage)
-      const needsTooltip = fullMessage.length > 25
+      const needsTooltip = fullMessage.length > 30
       
       return (
         <TooltipProvider key={conversation.conversation_id}>

@@ -43,6 +43,7 @@ import supabase
 import re
 import asyncio
 import pytz
+from uuid import UUID
 
 from src.rag import AdvancedDatabaseRAG
 from src.supabase.conversation_manager import SupabaseConversationManager
@@ -2075,12 +2076,13 @@ async def get_user_conversations_fallback(
 ):
     """
     Phương pháp fallback cho get_user_conversations khi RPC không hoạt động
+    TỐI ỦU HÓA: Giảm số lần query xuống còn 4 queries thay vì N+1
     """
     try:
         user_id = current_user.id
         offset = (page - 1) * page_size
 
-        # Lấy tổng số hội thoại
+        # Query 1: Lấy tổng số hội thoại
         count_result = (
             supabase_client.table("conversations")
             .select("*", count="exact")
@@ -2090,7 +2092,7 @@ async def get_user_conversations_fallback(
 
         total_items = count_result.count if hasattr(count_result, "count") else 0
 
-        # Lấy danh sách hội thoại có phân trang
+        # Query 2: Lấy danh sách hội thoại có phân trang
         conversations = (
             supabase_client.table("conversations")
             .select("*")
@@ -2113,22 +2115,30 @@ async def get_user_conversations_fallback(
                 },
             }
 
-        # Tối ưu: Lấy tất cả first_message và message_count trong 2 query batch
         conversation_ids = [conv.get("conversation_id") for conv in conversations.data if conv.get("conversation_id")]
         
         if conversation_ids:
             try:
-                # Batch query cho first messages
+                # Query 3: Batch query cho first messages
                 first_messages = (
                     supabase_client.table("messages")
-                    .select("conversation_id, content")
+                    .select("conversation_id, content, sequence")
                     .in_("conversation_id", conversation_ids)
                     .eq("role", "user")
-                    .order("sequence")
+                    .order("conversation_id, sequence")
                     .execute()
                 )
                 
-                # Tạo dictionary để lookup nhanh
+                # Query 4: Batch query cho message counts - TỐI ỦU HÓA CHÍNH
+                # Thay vì N queries riêng lẻ, dùng 1 query duy nhất với GROUP BY
+                message_counts_result = (
+                    supabase_client.table("messages")
+                    .select("conversation_id")
+                    .in_("conversation_id", conversation_ids)
+                    .execute()
+                )
+                
+                # Xử lý kết quả first messages
                 first_msg_dict = {}
                 if hasattr(first_messages, "data") and isinstance(first_messages.data, list):
                     for msg in first_messages.data:
@@ -2137,20 +2147,13 @@ async def get_user_conversations_fallback(
                             if conv_id not in first_msg_dict:
                                 first_msg_dict[conv_id] = msg.get("content", "")
                 
-                # Đếm messages cho mỗi conversation
+                # Xử lý kết quả message counts - đếm trong Python thay vì SQL
                 msg_count_dict = {}
-                for conv_id in conversation_ids:
-                    try:
-                        count_result = (
-                            supabase_client.table("messages")
-                            .select("*", count="exact")
-                            .eq("conversation_id", conv_id)
-                            .execute()
-                        )
-                        msg_count_dict[conv_id] = count_result.count if hasattr(count_result, "count") else 0
-                    except Exception as count_error:
-                        print(f"Error counting messages for {conv_id}: {count_error}")
-                        msg_count_dict[conv_id] = 0
+                if hasattr(message_counts_result, "data") and isinstance(message_counts_result.data, list):
+                    for msg in message_counts_result.data:
+                        if isinstance(msg, dict) and msg.get("conversation_id"):
+                            conv_id = msg["conversation_id"]
+                            msg_count_dict[conv_id] = msg_count_dict.get(conv_id, 0) + 1
 
                 # Gán dữ liệu vào conversations
                 for conv in conversations.data:
@@ -2373,6 +2376,680 @@ async def health_check():
             "timestamp": datetime.now().isoformat(),
             "error": str(e)
         }
+
+# === THÊM MODELS CHO ADMIN USER MANAGEMENT ===
+class AdminUserCreate(BaseModel):
+    email: EmailStr
+    password: str
+    role: Optional[str] = "student"  # Mặc định là student
+    metadata: Optional[Dict] = None
+
+class AdminUserUpdate(BaseModel):
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
+    role: Optional[str] = None
+    metadata: Optional[Dict] = None
+
+class AdminUserResponse(BaseModel):
+    id: str
+    email: str
+    created_at: str
+    email_confirmed_at: Optional[str] = None
+    last_sign_in_at: Optional[str] = None
+    role: Optional[str] = None
+    metadata: Optional[Dict] = None
+    banned_until: Optional[str] = None
+
+class AdminUserListResponse(BaseModel):
+    users: List[AdminUserResponse]
+    total_count: int
+    page: int
+    per_page: int
+
+class BanUserRequest(BaseModel):
+    duration: str = "24h"  # Format: "1h", "24h", "7d", etc.
+    reason: Optional[str] = None
+
+# === HELPER FUNCTIONS ===
+def _raise_if_supabase_error(res):
+    """Kiểm tra và raise HTTPException nếu có lỗi từ Supabase"""
+    if hasattr(res, 'error') and res.error:
+        raise HTTPException(status_code=400, detail=str(res.error))
+    return res
+
+async def require_admin_role(current_user=Depends(get_current_user)):
+    """Dependency để kiểm tra quyền admin"""
+    if not current_user or getattr(current_user, 'role', None) != 'admin':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Chỉ admin mới có quyền truy cập API này"
+        )
+    return current_user
+
+def get_service_supabase_client():
+    """Lấy Supabase client với service role key"""
+    try:
+        from src.supabase.client import SupabaseClient
+        service_client = SupabaseClient(use_service_key=True)
+        return service_client.get_client()
+    except Exception as e:
+        print(f"Lỗi khi khởi tạo service client: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail="Không thể khởi tạo service client"
+        )
+
+@app.get(f"{PREFIX}/admin/users", response_model=AdminUserListResponse)
+async def admin_list_users(
+    page: int = Query(1, ge=1, description="Trang hiện tại"),
+    per_page: int = Query(50, ge=1, le=100, description="Số người dùng mỗi trang"),
+    admin_user=Depends(require_admin_role)
+):
+    """
+    [ADMIN] Liệt kê tất cả người dùng trong hệ thống
+    
+    - **page**: Trang hiện tại (bắt đầu từ 1)
+    - **per_page**: Số người dùng mỗi trang (tối đa 100)
+    """
+    try:
+        service_client = get_service_supabase_client()
+        
+        # Lấy danh sách người dùng từ Supabase Auth
+        result = service_client.auth.admin.list_users(page=page, per_page=per_page)
+        _raise_if_supabase_error(result)
+        
+        # Xử lý response dựa trên cấu trúc thực tế
+        users_list = []
+        if hasattr(result, 'users') and result.users:
+            users_list = result.users
+        elif isinstance(result, list):
+            users_list = result
+        elif hasattr(result, 'data') and result.data:
+            users_list = result.data
+        else:
+            print(f"[DEBUG] Không tìm thấy users trong response: {result}")
+            return AdminUserListResponse(
+                users=[],
+                total_count=0,
+                page=page,
+                per_page=per_page
+            )
+        
+        if not users_list:
+            return AdminUserListResponse(
+                users=[],
+                total_count=0,
+                page=page,
+                per_page=per_page
+            )
+        
+        # Lấy roles của tất cả users từ database
+        user_ids = [user.id for user in users_list]
+        roles_result = service_client.table("user_roles").select("user_id, role").in_("user_id", user_ids).execute()
+        
+        # Tạo dictionary để lookup role nhanh
+        user_roles = {}
+        if roles_result.data:
+            for role_record in roles_result.data:
+                user_roles[role_record["user_id"]] = role_record["role"]
+        
+        # Format response
+        users_response = []
+        for user in users_list:
+            # Chuyển đổi datetime thành string nếu cần
+            created_at = user.created_at
+            if hasattr(created_at, "isoformat"):
+                created_at = created_at.isoformat()
+            
+            email_confirmed_at = getattr(user, 'email_confirmed_at', None)
+            if email_confirmed_at and hasattr(email_confirmed_at, "isoformat"):
+                email_confirmed_at = email_confirmed_at.isoformat()
+            
+            last_sign_in_at = getattr(user, 'last_sign_in_at', None)
+            if last_sign_in_at and hasattr(last_sign_in_at, "isoformat"):
+                last_sign_in_at = last_sign_in_at.isoformat()
+            
+            banned_until = getattr(user, 'banned_until', None)
+            if banned_until and hasattr(banned_until, "isoformat"):
+                banned_until = banned_until.isoformat()
+            
+            users_response.append(AdminUserResponse(
+                id=user.id,
+                email=user.email,
+                created_at=created_at,
+                email_confirmed_at=email_confirmed_at,
+                last_sign_in_at=last_sign_in_at,
+                role=user_roles.get(user.id, "student"),
+                metadata=getattr(user, 'user_metadata', {}),
+                banned_until=banned_until
+            ))
+        
+        return AdminUserListResponse(
+            users=users_response,
+            total_count=len(users_list),  # Supabase không trả về total count, dùng length của current page
+            page=page,
+            per_page=per_page
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Lỗi khi lấy danh sách người dùng: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Lỗi khi lấy danh sách người dùng: {str(e)}"
+        )
+
+@app.post(f"{PREFIX}/admin/users", status_code=201, response_model=AdminUserResponse)
+async def admin_create_user(
+    body: AdminUserCreate,
+    admin_user=Depends(require_admin_role)
+):
+    """
+    [ADMIN] Tạo người dùng mới
+    
+    - **email**: Email của người dùng
+    - **password**: Mật khẩu 
+    - **role**: Vai trò (admin/student, mặc định student)
+    - **metadata**: Metadata bổ sung (tùy chọn)
+    """
+    try:
+        service_client = get_service_supabase_client()
+        
+        # Tạo user trong Supabase Auth
+        create_params = {
+            "email": body.email,
+            "password": body.password,
+            "email_confirm": True,  # Tự động xác nhận email
+        }
+        
+        if body.metadata:
+            create_params["user_metadata"] = body.metadata
+            
+        result = service_client.auth.admin.create_user(create_params)
+        _raise_if_supabase_error(result)
+        
+        # Xử lý response
+        new_user = None
+        if hasattr(result, 'user') and result.user:
+            new_user = result.user
+        elif hasattr(result, 'data') and result.data:
+            new_user = result.data
+        elif hasattr(result, 'id'):  # Trường hợp result chính là user object
+            new_user = result
+        
+        if not new_user:
+            raise HTTPException(status_code=400, detail="Không thể tạo người dùng")
+        
+        # Thêm role vào bảng user_roles
+        try:
+            # Kiểm tra xem user đã có role chưa
+            existing_role = service_client.table("user_roles").select("role").eq("user_id", new_user.id).execute()
+            
+            if existing_role.data and len(existing_role.data) > 0:
+                # Nếu đã có role, cập nhật role hiện tại
+                service_client.table("user_roles").update({
+                    "role": body.role or "student",
+                    "updated_at": "now()"
+                }).eq("user_id", new_user.id).execute()
+                print(f"✅ Đã cập nhật role '{body.role or 'student'}' cho user {new_user.email}")
+            else:
+                # Nếu chưa có role, tạo mới
+                service_client.table("user_roles").insert({
+                    "id": str(uuid.uuid4()),
+                    "user_id": new_user.id,
+                    "role": body.role or "student",
+                    "created_at": "now()",
+                    "updated_at": "now()"
+                }).execute()
+                print(f"✅ Đã thêm role '{body.role or 'student'}' cho user {new_user.email}")
+        except Exception as role_error:
+            print(f"⚠️ Lỗi khi thêm/cập nhật role: {str(role_error)}")
+            # Không raise exception để không cản trở việc tạo user
+        
+        # Format response
+        created_at = new_user.created_at
+        if hasattr(created_at, "isoformat"):
+            created_at = created_at.isoformat()
+        
+        # Format email_confirmed_at    
+        email_confirmed_at = getattr(new_user, 'email_confirmed_at', None)
+        if email_confirmed_at and hasattr(email_confirmed_at, "isoformat"):
+            email_confirmed_at = email_confirmed_at.isoformat()
+            
+        return AdminUserResponse(
+            id=new_user.id,
+            email=new_user.email,
+            created_at=created_at,
+            email_confirmed_at=email_confirmed_at,
+            last_sign_in_at=None,
+            role=body.role or "student",
+            metadata=body.metadata or {},
+            banned_until=None
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_message = str(e)
+        
+        # Xử lý các trường hợp lỗi cụ thể
+        if "User already registered" in error_message or "already registered" in error_message.lower():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Email này đã được đăng ký"
+            )
+        elif "Invalid email" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email không hợp lệ"
+            )
+        else:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Lỗi khi tạo người dùng: {error_message}"
+            )
+
+@app.get(f"{PREFIX}/admin/users/{{user_id}}", response_model=AdminUserResponse)
+async def admin_get_user(
+    user_id: str = Path(..., description="ID của người dùng"),
+    admin_user=Depends(require_admin_role)
+):
+    """
+    [ADMIN] Lấy thông tin chi tiết của một người dùng
+    
+    - **user_id**: ID của người dùng cần lấy thông tin
+    """
+    try:
+        service_client = get_service_supabase_client()
+        
+        # Lấy user từ Supabase Auth
+        result = service_client.auth.admin.get_user_by_id(user_id)
+        _raise_if_supabase_error(result)
+        
+        # Xử lý response
+        user = None
+        if hasattr(result, 'user') and result.user:
+            user = result.user
+        elif hasattr(result, 'data') and result.data:
+            user = result.data
+        elif hasattr(result, 'id'):  # Trường hợp result chính là user object
+            user = result
+            
+        if not user:
+            raise HTTPException(status_code=404, detail="Không tìm thấy người dùng")
+        
+        # Lấy role từ database
+        role_result = service_client.table("user_roles").select("role").eq("user_id", user_id).execute()
+        user_role = "student"
+        if role_result.data and len(role_result.data) > 0:
+            user_role = role_result.data[0].get("role", "student")
+        
+        # Format response
+        created_at = user.created_at
+        if hasattr(created_at, "isoformat"):
+            created_at = created_at.isoformat()
+        
+        email_confirmed_at = getattr(user, 'email_confirmed_at', None)
+        if email_confirmed_at and hasattr(email_confirmed_at, "isoformat"):
+            email_confirmed_at = email_confirmed_at.isoformat()
+        
+        last_sign_in_at = getattr(user, 'last_sign_in_at', None)
+        if last_sign_in_at and hasattr(last_sign_in_at, "isoformat"):
+            last_sign_in_at = last_sign_in_at.isoformat()
+        
+        banned_until = getattr(user, 'banned_until', None)
+        if banned_until and hasattr(banned_until, "isoformat"):
+            banned_until = banned_until.isoformat()
+        
+        return AdminUserResponse(
+            id=user.id,
+            email=user.email,
+            created_at=created_at,
+            email_confirmed_at=email_confirmed_at,
+            last_sign_in_at=last_sign_in_at,
+            role=user_role,
+            metadata=getattr(user, 'user_metadata', {}),
+            banned_until=banned_until
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Lỗi khi lấy thông tin người dùng: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Lỗi khi lấy thông tin người dùng: {str(e)}"
+        )
+
+@app.put(f"{PREFIX}/admin/users/{{user_id}}", response_model=AdminUserResponse)
+async def admin_update_user(
+    user_id: str = Path(..., description="ID của người dùng"),
+    body: AdminUserUpdate = Body(...),
+    admin_user=Depends(require_admin_role)
+):
+    """
+    [ADMIN] Cập nhật thông tin người dùng
+    
+    - **user_id**: ID của người dùng cần cập nhật
+    - **email**: Email mới (tùy chọn)
+    - **password**: Mật khẩu mới (tùy chọn)  
+    - **role**: Vai trò mới (tùy chọn)
+    - **metadata**: Metadata mới (tùy chọn)
+    """
+    try:
+        service_client = get_service_supabase_client()
+        
+        # Kiểm tra user tồn tại
+        existing_user_result = service_client.auth.admin.get_user_by_id(user_id)
+        _raise_if_supabase_error(existing_user_result)
+        
+        # Xử lý response
+        existing_user = None
+        if hasattr(existing_user_result, 'user') and existing_user_result.user:
+            existing_user = existing_user_result.user
+        elif hasattr(existing_user_result, 'data') and existing_user_result.data:
+            existing_user = existing_user_result.data
+        elif hasattr(existing_user_result, 'id'):
+            existing_user = existing_user_result
+            
+        if not existing_user:
+            raise HTTPException(status_code=404, detail="Không tìm thấy người dùng")
+        
+        # Chuẩn bị payload update cho Supabase Auth
+        auth_payload = {}
+        if body.email:
+            auth_payload["email"] = body.email
+        if body.password:
+            auth_payload["password"] = body.password
+        if body.metadata is not None:
+            auth_payload["user_metadata"] = body.metadata
+        
+        # Cập nhật trong Supabase Auth nếu có thay đổi
+        updated_user = existing_user
+        if auth_payload:
+            result = service_client.auth.admin.update_user_by_id(user_id, auth_payload)
+            _raise_if_supabase_error(result)
+            # Xử lý response từ update
+            if hasattr(result, 'user') and result.user:
+                updated_user = result.user
+            elif hasattr(result, 'data') and result.data:
+                updated_user = result.data
+            elif hasattr(result, 'id'):
+                updated_user = result
+        
+        # Cập nhật role trong database nếu có thay đổi
+        current_role = "student"
+        if body.role:
+            try:
+                # Kiểm tra role hiện tại
+                role_check = service_client.table("user_roles").select("role").eq("user_id", user_id).execute()
+                
+                if role_check.data and len(role_check.data) > 0:
+                    # Update existing role
+                    service_client.table("user_roles").update({
+                        "role": body.role,
+                        "updated_at": "now()"
+                    }).eq("user_id", user_id).execute()
+                    current_role = body.role
+                else:
+                    # Insert new role
+                    service_client.table("user_roles").insert({
+                        "id": str(uuid.uuid4()),
+                        "user_id": user_id,
+                        "role": body.role,
+                        "created_at": "now()",
+                        "updated_at": "now()"
+                    }).execute()
+                    current_role = body.role
+                    
+                print(f"✅ Đã cập nhật role '{body.role}' cho user {updated_user.email}")
+            except Exception as role_error:
+                print(f"⚠️ Lỗi khi cập nhật role: {str(role_error)}")
+        else:
+            # Lấy role hiện tại
+            role_result = service_client.table("user_roles").select("role").eq("user_id", user_id).execute()
+            if role_result.data and len(role_result.data) > 0:
+                current_role = role_result.data[0].get("role", "student")
+        
+        # Format response
+        created_at = updated_user.created_at
+        if hasattr(created_at, "isoformat"):
+            created_at = created_at.isoformat()
+        
+        email_confirmed_at = getattr(updated_user, 'email_confirmed_at', None)
+        if email_confirmed_at and hasattr(email_confirmed_at, "isoformat"):
+            email_confirmed_at = email_confirmed_at.isoformat()
+        
+        last_sign_in_at = getattr(updated_user, 'last_sign_in_at', None)
+        if last_sign_in_at and hasattr(last_sign_in_at, "isoformat"):
+            last_sign_in_at = last_sign_in_at.isoformat()
+        
+        banned_until = getattr(updated_user, 'banned_until', None)
+        if banned_until and hasattr(banned_until, "isoformat"):
+            banned_until = banned_until.isoformat()
+        
+        return AdminUserResponse(
+            id=updated_user.id,
+            email=updated_user.email,
+            created_at=created_at,
+            email_confirmed_at=email_confirmed_at,
+            last_sign_in_at=last_sign_in_at,
+            role=current_role,
+            metadata=getattr(updated_user, 'user_metadata', {}),
+            banned_until=banned_until
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Lỗi khi cập nhật người dùng: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Lỗi khi cập nhật người dùng: {str(e)}"
+        )
+
+@app.delete(f"{PREFIX}/admin/users/{{user_id}}", status_code=204)
+async def admin_delete_user(
+    user_id: str = Path(..., description="ID của người dùng cần xóa"),
+    hard: bool = Query(True, description="True = xóa vĩnh viễn, False = xóa tạm thời"),
+    admin_user=Depends(require_admin_role)
+):
+    """
+    [ADMIN] Xóa người dùng khỏi hệ thống
+    
+    - **user_id**: ID của người dùng cần xóa
+    - **hard**: True để xóa vĩnh viễn, False để xóa tạm thời
+    """
+    try:
+        service_client = get_service_supabase_client()
+        
+        # Kiểm tra user tồn tại
+        existing_user_result = service_client.auth.admin.get_user_by_id(user_id)
+        _raise_if_supabase_error(existing_user_result)
+        
+        # Xử lý response
+        existing_user = None
+        if hasattr(existing_user_result, 'user') and existing_user_result.user:
+            existing_user = existing_user_result.user
+        elif hasattr(existing_user_result, 'data') and existing_user_result.data:
+            existing_user = existing_user_result.data
+        elif hasattr(existing_user_result, 'id'):
+            existing_user = existing_user_result
+            
+        if not existing_user:
+            raise HTTPException(status_code=404, detail="Không tìm thấy người dùng")
+        
+        # Không cho phép admin xóa chính mình
+        if user_id == admin_user.id:
+            raise HTTPException(
+                status_code=400, 
+                detail="Không thể xóa chính tài khoản admin đang đăng nhập"
+            )
+        
+        # Xóa user từ Supabase Auth
+        service_client.auth.admin.delete_user(user_id, should_soft_delete=not hard)
+        
+        # Xóa role trong database nếu xóa vĩnh viễn
+        if hard:
+            try:
+                service_client.table("user_roles").delete().eq("user_id", user_id).execute()
+                print(f"✅ Đã xóa role cho user {existing_user.email}")
+            except Exception as role_error:
+                print(f"⚠️ Lỗi khi xóa role: {str(role_error)}")
+        
+        print(f"✅ Admin {admin_user.email} đã {'xóa vĩnh viễn' if hard else 'xóa tạm thời'} user {existing_user.email}")
+        return
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Lỗi khi xóa người dùng: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Lỗi khi xóa người dùng: {str(e)}"
+        )
+
+@app.post(f"{PREFIX}/admin/users/{{user_id}}/ban")
+async def admin_ban_user(
+    user_id: str = Path(..., description="ID của người dùng cần cấm"),
+    body: BanUserRequest = Body(...),
+    admin_user=Depends(require_admin_role)
+):
+    """
+    [ADMIN] Cấm người dùng trong một khoảng thời gian
+    
+    - **user_id**: ID của người dùng cần cấm
+    - **duration**: Thời gian cấm (format: "1h", "24h", "7d")
+    - **reason**: Lý do cấm (tùy chọn)
+    """
+    try:
+        service_client = get_service_supabase_client()
+        
+        # Kiểm tra user tồn tại
+        existing_user_result = service_client.auth.admin.get_user_by_id(user_id)
+        _raise_if_supabase_error(existing_user_result)
+        
+        # Xử lý response
+        existing_user = None
+        if hasattr(existing_user_result, 'user') and existing_user_result.user:
+            existing_user = existing_user_result.user
+        elif hasattr(existing_user_result, 'data') and existing_user_result.data:
+            existing_user = existing_user_result.data
+        elif hasattr(existing_user_result, 'id'):
+            existing_user = existing_user_result
+            
+        if not existing_user:
+            raise HTTPException(status_code=404, detail="Không tìm thấy người dùng")
+        
+        # Không cho phép admin cấm chính mình
+        if user_id == admin_user.id:
+            raise HTTPException(
+                status_code=400, 
+                detail="Không thể cấm chính tài khoản admin đang đăng nhập"
+            )
+        
+        # Cập nhật ban duration trong Supabase Auth
+        ban_payload = {"ban_duration": body.duration}
+        
+        # Thêm reason vào user_metadata nếu có
+        if body.reason:
+            current_metadata = getattr(existing_user, 'user_metadata', {}) or {}
+            current_metadata["ban_reason"] = body.reason
+            current_metadata["banned_by"] = admin_user.email
+            current_metadata["banned_at"] = datetime.now().isoformat()
+            ban_payload["user_metadata"] = current_metadata
+        
+        result = service_client.auth.admin.update_user_by_id(user_id, ban_payload)
+        _raise_if_supabase_error(result)
+        
+        print(f"✅ Admin {admin_user.email} đã cấm user {existing_user.email} trong {body.duration}")
+        if body.reason:
+            print(f"   Lý do: {body.reason}")
+        
+        return {
+            "user_id": user_id,
+            "email": existing_user.email,
+            "banned_for": body.duration,
+            "reason": body.reason,
+            "banned_by": admin_user.email,
+            "banned_at": datetime.now().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Lỗi khi cấm người dùng: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Lỗi khi cấm người dùng: {str(e)}"
+        )
+
+@app.post(f"{PREFIX}/admin/users/{{user_id}}/unban")
+async def admin_unban_user(
+    user_id: str = Path(..., description="ID của người dùng cần bỏ cấm"),
+    admin_user=Depends(require_admin_role)
+):
+    """
+    [ADMIN] Bỏ cấm người dùng
+    
+    - **user_id**: ID của người dùng cần bỏ cấm
+    """
+    try:
+        service_client = get_service_supabase_client()
+        
+        # Kiểm tra user tồn tại
+        existing_user_result = service_client.auth.admin.get_user_by_id(user_id)
+        _raise_if_supabase_error(existing_user_result)
+        
+        # Xử lý response
+        existing_user = None
+        if hasattr(existing_user_result, 'user') and existing_user_result.user:
+            existing_user = existing_user_result.user
+        elif hasattr(existing_user_result, 'data') and existing_user_result.data:
+            existing_user = existing_user_result.data
+        elif hasattr(existing_user_result, 'id'):
+            existing_user = existing_user_result
+            
+        if not existing_user:
+            raise HTTPException(status_code=404, detail="Không tìm thấy người dùng")
+        
+        # Bỏ ban duration
+        unban_payload = {"ban_duration": ""}
+        
+        # Xóa thông tin ban khỏi metadata
+        current_metadata = getattr(existing_user, 'user_metadata', {}) or {}
+        current_metadata.pop("ban_reason", None)
+        current_metadata.pop("banned_by", None)
+        current_metadata.pop("banned_at", None)
+        current_metadata["unbanned_by"] = admin_user.email
+        current_metadata["unbanned_at"] = datetime.now().isoformat()
+        unban_payload["user_metadata"] = current_metadata
+        
+        result = service_client.auth.admin.update_user_by_id(user_id, unban_payload)
+        _raise_if_supabase_error(result)
+        
+        print(f"✅ Admin {admin_user.email} đã bỏ cấm user {existing_user.email}")
+        
+        return {
+            "user_id": user_id,
+            "email": existing_user.email,
+            "unbanned_by": admin_user.email,
+            "unbanned_at": datetime.now().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Lỗi khi bỏ cấm người dùng: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Lỗi khi bỏ cấm người dùng: {str(e)}"
+        )
+
+# =====================================================================
+# END ADMIN USER MANAGEMENT APIs  
+# =====================================================================
 
 if __name__ == "__main__":
     uvicorn.run("src.api:app", host="0.0.0.0", port=8000, reload=True)

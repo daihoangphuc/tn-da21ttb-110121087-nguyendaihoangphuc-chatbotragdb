@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent } from "@/components/ui/card"
@@ -31,6 +31,7 @@ import {
 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { filesApi, questionsApi, fetchApi, fetchApiStream } from "@/lib/api"
+import { debounce } from "@/lib/utils"
 import React from 'react'
 import { ChatMessage } from "@/components/chat-message"
 import { LoadingMessage } from "./loading-message"
@@ -147,10 +148,49 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
   // Thêm state quản lý câu hỏi liên quan
   const [relatedQuestions, setRelatedQuestions] = useState<RelatedQuestion[]>([]);
 
-  // Thêm useEffect để gọi API lấy câu hỏi gợi ý khi component mount
+  // TỐI ỦU HÓA: Load suggestions một lần khi component mount
   useEffect(() => {
-      updateRelatedQuestions();
-  }, []); // Chỉ chạy một lần khi component mount
+    const loadSuggestions = async () => {
+      try {
+        const data = await fetchApi('/suggestions?num_suggestions=3', { method: 'GET' });
+        if (data.suggestions && Array.isArray(data.suggestions)) {
+          const newRelatedQuestions = data.suggestions.map((question: string, index: number) => ({
+            id: `related-${index}`,
+            text: question,
+            query: question
+          }));
+          setRelatedQuestions(newRelatedQuestions);
+        }
+      } catch (error) {
+        console.error('Lỗi khi cập nhật câu hỏi gợi ý:', error);
+        setRelatedQuestions([]);
+      }
+    };
+
+    // Load suggestions ngay khi component mount
+    loadSuggestions();
+  }, []); // Chạy một lần duy nhất khi mount
+
+  // TỐI ỦU HÓA: Thêm debounce cho việc update suggestions sau này (nếu cần)
+  const updateRelatedQuestions = useCallback(
+    debounce(async () => {
+      try {
+        const data = await fetchApi('/suggestions?num_suggestions=3', { method: 'GET' });
+        if (data.suggestions && Array.isArray(data.suggestions)) {
+          const newRelatedQuestions = data.suggestions.map((question: string, index: number) => ({
+            id: `related-${index}`,
+            text: question,
+            query: question
+          }));
+          setRelatedQuestions(newRelatedQuestions);
+        }
+      } catch (error) {
+        console.error('Lỗi khi cập nhật câu hỏi gợi ý:', error);
+        setRelatedQuestions([]);
+      }
+    }, 1000), // Debounce 1 giây
+    []
+  );
 
   const { toast } = useToast();
 
@@ -396,23 +436,6 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
     }
   };
   
-  const updateRelatedQuestions = async () => {
-    try {
-      const data = await fetchApi('/suggestions?num_suggestions=3', { method: 'GET' });
-      if (data.suggestions && Array.isArray(data.suggestions)) {
-        const newRelatedQuestions = data.suggestions.map((question: string, index: number) => ({
-          id: `related-${index}`,
-          text: question,
-          query: question
-        }));
-        setRelatedQuestions(newRelatedQuestions);
-      }
-    } catch (error) {
-      console.error('Lỗi khi cập nhật câu hỏi gợi ý:', error);
-      setRelatedQuestions([]);
-    }
-  };
-  
   // Hàm xử lý khi người dùng click vào câu hỏi gợi ý
   const handleRelatedQuestionClick = (questionQuery: string) => {
     setInput(questionQuery);
@@ -477,8 +500,8 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
         },
       ]);
       
-      // Cập nhật câu hỏi liên quan sau khi tạo lại câu trả lời
-      updateRelatedQuestions();
+      // TỐI ỦU HÓA: Không cần update suggestions sau khi regenerate
+      // updateRelatedQuestions(); // Đã có suggestions rồi, không cần gọi lại
     }, 1500);
   };
 

@@ -153,16 +153,18 @@ export function useConversations(options: UseConversationsOptions = {}): UseConv
     }, debounceDelay)
   }, [fetchConversations, debounceDelay])
 
-  // Load initial data
+  // TỐI ỦU HÓA: Load initial data với flag để tránh duplicate calls
   useEffect(() => {
-    debouncedFetch(1)
+    if (!loadingRef.current) {
+      debouncedFetch(1)
+    }
     
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current)
       }
     }
-  }, [debouncedFetch])
+  }, []) // Bỏ debouncedFetch khỏi dependency để chỉ chạy 1 lần
 
   // Public methods
   const loadMore = useCallback(() => {

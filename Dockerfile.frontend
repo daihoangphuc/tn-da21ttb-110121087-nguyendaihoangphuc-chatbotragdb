@@ -15,14 +15,23 @@ COPY frontend/package.json ./
 # Make pnpm-lock.yaml optional in case it's missing or incompatible
 COPY frontend/pnpm-lock.yaml* ./
 
-# Install dependencies with fallback for lockfile issues
-RUN pnpm install --no-frozen-lockfile || pnpm install
+# Install dependencies with proper pnpm configuration
+RUN pnpm config set auto-install-peers true && \
+    pnpm install --no-frozen-lockfile --shamefully-hoist || \
+    pnpm install --shamefully-hoist
 
 # Build stage
 FROM base AS builder
 WORKDIR /app
-COPY frontend/ .
+
+# First copy package files
+COPY frontend/package.json frontend/pnpm-lock.yaml* ./
+
+# Copy dependencies from deps stage
 COPY --from=deps /app/node_modules ./node_modules
+
+# Then copy the rest of the frontend code
+COPY frontend/ .
 
 # Đối số để nhận file env từ CI/CD
 ARG ENV_FILE=.env.frontend
@@ -39,7 +48,20 @@ ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 RUN echo "Building with NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}"
 
 # Build the application
-RUN pnpm build
+# Set environment variable directly instead of using cross-env
+ENV NEXT_PRIVATE_LOCAL_WEBPACK=true
+
+# Debug: Show pnpm and node versions
+RUN echo "Node version: $(node --version)" && echo "pnpm version: $(pnpm --version)"
+
+# Debug: List files to ensure they're copied correctly
+RUN ls -la && echo "Package.json exists: $(test -f package.json && echo 'yes' || echo 'no')"
+
+# Check if dependencies are installed
+RUN ls -la node_modules/ | head -10
+
+# Build with verbose output for debugging
+RUN pnpm next build --verbose
 
 # Production stage
 FROM node:20-alpine AS runner

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@babel/runtime": "latest",
+    "critters": "^0.0.24",
     "@codemirror/lang-sql": "latest",
     "@codemirror/state": "latest",
     "@codemirror/theme-one-dark": "latest",

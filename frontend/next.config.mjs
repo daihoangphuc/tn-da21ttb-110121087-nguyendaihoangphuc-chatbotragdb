@@ -19,7 +19,7 @@ const nextConfig = {
   // Cấu hình experimental để cải thiện hydration
   experimental: {
     // Tối ưu hydration cho production
-    optimizeCss: true,
+    // optimizeCss: true, // Disabled due to critters module missing error
   },
   
   // Webpack config để xử lý hydration issues

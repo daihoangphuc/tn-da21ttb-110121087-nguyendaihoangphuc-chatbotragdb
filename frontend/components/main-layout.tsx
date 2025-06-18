@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import { Sidebar } from "@/components/sidebar"
 import { Header } from "@/components/header"
 import { ChatInterface } from "@/components/chat-interface"
@@ -8,7 +9,7 @@ import { MobileNav } from "@/components/mobile-nav"
 import { SqlPlayground } from "@/components/sql-playground"
 import { useMobile } from "@/hooks/use-mobile"
 import { Button } from "@/components/ui/button"
-import { Database } from "lucide-react"
+import { Database, Shield, Settings } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { AuthGuard } from "@/components/auth-guard"
@@ -26,6 +27,9 @@ const getLocalStorage = (key: string): string | null => {
 };
 
 export function MainLayout() {
+  const searchParams = useSearchParams();
+  const forceStudentMode = searchParams.get('student') === 'true';
+  
   // Khởi tạo trạng thái sidebar từ localStorage hoặc mặc định là true
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     const stored = getLocalStorage('sidebarOpen');
@@ -128,6 +132,27 @@ export function MainLayout() {
           "flex flex-col flex-1 overflow-hidden transition-all duration-300 ease-in-out",
           !isMobile && sidebarOpen ? "ml-[300px]" : "ml-0"
         )}>
+          {/* Admin Banner - chỉ hiển thị khi admin đang ở chế độ student */}
+          {user?.role === 'admin' && forceStudentMode && (
+            <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Shield className="h-4 w-4" />
+                <span className="text-sm font-medium">
+                  Chế độ Student (Admin: {user.email})
+                </span>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => window.location.href = "/admin"}
+                className="flex items-center gap-2 text-xs"
+              >
+                <Settings className="h-3 w-3" />
+                Quản lý Admin
+              </Button>
+            </div>
+          )}
+          
           <Header
             onMenuClick={() => setSidebarOpen(true)}
             onSqlClick={() => setSqlPanelOpen(!sqlPanelOpen)}
