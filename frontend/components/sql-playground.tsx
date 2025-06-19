@@ -57,7 +57,6 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
   const [sqlLoaded, setSqlLoaded] = useState(false)
   const [db, setDb] = useState<SQLJSDatabase | null>(null)
   const [initializing, setInitializing] = useState(true)
-  const [isInitialized, setIsInitialized] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Script load handling
@@ -70,7 +69,7 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
     let mounted = true;
     
     const initializeDb = async () => {
-      if (!sqlLoaded || isInitialized) return;
+      if (!sqlLoaded) return;
       
       try {
         setInitializing(true);
@@ -146,87 +145,61 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
         ];
 
         // Create users table and insert data
-        database.run("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, email TEXT, age INTEGER);");
-        // Check if table is empty before inserting
-        const existingUsers = database.exec("SELECT COUNT(*) as count FROM users;");
-        if (existingUsers.length === 0 || existingUsers[0].values[0][0] === 0) {
-          usersData.forEach(user => {
-            database.run("INSERT INTO users (id, name, email, age) VALUES (?, ?, ?, ?);", [user.id, user.name, user.email, user.age]);
-          });
-        }
+        database.run("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT, age INTEGER);");
+        usersData.forEach(user => {
+          database.run("INSERT INTO users (id, name, email, age) VALUES (?, ?, ?, ?);", [user.id, user.name, user.email, user.age]);
+        });
 
         // Create products table and insert data
-        database.run("CREATE TABLE IF NOT EXISTS products (product_id INTEGER PRIMARY KEY, product_name TEXT, price REAL, stock INTEGER, category_id INTEGER);");
-        const existingProducts = database.exec("SELECT COUNT(*) as count FROM products;");
-        if (existingProducts.length === 0 || existingProducts[0].values[0][0] === 0) {
-          productsData.forEach(product => {
-            database.run("INSERT INTO products (product_id, product_name, price, stock, category_id) VALUES (?, ?, ?, ?, ?);", 
-              [product.product_id, product.product_name, product.price, product.stock, product.category_id]);
-          });
-        }
+        database.run("CREATE TABLE products (product_id INTEGER PRIMARY KEY, product_name TEXT, price REAL, stock INTEGER, category_id INTEGER);");
+        productsData.forEach(product => {
+          database.run("INSERT INTO products (product_id, product_name, price, stock, category_id) VALUES (?, ?, ?, ?, ?);", 
+            [product.product_id, product.product_name, product.price, product.stock, product.category_id]);
+        });
 
         // Create orders table and insert data
-        database.run("CREATE TABLE IF NOT EXISTS orders (order_id INTEGER PRIMARY KEY, user_id INTEGER, product_id INTEGER, quantity INTEGER, order_date TEXT);");
-        const existingOrders = database.exec("SELECT COUNT(*) as count FROM orders;");
-        if (existingOrders.length === 0 || existingOrders[0].values[0][0] === 0) {
-          ordersData.forEach(order => {
-            database.run("INSERT INTO orders (order_id, user_id, product_id, quantity, order_date) VALUES (?, ?, ?, ?, ?);", 
-              [order.order_id, order.user_id, order.product_id, order.quantity, order.order_date]);
-          });
-        }
+        database.run("CREATE TABLE orders (order_id INTEGER PRIMARY KEY, user_id INTEGER, product_id INTEGER, quantity INTEGER, order_date TEXT);");
+        ordersData.forEach(order => {
+          database.run("INSERT INTO orders (order_id, user_id, product_id, quantity, order_date) VALUES (?, ?, ?, ?, ?);", 
+            [order.order_id, order.user_id, order.product_id, order.quantity, order.order_date]);
+        });
 
         // Create categories table and insert data
-        database.run("CREATE TABLE IF NOT EXISTS categories (category_id INTEGER PRIMARY KEY, category_name TEXT);");
-        const existingCategories = database.exec("SELECT COUNT(*) as count FROM categories;");
-        if (existingCategories.length === 0 || existingCategories[0].values[0][0] === 0) {
-          categoriesData.forEach(category => {
-            database.run("INSERT INTO categories (category_id, category_name) VALUES (?, ?);", 
-              [category.category_id, category.category_name]);
-          });
-        }
+        database.run("CREATE TABLE categories (category_id INTEGER PRIMARY KEY, category_name TEXT);");
+        categoriesData.forEach(category => {
+          database.run("INSERT INTO categories (category_id, category_name) VALUES (?, ?);", 
+            [category.category_id, category.category_name]);
+        });
 
         // Create employees table and insert data
-        database.run("CREATE TABLE IF NOT EXISTS employees (employee_id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, department_id INTEGER, salary REAL);");
-        const existingEmployees = database.exec("SELECT COUNT(*) as count FROM employees;");
-        if (existingEmployees.length === 0 || existingEmployees[0].values[0][0] === 0) {
-          employeesData.forEach(employee => {
-            database.run("INSERT INTO employees (employee_id, first_name, last_name, department_id, salary) VALUES (?, ?, ?, ?, ?);", 
-              [employee.employee_id, employee.first_name, employee.last_name, employee.department_id, employee.salary]);
-          });
-        }
+        database.run("CREATE TABLE employees (employee_id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, department_id INTEGER, salary REAL);");
+        employeesData.forEach(employee => {
+          database.run("INSERT INTO employees (employee_id, first_name, last_name, department_id, salary) VALUES (?, ?, ?, ?, ?);", 
+            [employee.employee_id, employee.first_name, employee.last_name, employee.department_id, employee.salary]);
+        });
 
         // Create departments table and insert data
-        database.run("CREATE TABLE IF NOT EXISTS departments (department_id INTEGER PRIMARY KEY, department_name TEXT, location TEXT);");
-        const existingDepartments = database.exec("SELECT COUNT(*) as count FROM departments;");
-        if (existingDepartments.length === 0 || existingDepartments[0].values[0][0] === 0) {
-          departmentsData.forEach(dept => {
-            database.run("INSERT INTO departments (department_id, department_name, location) VALUES (?, ?, ?);", 
-              [dept.department_id, dept.department_name, dept.location]);
-          });
-        }
+        database.run("CREATE TABLE departments (department_id INTEGER PRIMARY KEY, department_name TEXT, location TEXT);");
+        departmentsData.forEach(dept => {
+          database.run("INSERT INTO departments (department_id, department_name, location) VALUES (?, ?, ?);", 
+            [dept.department_id, dept.department_name, dept.location]);
+        });
 
         // Create projects table and insert data
-        database.run("CREATE TABLE IF NOT EXISTS projects (project_id INTEGER PRIMARY KEY, project_name TEXT, start_date TEXT, end_date TEXT, department_id INTEGER);");
-        const existingProjects = database.exec("SELECT COUNT(*) as count FROM projects;");
-        if (existingProjects.length === 0 || existingProjects[0].values[0][0] === 0) {
-          projectsData.forEach(project => {
-            database.run("INSERT INTO projects (project_id, project_name, start_date, end_date, department_id) VALUES (?, ?, ?, ?, ?);", 
-              [project.project_id, project.project_name, project.start_date, project.end_date, project.department_id]);
-          });
-        }
+        database.run("CREATE TABLE projects (project_id INTEGER PRIMARY KEY, project_name TEXT, start_date TEXT, end_date TEXT, department_id INTEGER);");
+        projectsData.forEach(project => {
+          database.run("INSERT INTO projects (project_id, project_name, start_date, end_date, department_id) VALUES (?, ?, ?, ?, ?);", 
+            [project.project_id, project.project_name, project.start_date, project.end_date, project.department_id]);
+        });
 
         // Create customers table and insert data
-        database.run("CREATE TABLE IF NOT EXISTS customers (customer_id INTEGER PRIMARY KEY, customer_name TEXT, city TEXT, country TEXT);");
-        const existingCustomers = database.exec("SELECT COUNT(*) as count FROM customers;");
-        if (existingCustomers.length === 0 || existingCustomers[0].values[0][0] === 0) {
-          customersData.forEach(customer => {
-            database.run("INSERT INTO customers (customer_id, customer_name, city, country) VALUES (?, ?, ?, ?);", 
-              [customer.customer_id, customer.customer_name, customer.city, customer.country]);
-          });
-        }
+        database.run("CREATE TABLE customers (customer_id INTEGER PRIMARY KEY, customer_name TEXT, city TEXT, country TEXT);");
+        customersData.forEach(customer => {
+          database.run("INSERT INTO customers (customer_id, customer_name, city, country) VALUES (?, ?, ?, ?);", 
+            [customer.customer_id, customer.customer_name, customer.city, customer.country]);
+        });
 
         setDb(database);
-        setIsInitialized(true);
       } catch (err: any) {
         console.error("Database initialization error:", err);
         setError(`Lỗi khi khởi tạo cơ sở dữ liệu: ${err.message}`);
@@ -308,9 +281,9 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
         const columns = result.columns;
         const values = result.values;
 
-        // Convert array values to object rows with proper typing
-        const rows = values.map((row: any[]) => {
-          const rowObj: { [key: string]: any } = {};
+        // Convert array values to object rows
+        const rows = values.map(row => {
+          const rowObj: any = {};
           columns.forEach((col: string, index: number) => {
             rowObj[col] = row[index];
           });
@@ -465,7 +438,7 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
                         </td>
                       </tr>
                     ) : (
-                      results.rows.map((row: { [key: string]: any }, index: number) => (
+                      results.rows.map((row: any, index: number) => (
                         <tr key={index} className="hover:bg-muted/50">
                           {results.columns.map((column: string, colIndex: number) => {
                             const value = row[column] !== undefined && row[column] !== null 

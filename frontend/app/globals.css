@@ -68,17 +68,6 @@
   }
 }
 
-/* Chống hydration mismatch do browser extension */
-[bis_skin_checked] {
-  /* Reset bất kỳ style nào do browser extension thêm vào */
-  -bis-skin-checked: unset !important;
-}
-
-/* Ẩn warning về hydration mismatch trong development */
-[data-nextjs-hydration-warning] {
-  display: none !important;
-}
-
 .prose {
   @apply text-sm leading-normal;
   line-height: 1.3 !important;
