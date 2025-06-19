@@ -201,6 +201,8 @@ Authorization: Bearer <admin_token>
 }
 ```
 
+**Lưu ý:** API này sử dụng `ban_duration: "none"` theo tài liệu Supabase Auth để bỏ cấm user một cách chính xác.
+
 ## Ví dụ sử dụng với Python
 
 ```python

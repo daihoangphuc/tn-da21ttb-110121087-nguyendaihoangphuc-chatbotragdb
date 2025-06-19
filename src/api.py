@@ -2439,6 +2439,160 @@ def get_service_supabase_client():
             detail="Không thể khởi tạo service client"
         )
 
+def calculate_banned_until(user):
+    """
+    Tính toán thời gian banned_until từ user object
+    Lưu ý: Supabase không expose banned_until field qua API, 
+    nên phải tính toán dựa trên ban_duration và banned_at
+    """
+    from datetime import datetime, timedelta
+    import re
+    
+    # Lấy user_metadata để tìm banned_at và ban_duration
+    user_metadata = getattr(user, 'user_metadata', {}) or {}
+    banned_at_str = user_metadata.get('banned_at')
+    ban_duration_meta = user_metadata.get('ban_duration')
+    unbanned_at_str = user_metadata.get('unbanned_at')
+    
+    # Ưu tiên đọc ban_duration từ metadata, fallback về Supabase Auth field
+    ban_duration_raw = ban_duration_meta
+    if not ban_duration_raw:
+        ban_duration_raw = getattr(user, 'ban_duration', None)
+    
+    # Kiểm tra xem có bị unban hay không dựa trên timestamp
+    user_was_unbanned = False
+    if unbanned_at_str and banned_at_str:
+        try:
+            unbanned_at = datetime.fromisoformat(unbanned_at_str.replace('Z', '+00:00'))
+            banned_at = datetime.fromisoformat(banned_at_str.replace('Z', '+00:00'))
+            # Nếu unbanned_at > banned_at thì user đã được unban sau lần ban cuối
+            if unbanned_at > banned_at:
+                user_was_unbanned = True
+            elif banned_at > unbanned_at:
+                user_was_unbanned = False  # User is currently banned
+        except Exception:
+            pass
+    
+    # Trường hợp đặc biệt: User bị ban trực tiếp từ Supabase Dashboard
+    # Khi đó sẽ không có ban_duration trong metadata, cần kiểm tra Auth field
+    if not ban_duration_raw:
+        auth_ban_duration = getattr(user, 'ban_duration', None)
+        
+        # Nếu Supabase Auth có ban_duration, nghĩa là user bị ban manual từ Dashboard
+        if auth_ban_duration and auth_ban_duration != "none":
+            ban_duration_raw = auth_ban_duration
+            
+            # Nếu có banned_at trong metadata nhưng là từ lần ban cũ, 
+            # và hiện tại user bị ban manual từ Dashboard, 
+            # cần sử dụng thời gian hiện tại làm banned_at ước tính
+            if user_was_unbanned:
+                # Ước tính banned_at dựa trên updated_at của user hoặc thời gian hiện tại
+                banned_at_str = None  # Reset để sử dụng current time
+        else:
+            # Kiểm tra xem có phải Dashboard ban không bằng cách xem updated_at gần đây
+            # và không có unban event sau ban event
+            updated_at_str = getattr(user, 'updated_at', None)
+            current_time = datetime.now()
+            
+            # Nếu user có banned_at, không có ban_duration, và updated_at gần đây
+            # => có thể là Dashboard ban
+            # HOẶC user có banned_at sau unbanned_at (ban lại sau khi unban)
+            if banned_at_str and updated_at_str:
+                try:
+                    banned_at = datetime.fromisoformat(banned_at_str.replace('Z', '+00:00'))
+                    
+                    # Handle different datetime formats for updated_at
+                    if isinstance(updated_at_str, str):
+                        # Remove timezone info if present and parse
+                        updated_at_clean = updated_at_str.replace('+00:00', '').replace('Z', '')
+                        updated_at = datetime.fromisoformat(updated_at_clean)
+                    else:
+                        # If it's already a datetime object, convert to naive
+                        updated_at = updated_at_str.replace(tzinfo=None) if updated_at_str.tzinfo else updated_at_str
+                    
+                    # Kiểm tra nếu banned_at > unbanned_at (ban lại sau khi unban)
+                    should_detect_ban = False
+                    current_time = datetime.now()
+                    time_diff = current_time - updated_at
+                    
+                    if unbanned_at_str:
+                        unbanned_at = datetime.fromisoformat(unbanned_at_str.replace('Z', '+00:00'))
+                        if banned_at > unbanned_at:
+                            should_detect_ban = True
+                    
+                    # Hoặc nếu updated_at sau banned_at và trong vòng 24 giờ gần đây
+                    if not should_detect_ban and updated_at > banned_at and time_diff.total_seconds() < 86400:  # 24 hours
+                        should_detect_ban = True
+                    
+                    if should_detect_ban:
+                        # Ước tính ban duration dựa trên pattern thông thường
+                        # Dashboard thường ban 24h hoặc dài hạn
+                        ban_duration_raw = "24h"  # Default estimate
+                        
+                        # Sử dụng banned_at từ metadata (thời gian ban thực tế)
+                        banned_at_str = banned_at.isoformat()
+                except Exception:
+                    pass
+    
+    # Nếu user đã được unban (theo metadata) nhưng vẫn có ban_duration, 
+    # có thể là do inconsistency - ưu tiên kiểm tra Supabase Auth state trực tiếp
+    if user_was_unbanned and ban_duration_raw:
+        # Kiểm tra trực tiếp từ Supabase Auth field
+        auth_ban_duration = getattr(user, 'ban_duration', None)
+        if not auth_ban_duration or auth_ban_duration == "none":
+            return None
+        else:
+            ban_duration_raw = auth_ban_duration
+            # Reset banned_at để sử dụng thời gian ước tính cho manual ban
+            banned_at_str = None
+    
+    # Nếu không có ban_duration hoặc ban_duration = "none" -> không bị ban
+    if not ban_duration_raw or ban_duration_raw == "none":
+        return None
+    
+    # Nếu có ban_duration hợp lệ, tính toán banned_until
+    try:
+        # Parse ban duration (format: "24h", "7d", "1h", etc.)
+        duration_match = re.match(r'(\d+)([hdm])', str(ban_duration_raw).lower())
+        if not duration_match:
+            return None
+            
+        amount = int(duration_match.group(1))
+        unit = duration_match.group(2)
+        
+        # Tìm banned_at - sử dụng thời gian ban cuối cùng
+        banned_at = None
+        if banned_at_str:
+            try:
+                banned_at = datetime.fromisoformat(banned_at_str.replace('Z', '+00:00'))
+            except Exception:
+                pass
+        
+        # Nếu không có banned_at trong metadata, sử dụng thời gian hiện tại
+        if not banned_at:
+            banned_at = datetime.now()
+        
+        # Tính toán thời gian hết ban
+        if unit == 'h':
+            ban_until = banned_at + timedelta(hours=amount)
+        elif unit == 'd':
+            ban_until = banned_at + timedelta(days=amount)
+        elif unit == 'm':
+            ban_until = banned_at + timedelta(minutes=amount)
+        else:
+            ban_until = banned_at + timedelta(hours=24)  # Default 24h
+        
+        # Chỉ return banned_until nếu thời gian ban chưa hết
+        current_time = datetime.now()
+        if ban_until > current_time:
+            return ban_until.isoformat()
+        else:
+            return None  # Ban đã hết hạn
+            
+    except Exception as calc_error:
+        print(f"⚠️ Lỗi khi tính toán ban time: {str(calc_error)}")
+        return None
+
 @app.get(f"{PREFIX}/admin/users", response_model=AdminUserListResponse)
 async def admin_list_users(
     page: int = Query(1, ge=1, description="Trang hiện tại"),
@@ -2467,7 +2621,6 @@ async def admin_list_users(
         elif hasattr(result, 'data') and result.data:
             users_list = result.data
         else:
-            print(f"[DEBUG] Không tìm thấy users trong response: {result}")
             return AdminUserListResponse(
                 users=[],
                 total_count=0,
@@ -2509,9 +2662,8 @@ async def admin_list_users(
             if last_sign_in_at and hasattr(last_sign_in_at, "isoformat"):
                 last_sign_in_at = last_sign_in_at.isoformat()
             
-            banned_until = getattr(user, 'banned_until', None)
-            if banned_until and hasattr(banned_until, "isoformat"):
-                banned_until = banned_until.isoformat()
+            # Tính toán banned_until từ nhiều nguồn khác nhau
+            banned_until = calculate_banned_until(user)
             
             users_response.append(AdminUserResponse(
                 id=user.id,
@@ -2698,9 +2850,8 @@ async def admin_get_user(
         if last_sign_in_at and hasattr(last_sign_in_at, "isoformat"):
             last_sign_in_at = last_sign_in_at.isoformat()
         
-        banned_until = getattr(user, 'banned_until', None)
-        if banned_until and hasattr(banned_until, "isoformat"):
-            banned_until = banned_until.isoformat()
+        # Tính toán banned_until từ nhiều nguồn khác nhau
+        banned_until = calculate_banned_until(user)
         
         return AdminUserResponse(
             id=user.id,
@@ -2825,9 +2976,8 @@ async def admin_update_user(
         if last_sign_in_at and hasattr(last_sign_in_at, "isoformat"):
             last_sign_in_at = last_sign_in_at.isoformat()
         
-        banned_until = getattr(updated_user, 'banned_until', None)
-        if banned_until and hasattr(banned_until, "isoformat"):
-            banned_until = banned_until.isoformat()
+        # Tính toán banned_until từ nhiều nguồn khác nhau
+        banned_until = calculate_banned_until(updated_user)
         
         return AdminUserResponse(
             id=updated_user.id,
@@ -2953,19 +3103,16 @@ async def admin_ban_user(
         ban_payload = {"ban_duration": body.duration}
         
         # Thêm reason vào user_metadata nếu có
+        current_metadata = getattr(existing_user, 'user_metadata', {}) or {}
         if body.reason:
-            current_metadata = getattr(existing_user, 'user_metadata', {}) or {}
             current_metadata["ban_reason"] = body.reason
-            current_metadata["banned_by"] = admin_user.email
-            current_metadata["banned_at"] = datetime.now().isoformat()
-            ban_payload["user_metadata"] = current_metadata
+        current_metadata["banned_by"] = admin_user.email
+        current_metadata["banned_at"] = datetime.now().isoformat()
+        current_metadata["ban_duration"] = body.duration  # Lưu vào metadata để có thể đọc lại
+        ban_payload["user_metadata"] = current_metadata
         
         result = service_client.auth.admin.update_user_by_id(user_id, ban_payload)
         _raise_if_supabase_error(result)
-        
-        print(f"✅ Admin {admin_user.email} đã cấm user {existing_user.email} trong {body.duration}")
-        if body.reason:
-            print(f"   Lý do: {body.reason}")
         
         return {
             "user_id": user_id,
@@ -3014,22 +3161,21 @@ async def admin_unban_user(
         if not existing_user:
             raise HTTPException(status_code=404, detail="Không tìm thấy người dùng")
         
-        # Bỏ ban duration
-        unban_payload = {"ban_duration": ""}
+        # Bỏ ban duration - sử dụng "none" theo tài liệu Supabase
+        unban_payload = {"ban_duration": "none"}
         
         # Xóa thông tin ban khỏi metadata
         current_metadata = getattr(existing_user, 'user_metadata', {}) or {}
         current_metadata.pop("ban_reason", None)
         current_metadata.pop("banned_by", None)
         current_metadata.pop("banned_at", None)
+        current_metadata.pop("ban_duration", None)  # Xóa ban_duration khỏi metadata
         current_metadata["unbanned_by"] = admin_user.email
         current_metadata["unbanned_at"] = datetime.now().isoformat()
         unban_payload["user_metadata"] = current_metadata
         
         result = service_client.auth.admin.update_user_by_id(user_id, unban_payload)
         _raise_if_supabase_error(result)
-        
-        print(f"✅ Admin {admin_user.email} đã bỏ cấm user {existing_user.email}")
         
         return {
             "user_id": user_id,
