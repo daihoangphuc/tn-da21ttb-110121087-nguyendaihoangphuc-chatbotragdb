@@ -326,6 +326,26 @@ export const conversationsApi = {
   getLatestConversation: async () => {
     return fetchApi('/latest-conversation');
   },
+
+  // Thêm API tìm kiếm hội thoại
+  searchConversations: async (searchParams: {
+    query?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    page?: number;
+    pageSize?: number;
+  }) => {
+    return fetchApi('/conversations/search', {
+      method: 'POST',
+      body: JSON.stringify({
+        query: searchParams.query || "",
+        date_from: searchParams.dateFrom,
+        date_to: searchParams.dateTo,
+        page: searchParams.page || 1,
+        page_size: searchParams.pageSize || 10
+      })
+    });
+  },
 };
 
 // API Questions

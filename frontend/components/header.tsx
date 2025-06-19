@@ -1,12 +1,16 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { Menu, Database, Moon, Sun, Code, PanelLeftClose, PanelLeft } from "lucide-react"
+import { Menu, Database, Moon, Sun, Code, PanelLeftClose, PanelLeft, Search, X, Loader2, MessageSquare } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useMobile } from "@/hooks/use-mobile"
 import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { UserDropdown } from "@/components/user-dropdown"
+import { Input } from "@/components/ui/input"
+import { useState, useCallback } from "react"
+import { conversationsApi } from "@/lib/api"
+import { debounce } from "@/lib/utils"
 
 interface HeaderProps {
   onMenuClick?: () => void
@@ -14,11 +18,71 @@ interface HeaderProps {
   sqlPanelOpen?: boolean
   onSidebarToggle?: () => void
   isSidebarOpen?: boolean
+  onSearch?: (query: string, results: any[]) => void
+  onSelectConversation?: (conversationId: string) => void
 }
 
-export function Header({ onMenuClick, onSqlClick, sqlPanelOpen, onSidebarToggle, isSidebarOpen }: HeaderProps) {
+export function Header({ onMenuClick, onSqlClick, sqlPanelOpen, onSidebarToggle, isSidebarOpen, onSearch, onSelectConversation }: HeaderProps) {
   const { theme, setTheme } = useTheme()
   const isMobile = useMobile()
+  const [searchQuery, setSearchQuery] = useState("")
+  const [isSearching, setIsSearching] = useState(false)
+  const [searchResults, setSearchResults] = useState<any[]>([])
+
+  // Tìm kiếm realtime khi nhập
+  const performSearch = useCallback(async (query: string) => {
+    if (!query || query.trim() === "") {
+      onSearch?.("", [])
+      setIsSearching(false)
+      return
+    }
+    
+    setIsSearching(true)
+    try {
+      const response = await conversationsApi.searchConversations({
+        query: query.trim(),
+        page: 1,
+        pageSize: 10
+      })
+      
+      if (response && response.conversations) {
+        onSearch?.(query, response.conversations)
+        setSearchResults(response.conversations)
+        
+        if (response.conversations.length === 0) {
+          console.log("Không tìm thấy kết quả nào cho:", query)
+        } else {
+          console.log(`Tìm thấy ${response.conversations.length} kết quả cho: ${query}`)
+        }
+      }
+    } catch (error) {
+      console.error("Lỗi khi tìm kiếm:", error)
+      onSearch?.(query, [])
+    } finally {
+      setIsSearching(false)
+    }
+  }, [onSearch])
+  
+  // Debounce tìm kiếm để tránh gọi API quá nhiều
+  const debouncedSearch = useCallback(
+    debounce((query: string) => {
+      performSearch(query)
+    }, 300),
+    [performSearch]
+  )
+  
+  // Xử lý thay đổi input tìm kiếm
+  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const query = e.target.value
+    setSearchQuery(query)
+    debouncedSearch(query)
+  }, [debouncedSearch])
+  
+  // Xóa tìm kiếm
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery("")
+    onSearch?.("", [])
+  }, [onSearch])
 
   return (
     <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 shadow-subtle relative z-50">
@@ -63,7 +127,80 @@ export function Header({ onMenuClick, onSqlClick, sqlPanelOpen, onSidebarToggle,
             Beta
           </Badge> */}
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        
+        {/* Ô tìm kiếm ở giữa header */}
+        <div className="flex-1 max-w-xl mx-auto px-4">
+          <div className="relative">
+            <Input
+              placeholder="Tìm kiếm hội thoại..."
+              value={searchQuery}
+              onChange={handleSearchChange}
+              className="pl-8 pr-8 h-9"
+            />
+            <Search className="h-4 w-4 absolute left-2.5 top-2.5 text-muted-foreground" />
+            {searchQuery && (
+              <button 
+                onClick={handleClearSearch}
+                className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+            {isSearching && (
+              <Loader2 className="h-4 w-4 absolute right-2.5 top-2.5 animate-spin" />
+            )}
+            
+            {/* Dropdown kết quả tìm kiếm */}
+            {searchQuery && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-background border rounded-md shadow-lg z-50 max-h-[60vh] overflow-auto">
+                <div className="p-2">
+                  <div className="text-xs text-muted-foreground px-2 py-1 flex justify-between">
+                    <span>Kết quả tìm kiếm ({searchResults.length})</span>
+                  </div>
+                  
+                  {isSearching ? (
+                    <div className="flex items-center justify-center p-4">
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      <span className="text-xs text-muted-foreground">Đang tìm kiếm...</span>
+                    </div>
+                  ) : searchResults.length > 0 ? (
+                    <div className="space-y-1">
+                      {searchResults.map((conversation) => (
+                        <div
+                          key={conversation.conversation_id}
+                          className="group relative flex items-center gap-3 p-2 rounded-md cursor-pointer transition-all duration-200 hover:bg-accent"
+                          onClick={() => onSearch?.("", []) || onSelectConversation?.(conversation.conversation_id)}
+                        >
+                          <div className="flex items-center justify-center w-8 h-8 rounded-lg flex-shrink-0 bg-muted/60 text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary">
+                            <MessageSquare className="h-3.5 w-3.5" />
+                          </div>
+                          <div className="flex-1 min-w-0 space-y-0.5">
+                            <div className="font-medium text-xs leading-tight truncate">
+                              {conversation.first_message || "Hội thoại không có tiêu đề"}
+                            </div>
+                            {conversation.matching_content && (
+                              <div className="text-xs text-muted-foreground truncate">
+                                {conversation.matching_content.substring(0, 50)}...
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center p-4 text-center">
+                      <Search className="h-8 w-8 text-muted-foreground/40 mb-2" />
+                      <p className="text-sm text-muted-foreground">Không tìm thấy hội thoại nào</p>
+                      <p className="text-xs text-muted-foreground/60 mt-1">Thử tìm kiếm với từ khóa khác</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-2">
           {!isMobile && (
             <TooltipProvider>
               <Tooltip>

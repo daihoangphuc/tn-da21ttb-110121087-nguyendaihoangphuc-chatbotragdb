@@ -1205,6 +1205,13 @@ async def get_conversation_detail(
 
     - **conversation_id**: ID phiên hội thoại cần lấy chi tiết
     """
+    # Kiểm tra nếu conversation_id là "search", đây là path conflict với API tìm kiếm
+    if conversation_id == "search":
+        raise HTTPException(
+            status_code=400, 
+            detail="Không thể sử dụng 'search' làm ID hội thoại vì đây là endpoint dành riêng"
+        )
+        
     try:
         user_id = current_user.id
 
@@ -3196,6 +3203,181 @@ async def admin_unban_user(
 # =====================================================================
 # END ADMIN USER MANAGEMENT APIs  
 # =====================================================================
+
+# Thêm model cho tìm kiếm hội thoại
+class ConversationSearchRequest(BaseModel):
+    query: str = ""  # Từ khóa tìm kiếm (tìm trong nội dung tin nhắn)
+    date_from: Optional[str] = None  # Tìm từ ngày (YYYY-MM-DD)
+    date_to: Optional[str] = None    # Tìm đến ngày (YYYY-MM-DD)
+    page: int = Query(1, ge=1, description="Trang hiện tại")
+    page_size: int = Query(10, ge=1, le=50, description="Số hội thoại mỗi trang")
+
+class ConversationSearchResponse(BaseModel):
+    conversations: List[Dict]
+    total_count: int
+    page: int
+    page_size: int
+    total_pages: int
+    search_query: str
+    search_metadata: Dict
+
+@app.post(f"{PREFIX}/conversations/search", response_model=ConversationSearchResponse)
+async def search_conversations(
+    query: str = Body("", description="Từ khóa tìm kiếm trong nội dung tin nhắn"),
+    date_from: Optional[str] = Body(None, description="Tìm từ ngày (YYYY-MM-DD)"),
+    date_to: Optional[str] = Body(None, description="Tìm đến ngày (YYYY-MM-DD)"),
+    page: int = Body(1, ge=1, description="Trang hiện tại"),
+    page_size: int = Body(10, ge=1, le=50, description="Số hội thoại mỗi trang"),
+    current_user=Depends(get_current_user),
+):
+    """
+    Tìm kiếm hội thoại của người dùng dựa trên nội dung tin nhắn và thời gian
+
+    - **query**: Từ khóa tìm kiếm trong nội dung tin nhắn (tìm cả tin nhắn user và assistant)
+    - **date_from**: Tìm từ ngày (format: YYYY-MM-DD)
+    - **date_to**: Tìm đến ngày (format: YYYY-MM-DD) 
+    - **page**: Trang hiện tại (bắt đầu từ 1)
+    - **page_size**: Số hội thoại mỗi trang (tối đa 50)
+    """
+    try:
+        user_id = current_user.id
+        offset = (page - 1) * page_size
+        
+        print(f"[SEARCH] User {current_user.email} tìm kiếm: query='{query}', date_from={date_from}, date_to={date_to}")
+        
+        # Sử dụng phương pháp fallback trực tiếp để tránh lỗi SQL
+        try:
+            # Fallback: Sử dụng phương pháp đơn giản hơn
+            conversations = await search_conversations_fallback(
+                user_id, query, date_from, date_to, page_size, offset
+            )
+            
+            # Đếm tổng số kết quả
+            all_conversations = await search_conversations_fallback(
+                user_id, query, date_from, date_to, 1000, 0  # Lấy tất cả để đếm
+            )
+            total_count = len(all_conversations)
+            
+        except Exception as e:
+            print(f"[SEARCH] Lỗi trong fallback method: {str(e)}")
+            conversations = []
+            total_count = 0
+        
+        # Format kết quả
+        formatted_conversations = []
+        for conv in conversations:
+            formatted_conv = {
+                "conversation_id": conv.get("conversation_id", ""),
+                "user_id": conv.get("user_id", ""),
+                "last_updated": parse_and_format_vietnam_time(conv.get("last_updated", "")),
+                "first_message": conv.get("first_message") or "Hội thoại không có tiêu đề",
+                "message_count": conv.get("message_count", 0),
+                "matching_content": conv.get("matching_content") if query and query.strip() else None
+            }
+            formatted_conversations.append(formatted_conv)
+        
+        total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+        
+        # Metadata về tìm kiếm
+        search_metadata = {
+            "has_query": bool(query and query.strip()),
+            "has_date_filter": bool(date_from or date_to),
+            "date_range": f"{date_from or 'không giới hạn'} đến {date_to or 'không giới hạn'}" if (date_from or date_to) else None,
+            "search_time": get_vietnam_time().isoformat()
+        }
+        
+        print(f"[SEARCH] Tìm thấy {total_count} hội thoại, trả về trang {page}/{total_pages}")
+        
+        return ConversationSearchResponse(
+            conversations=formatted_conversations,
+            total_count=total_count,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages,
+            search_query=query,
+            search_metadata=search_metadata
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[SEARCH] Lỗi khi tìm kiếm hội thoại: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Lỗi khi tìm kiếm hội thoại: {str(e)}"
+        )
+
+async def search_conversations_fallback(
+    user_id: str, 
+    query: str, 
+    date_from: Optional[str], 
+    date_to: Optional[str], 
+    page_size: int, 
+    offset: int
+) -> List[Dict]:
+    """
+    Phương pháp fallback tìm kiếm hội thoại khi SQL query phức tạp không hoạt động
+    """
+    try:
+        # Query đơn giản để lấy conversations của user
+        query_builder = supabase_client.table("conversations").select("*").eq("user_id", user_id)
+        
+        # Thêm filter theo thời gian nếu có
+        if date_from:
+            query_builder = query_builder.gte("last_updated", f"{date_from} 00:00:00")
+        if date_to:
+            query_builder = query_builder.lte("last_updated", f"{date_to} 23:59:59")
+        
+        conversations_result = query_builder.order("last_updated", desc=True).execute()
+        
+        if not conversations_result.data:
+            return []
+        
+        # Lọc theo nội dung tin nhắn nếu có query
+        filtered_conversations = []
+        
+        for conv in conversations_result.data:
+            conversation_id = conv["conversation_id"]
+            
+            # Lấy messages của conversation này
+            messages_result = supabase_client.table("messages").select("*").eq("conversation_id", conversation_id).execute()
+            
+            messages = messages_result.data if messages_result.data else []
+            
+            # Kiểm tra query match
+            if query and query.strip():
+                # Tìm trong nội dung tin nhắn
+                query_lower = query.lower()
+                has_match = any(query_lower in msg.get("content", "").lower() for msg in messages)
+                if not has_match:
+                    continue
+            
+            # Lấy first_message và message_count
+            first_message = ""
+            for msg in messages:
+                if msg.get("role") == "user":
+                    first_message = msg.get("content", "")
+                    break
+            
+            conv_data = {
+                "conversation_id": conversation_id,
+                "user_id": conv["user_id"],
+                "last_updated": conv["last_updated"],
+                "first_message": first_message or "Hội thoại không có tiêu đề",
+                "message_count": len(messages),
+                "matching_content": None  # Có thể implement later nếu cần
+            }
+            
+            filtered_conversations.append(conv_data)
+        
+        # Apply pagination
+        start_idx = offset
+        end_idx = offset + page_size
+        return filtered_conversations[start_idx:end_idx]
+        
+    except Exception as e:
+        print(f"[SEARCH] Lỗi trong fallback method: {str(e)}")
+        return []
 
 if __name__ == "__main__":
     uvicorn.run("src.api:app", host="0.0.0.0", port=8000, reload=True)

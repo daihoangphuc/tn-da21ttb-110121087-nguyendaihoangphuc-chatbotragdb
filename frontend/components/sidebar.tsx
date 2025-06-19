@@ -6,20 +6,31 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { FileUploader } from "@/components/file-uploader"
 import { ConversationList } from "@/components/conversation-list"
-import { PlusCircle, MessageSquare, FileText, Loader2 } from "lucide-react"
-import { useState } from "react"
+import { Input } from "@/components/ui/input"
+import { PlusCircle, MessageSquare, FileText, Loader2, Search, X } from "lucide-react"
+import { useState, useCallback, useEffect } from "react"
 import { conversationsApi } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/useAuth"
+import { debounce } from "@/lib/utils"
 
 interface SidebarProps {
   className?: string
   onSelectConversation?: (conversationId: string) => void
   currentConversationId?: string | null
   onSelectedFilesChange?: (selectedIds: string[]) => void
+  searchQuery?: string
+  searchResults?: any[]
 }
 
-export function Sidebar({ className, onSelectConversation, currentConversationId, onSelectedFilesChange }: SidebarProps) {
+export function Sidebar({ 
+  className, 
+  onSelectConversation, 
+  currentConversationId, 
+  onSelectedFilesChange,
+  searchQuery = "",
+  searchResults = []
+}: SidebarProps) {
   const { user } = useAuth()
   const isAdmin = user?.role === "admin"
   
@@ -74,7 +85,7 @@ export function Sidebar({ className, onSelectConversation, currentConversationId
       setCreatingConversation(false)
     }
   }
-
+  
   return (
     <div className={cn("flex flex-col border-r bg-background relative z-10", className)}>
       <div className="p-4">
@@ -91,6 +102,7 @@ export function Sidebar({ className, onSelectConversation, currentConversationId
           <span>{creatingConversation ? "Đang tạo..." : "Hội thoại mới"}</span>
         </Button>
       </div>
+      
       <Tabs defaultValue="conversations" value={activeTab} onValueChange={setActiveTab} className="flex-1">
         <div className="px-4">
           <TabsList className="w-full">

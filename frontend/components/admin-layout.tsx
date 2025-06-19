@@ -17,6 +17,7 @@ import {
   X,
   ChevronRight
 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -79,20 +80,30 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       )}>
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <div className={cn(
-            "flex items-center space-x-3 transition-opacity duration-300",
-            sidebarOpen ? "opacity-100" : "opacity-0"
-          )}>
-            <div className="p-2 bg-red-100 rounded-lg">
-              <Shield className="h-6 w-6 text-red-600" />
-            </div>
-            {sidebarOpen && (
+          {sidebarOpen ? (
+            <div className="flex items-center space-x-3">
+              <div className="p-2 bg-red-100 rounded-lg">
+                <Shield className="h-6 w-6 text-red-600" />
+              </div>
               <div>
                 <h1 className="text-lg font-bold text-gray-900">Admin Panel</h1>
                 <p className="text-xs text-gray-500">Quản trị hệ thống</p>
               </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="p-1 bg-red-100 rounded-lg mx-auto">
+                    <Shield className="h-5 w-5 text-red-600" />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <p>Admin Panel</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -104,11 +115,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         </div>
 
         {/* User Info */}
-        <div className={cn(
-          "p-4 border-b border-gray-200 transition-opacity duration-300",
-          sidebarOpen ? "opacity-100" : "opacity-0"
-        )}>
-          {sidebarOpen && (
+        {sidebarOpen && (
+          <div className="p-4 border-b border-gray-200">
             <div className="flex items-center space-x-3">
               <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
                 <Shield className="h-5 w-5 text-white" />
@@ -120,8 +128,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 <p className="text-xs text-gray-500">Administrator</p>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Navigation */}
         <nav className="flex-1 p-4 space-y-2">
@@ -129,7 +137,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             const isActive = currentPath === item.href;
             const Icon = item.icon;
             
-            return (
+            return sidebarOpen ? (
               <button
                 key={item.id}
                 onClick={() => handleNavigation(item.href)}
@@ -137,51 +145,106 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                   "w-full flex items-center px-3 py-2 rounded-lg transition-all duration-200",
                   isActive 
                     ? "bg-blue-50 text-blue-700 border border-blue-200" 
-                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900",
-                  sidebarOpen ? "justify-start" : "justify-center"
+                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                 )}
               >
                 <Icon className={cn(
                   "h-5 w-5 flex-shrink-0",
                   isActive ? "text-blue-600" : "text-gray-500"
                 )} />
-                {sidebarOpen && (
-                  <>
-                    <span className="ml-3 text-sm font-medium">{item.label}</span>
-                    {isActive && <ChevronRight className="h-4 w-4 ml-auto" />}
-                  </>
-                )}
+                <span className="ml-3 text-sm font-medium">{item.label}</span>
+                {isActive && <ChevronRight className="h-4 w-4 ml-auto" />}
               </button>
+            ) : (
+              <TooltipProvider key={item.id}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => handleNavigation(item.href)}
+                      className={cn(
+                        "w-full flex items-center justify-center p-2 rounded-lg transition-all duration-200",
+                        isActive 
+                          ? "bg-blue-50 text-blue-700 border border-blue-200" 
+                          : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                      )}
+                    >
+                      <Icon className={cn(
+                        "h-5 w-5",
+                        isActive ? "text-blue-600" : "text-gray-500"
+                      )} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    <p>{item.label}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             );
           })}
         </nav>
 
         {/* Bottom Actions */}
         <div className="p-4 border-t border-gray-200 space-y-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => window.location.href = "/?student=true"}
-            className={cn(
-              "w-full flex items-center gap-2",
-              !sidebarOpen && "px-2"
-            )}
-          >
-            <Home className="h-4 w-4" />
-            {sidebarOpen && "Chế độ Student"}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={logout}
-            className={cn(
-              "w-full flex items-center gap-2",
-              !sidebarOpen && "px-2"
-            )}
-          >
-            <LogOut className="h-4 w-4" />
-            {sidebarOpen && "Đăng xuất"}
-          </Button>
+          {sidebarOpen ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.location.href = "/?student=true"}
+                className="w-full flex items-center gap-2"
+              >
+                <Home className="h-4 w-4" />
+                Chế độ Student
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={logout}
+                className="w-full flex items-center gap-2"
+              >
+                <LogOut className="h-4 w-4" />
+                Đăng xuất
+              </Button>
+            </>
+          ) : (
+            <div className="flex flex-col items-center gap-2">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => window.location.href = "/?student=true"}
+                      className="w-full p-2 flex justify-center"
+                    >
+                      <Home className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    <p>Chế độ Student</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={logout}
+                      className="w-full p-2 flex justify-center"
+                    >
+                      <LogOut className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    <p>Đăng xuất</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+          )}
         </div>
       </div>
 

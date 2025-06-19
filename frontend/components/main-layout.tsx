@@ -40,6 +40,10 @@ export function MainLayout() {
   const [conversationMessages, setConversationMessages] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([])
+  // Thêm state cho tìm kiếm
+  const [searchQuery, setSearchQuery] = useState("")
+  const [searchResults, setSearchResults] = useState<any[]>([])
+  
   const isMobile = useMobile()
   const { user } = useAuth()
 
@@ -49,6 +53,17 @@ export function MainLayout() {
       localStorage.setItem('sidebarOpen', sidebarOpen.toString());
     }
   }, [sidebarOpen]);
+
+  // Xử lý kết quả tìm kiếm từ header
+  const handleSearch = (query: string, results: any[]) => {
+    setSearchQuery(query)
+    setSearchResults(results)
+    
+    // Nếu đang ở mobile và có kết quả tìm kiếm, mở sidebar
+    if (isMobile && query && results.length > 0) {
+      setSidebarOpen(true)
+    }
+  }
 
   // Khi mount chỉ load danh sách hội thoại, không load messages
   // Xử lý khi chọn một cuộc hội thoại
@@ -113,6 +128,8 @@ export function MainLayout() {
               onSelectConversation={handleSelectConversation}
               currentConversationId={currentConversationId}
               onSelectedFilesChange={setSelectedFileIds}
+              searchQuery={searchQuery}
+              searchResults={searchResults}
             />
           </div>
         )}
@@ -124,6 +141,8 @@ export function MainLayout() {
             onOpenChange={setSidebarOpen}
             onSelectConversation={handleSelectConversation}
             currentConversationId={currentConversationId}
+            searchQuery={searchQuery}
+            searchResults={searchResults}
           />
         )}
 
@@ -159,6 +178,8 @@ export function MainLayout() {
             sqlPanelOpen={sqlPanelOpen}
             onSidebarToggle={() => setSidebarOpen(!sidebarOpen)}
             isSidebarOpen={sidebarOpen}
+            onSearch={handleSearch}
+            onSelectConversation={handleSelectConversation}
           />
 
           <main className="flex-1 overflow-hidden flex">

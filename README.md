@@ -1,24 +1,64 @@
 python -m src.supabase.add_admin phucadmin@gmail.com b900f80c-cbc3-472e-be40-5a5af859969f
 # Hệ thống RAG cho Cơ sở dữ liệu
 
-Hệ thống RAG (Retrieval-Augmented Generation) tìm kiếm thông tin và trả lời câu hỏi về Cơ sở dữ liệu.
+## Tổng quan
+Hệ thống Retrieval-Augmented Generation (RAG) chuyên biệt cho việc trả lời câu hỏi về cơ sở dữ liệu và SQL. Hệ thống sử dụng các mô hình embedding và LLM để cung cấp câu trả lời chính xác và có nguồn tham khảo.
 
-## 🚀 Triển khai tự động
+## Tính năng chính
 
-Hệ thống được cấu hình CI/CD tự động deploy lên VPS khi push code lên GitHub.
+### 🤖 **Hệ thống RAG thông minh**
+- Trả lời câu hỏi về SQL, thiết kế CSDL, và các khái niệm liên quan
+- Tìm kiếm thông tin trong tài liệu đã upload
+- Cung cấp nguồn tham khảo và trích dẫn chi tiết
+- Hỗ trợ stream response để trải nghiệm mượt mà
 
-### 🌐 Live Demo
-- **Frontend**: http://34.30.191.213:3000
-- **Backend API**: http://34.30.191.213:8000
-- **API Documentation**: http://34.30.191.213:8000/docs
-- **Health Check**: http://34.30.191.213:8000/health
+### 💬 **Quản lý hội thoại nâng cao**
+- Lưu trữ và quản lý lịch sử hội thoại
+- Duy trì ngữ cảnh trong cuộc hội thoại
+- Tạo và xóa hội thoại mới
+- **🔍 Tìm kiếm hội thoại**: Tìm kiếm trong nội dung các hội thoại cũ theo từ khóa và khoảng thời gian
 
-### 📋 Quick Deploy
-1. Push code lên branch `main` hoặc `test/cicd`
-2. GitHub Actions sẽ tự động build và deploy
-3. Kiểm tra deployment tại URLs trên
+### 📚 **Quản lý tài liệu (Admin)**
+- Upload và quản lý tài liệu (PDF, DOCX, TXT, SQL)
+- Xử lý và index tự động vào vector database
+- Hỗ trợ phân loại tài liệu theo danh mục
+- Xóa và cập nhật tài liệu
 
-> Xem chi tiết tại [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)
+### 🔐 **Hệ thống xác thực và phân quyền**
+- Đăng ký/đăng nhập với email & password
+- Hỗ trợ đăng nhập Google OAuth
+- Quên mật khẩu và đặt lại mật khẩu
+- Phân quyền Admin/Student
+- **👥 Quản lý người dùng (Admin)**: Tạo, sửa, xóa, cấm/bỏ cấm người dùng
+
+### 🎨 **Giao diện người dùng hiện đại**
+- Thiết kế responsive với Tailwind CSS
+- Dark/Light mode
+- Sidebar có thể thu gọn
+- Hiển thị tin nhắn markdown với syntax highlighting
+- **🔍 Tab tìm kiếm hội thoại**: Giao diện tìm kiếm trực quan với filter theo thời gian
+
+## Tính năng mới: Tìm kiếm hội thoại
+
+### 🔍 API tìm kiếm hội thoại
+- **Endpoint**: `GET /api/conversations/search`
+- **Tìm kiếm theo từ khóa**: Tìm trong nội dung tin nhắn của cả user và AI
+- **Filter theo thời gian**: Lọc hội thoại theo khoảng thời gian cụ thể
+- **Phân trang**: Hỗ trợ phân trang với page và page_size
+- **Metadata**: Cung cấp thông tin về điều kiện tìm kiếm và kết quả
+
+### 🎯 Các tính năng tìm kiếm:
+1. **Tìm theo từ khóa**: Tìm kiếm full-text trong nội dung các tin nhắn
+2. **Lọc theo thời gian**: Chọn khoảng thời gian cụ thể (từ ngày - đến ngày)
+3. **Tìm kiếm kết hợp**: Có thể kết hợp cả từ khóa và filter thời gian
+4. **Highlight nội dung**: Hiển thị các đoạn nội dung khớp với từ khóa tìm kiếm
+5. **Thống kê kết quả**: Hiển thị số lượng hội thoại tìm thấy và metadata
+
+### 💻 Giao diện tìm kiếm:
+- **Tab tìm kiếm riêng**: Trong sidebar, tab "Tìm kiếm" độc lập
+- **Form tìm kiếm**: Input từ khóa và date picker cho khoảng thời gian
+- **Kết quả trực quan**: Hiển thị hội thoại với thông tin chi tiết
+- **Tương tác mượt mà**: Click để chuyển đến hội thoại tìm thấy
 
 ## Cấu trúc thư mục
 
