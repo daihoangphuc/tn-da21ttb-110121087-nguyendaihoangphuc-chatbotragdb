@@ -19,15 +19,15 @@ logging.basicConfig(format="[RAG_Pipeline] %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from typing import List, Dict, AsyncGenerator
-from src.embedding import EmbeddingModel
-from src.llm import GeminiLLM
-from src.vector_store import VectorStore
-from src.document_processor import DocumentProcessor
-from src.prompt_manager import PromptManager
-from src.search import SearchManager
-# from src.query_processor import QueryProcessor
-# from src.query_router import QueryRouter
-from src.query_handler import QueryHandler
+from backend.embedding import EmbeddingModel
+from backend.llm import GeminiLLM
+from backend.vector_store import VectorStore
+from backend.document_processor import DocumentProcessor
+from backend.prompt_manager import PromptManager
+from backend.search import SearchManager
+# from backend.query_processor import QueryProcessor
+# from backend.query_router import QueryRouter
+from backend.query_handler import QueryHandler
 import os
 import re
 import concurrent.futures
@@ -39,7 +39,7 @@ import uuid
 import json
 
 # Import Google_Search
-from src.tools.Google_Search import run_query_with_sources as google_agent_search
+from backend.tools.Google_Search import run_query_with_sources as google_agent_search
 
 # Load biến môi trường từ .env
 load_dotenv()

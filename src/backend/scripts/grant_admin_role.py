@@ -7,7 +7,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.supabase.client import SupabaseClient
+from backend.supabase.client import SupabaseClient
 
 def grant_admin_role(email: str):
     """

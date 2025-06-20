@@ -16,9 +16,9 @@ print("Đang tải biến môi trường từ .env...")
 load_dotenv(verbose=True)
 
 try:
-    from src.supabase.database import SupabaseDatabase
-    from src.supabase.client import SupabaseClient
-    from src.supabase.files_manager import FilesManager
+    from backend.supabase.database import SupabaseDatabase
+    from backend.supabase.client import SupabaseClient
+    from backend.supabase.files_manager import FilesManager
 
     print("Đã import các module thành công")
 except Exception as e:

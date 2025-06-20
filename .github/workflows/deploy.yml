@@ -81,7 +81,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile.backend
+          file: src/Dockerfile.backend
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/db-rag-backend:${{ steps.vars.outputs.TAG }}
@@ -97,7 +97,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile.frontend
+          file: src/Dockerfile.frontend
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/db-rag-frontend:${{ steps.vars.outputs.TAG }}
@@ -229,8 +229,9 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: "docker-compose.yml,docker-compose.override.yml,.env,nginx-backend.conf,nginx-frontend.conf"
+          source: "src/docker-compose.yml,docker-compose.override.yml,.env,nginx-backend.conf,nginx-frontend.conf"
           target: "~/app"
+          strip_components: 0
 
       - name: Deploy on VPS via SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -240,6 +241,11 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             cd ~/app
+            
+            # Di chuyển docker-compose.yml từ src ra root của app
+            if [ -f src/docker-compose.yml ]; then
+                mv src/docker-compose.yml .
+            fi
             
             # Kiểm tra và cài đặt Nginx nếu chưa có
             if ! command -v nginx &> /dev/null; then

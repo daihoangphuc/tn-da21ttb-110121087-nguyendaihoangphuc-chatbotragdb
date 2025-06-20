@@ -2,7 +2,7 @@ import logging
 import json
 import re
 from typing import Tuple, Dict
-from src.llm import GeminiLLM
+from backend.llm import GeminiLLM
 
 # Cấu hình logging
 logging.basicConfig(format="[QueryHandler] %(message)s", level=logging.INFO)

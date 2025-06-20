@@ -1,6 +1,6 @@
 import logging
 from typing import List, Dict
-from src.llm import GeminiLLM
+from backend.llm import GeminiLLM
 
 # Cấu hình logging
 logging.basicConfig(format="[Suggestion Manager] %(message)s", level=logging.INFO)

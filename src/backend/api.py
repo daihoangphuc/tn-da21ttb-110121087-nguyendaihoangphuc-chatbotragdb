@@ -45,15 +45,15 @@ import asyncio
 import pytz
 from uuid import UUID
 
-from src.rag import AdvancedDatabaseRAG
-from src.supabase.conversation_manager import SupabaseConversationManager
+from backend.rag import AdvancedDatabaseRAG
+from backend.supabase.conversation_manager import SupabaseConversationManager
 
 # Load biến môi trường từ .env
 load_dotenv()
 
 # Thêm prefix API
 PREFIX = os.getenv("API_PREFIX", "/api")
-from src.suggestion_manager import SuggestionManager
+from backend.suggestion_manager import SuggestionManager
 
 # Khởi tạo SuggestionManager
 suggestion_manager = SuggestionManager()
@@ -142,7 +142,7 @@ except Exception as e:
     raise
 
 # Đường dẫn lưu dữ liệu tạm thời
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "src/data")
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", "backend/data")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # Hàm để lấy đường dẫn thư mục của user
@@ -493,8 +493,8 @@ async def ask_question_stream(
         if not search_file_ids or len(search_file_ids) == 0:
             try:
                 # Sử dụng service client để lấy tất cả file_id
-                from src.supabase.files_manager import FilesManager
-                from src.supabase.client import SupabaseClient
+                from backend.supabase.files_manager import FilesManager
+                from backend.supabase.client import SupabaseClient
                 
                 supabase_client_with_service_role = SupabaseClient(use_service_key=True)
                 client = supabase_client_with_service_role.get_client()
@@ -703,7 +703,7 @@ async def upload_document(
     
     try:
         # LƯU FILE VÀO THỂ MỤC DATA CHUNG (không phân chia theo user)
-        upload_dir = os.getenv("UPLOAD_DIR", "src/data")
+        upload_dir = os.getenv("UPLOAD_DIR", "backend/data")
         os.makedirs(upload_dir, exist_ok=True)
 
         # Lưu file vào thư mục data chung
@@ -799,8 +799,8 @@ async def upload_document(
             
             # LƯU THÔNG TIN FILE VÀO DATABASE VỚI USER_ID CỦA ADMIN
             try:
-                from src.supabase.files_manager import FilesManager
-                from src.supabase.client import SupabaseClient
+                from backend.supabase.files_manager import FilesManager
+                from backend.supabase.client import SupabaseClient
                 
                 # Lấy kích thước file gốc
                 file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
@@ -905,8 +905,8 @@ async def get_uploaded_files(current_user=Depends(get_current_user)):
 
         # Lấy danh sách file từ database
         try:
-            from src.supabase.files_manager import FilesManager
-            from src.supabase.client import SupabaseClient
+            from backend.supabase.files_manager import FilesManager
+            from backend.supabase.client import SupabaseClient
 
             # Sử dụng client với service role để bypass RLS
             supabase_client_with_service_role = SupabaseClient(use_service_key=True)
@@ -962,7 +962,7 @@ async def get_uploaded_files(current_user=Depends(get_current_user)):
             # Fallback: Nếu không có dữ liệu trong database, đọc từ filesystem
             print(f"[FILES] Không tìm thấy dữ liệu trong database, đọc từ filesystem")
             # Đọc từ thư mục dữ liệu chung
-            upload_dir = os.getenv("UPLOAD_DIR", "src/data")
+            upload_dir = os.getenv("UPLOAD_DIR", "backend/data")
 
             # Kiểm tra thư mục có tồn tại không
             if os.path.exists(upload_dir):
@@ -1021,8 +1021,8 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
         
     try:
         # LẤY THÔNG TIN FILE TỪ DATABASE TRƯỚC
-        from src.supabase.files_manager import FilesManager
-        from src.supabase.client import SupabaseClient
+        from backend.supabase.files_manager import FilesManager
+        from backend.supabase.client import SupabaseClient
         
         supabase_client_with_service_role = SupabaseClient(use_service_key=True)
         client = supabase_client_with_service_role.get_client()
@@ -1047,7 +1047,7 @@ async def delete_file(filename: str, current_user=Depends(get_current_user)):
         print(f"[DELETE] File ID: {file_id}")
 
         # XÁC ĐỊNH ĐƯỜNG DẪN FILE THỰC TẾ
-        upload_dir = os.getenv("UPLOAD_DIR", "src/data")
+        upload_dir = os.getenv("UPLOAD_DIR", "backend/data")
         
         # Thử các đường dẫn có thể có
         possible_paths = [
@@ -1322,7 +1322,7 @@ async def signup(request: UserSignUpRequest):
                 print(f"Thêm role mặc định 'student' cho user {user_email}")
                 
                 # Sử dụng service key để có quyền insert vào user_roles
-                from src.supabase.client import SupabaseClient
+                from backend.supabase.client import SupabaseClient
                 service_client = SupabaseClient(use_service_key=True).get_client()
                 
                 service_client.table("user_roles").insert({
@@ -2472,7 +2472,7 @@ async def require_admin_role(current_user=Depends(get_current_user)):
 def get_service_supabase_client():
     """Lấy Supabase client với service role key"""
     try:
-        from src.supabase.client import SupabaseClient
+        from backend.supabase.client import SupabaseClient
         service_client = SupabaseClient(use_service_key=True)
         return service_client.get_client()
     except Exception as e:
@@ -3743,8 +3743,8 @@ async def admin_get_files_stats(
         
         # Lấy danh sách file từ database
         try:
-            from src.supabase.files_manager import FilesManager
-            from src.supabase.client import SupabaseClient
+            from backend.supabase.files_manager import FilesManager
+            from backend.supabase.client import SupabaseClient
             
             supabase_client_with_service_role = SupabaseClient(use_service_key=True)
             client = supabase_client_with_service_role.get_client()
@@ -3918,4 +3918,4 @@ async def admin_get_conversation_stats(
 # =====================================================================
 
 if __name__ == "__main__":
-    uvicorn.run("src.api:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("backend.api:app", host="0.0.0.0", port=8000, reload=True)

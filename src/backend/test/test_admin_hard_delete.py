@@ -112,8 +112,8 @@ def test_admin_hard_delete():
     # 3. Kiểm tra file có trong database trước khi xóa
     print("\n3. Kiểm tra file trong database trước khi xóa...")
     try:
-        from src.supabase.files_manager import FilesManager
-        from src.supabase.client import SupabaseClient
+        from backend.supabase.files_manager import FilesManager
+from backend.supabase.client import SupabaseClient
         
         supabase_client = SupabaseClient(use_service_key=True)
         client = supabase_client.get_client()
@@ -141,7 +141,7 @@ def test_admin_hard_delete():
     # 4. Kiểm tra file có trong vector store trước khi xóa
     print("\n4. Kiểm tra file trong vector store trước khi xóa...")
     try:
-        from src.vector_store import VectorStore
+        from backend.vector_store import VectorStore
         
         vector_store = VectorStore()
         vector_store.collection_name = "global_documents"

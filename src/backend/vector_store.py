@@ -833,7 +833,7 @@ class VectorStore:
         """
         Xóa tất cả các điểm của một file theo UUID trong đường dẫn
         Điều này hữu ích khi đường dẫn file có chứa UUID như trong ví dụ:
-        src/data/73faa408-c331-4b44-a9d7-062464ac4144/Ten_file.pdf
+        backend/data/73faa408-c331-4b44-a9d7-062464ac4144/Ten_file.pdf
 
         Args:
             file_uuid (str): UUID của file cần xóa (nằm trong đường dẫn)

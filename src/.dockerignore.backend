@@ -3,8 +3,7 @@
 .gitignore
 .github
 
-# Python source (not needed for frontend)
-src/
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -39,29 +38,35 @@ env/
 
 # Docker
 .dockerignore
-Dockerfile
+Dockerfile*
 docker-compose.yml
 
 # Logs
 logs/
 *.log
 
+# Frontend files (not needed for backend)
+src/frontend/
+frontend/
+node_modules/
+
 # Documentation
 docs/
 *.md
 README.md
 
-# Backend specific files
-requirements.txt
-
 # Environment files
 .env.example
+.env.local
+.env.production
 
 # Test files
 test_*
 *_test.py
 tests/
 __tests__/
+*.test.js
+*.spec.js
 
 # OS specific
 .DS_Store
@@ -73,3 +78,7 @@ desktop.ini
 *.temp
 temp/
 tmp/
+
+# Root level files not needed
+.cursorignore
+.pytest_cache/

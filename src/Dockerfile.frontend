@@ -11,9 +11,9 @@ FROM base AS deps
 WORKDIR /app
 
 # Copy package files
-COPY frontend/package.json ./
+COPY src/frontend/package.json ./
 # Make pnpm-lock.yaml optional in case it's missing or incompatible
-COPY frontend/pnpm-lock.yaml* ./
+COPY src/frontend/pnpm-lock.yaml* ./
 
 # Install dependencies with proper pnpm configuration and timeout
 RUN pnpm config set auto-install-peers true && \
@@ -26,13 +26,13 @@ FROM base AS builder
 WORKDIR /app
 
 # First copy package files
-COPY frontend/package.json frontend/pnpm-lock.yaml* ./
+COPY src/frontend/package.json src/frontend/pnpm-lock.yaml* ./
 
 # Copy dependencies from deps stage
 COPY --from=deps /app/node_modules ./node_modules
 
 # Then copy the rest of the frontend code
-COPY frontend/ .
+COPY src/frontend/ .
 
 # Đối số để nhận file env từ CI/CD
 ARG ENV_FILE=.env.frontend

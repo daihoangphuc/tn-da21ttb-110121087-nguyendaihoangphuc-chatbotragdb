@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from src.api import app # Hoặc nơi bạn định nghĩa app FastAPI
+from backend.api import app # Hoặc nơi bạn định nghĩa app FastAPI
 import os
 
 client = TestClient(app)

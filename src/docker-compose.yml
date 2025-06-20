@@ -12,7 +12,7 @@ services:
     env_file:
       - .env
     volumes:
-      - backend_data:/app/src/data
+      - backend_data:/app/backend/data
     networks:
       - app-network
     restart: unless-stopped
@@ -35,6 +35,7 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000/api}
     depends_on:
       backend:
         condition: service_healthy

@@ -13,7 +13,6 @@ def print(*args, **kwargs):
 
 
 logger = logging.getLogger(__name__)
-from rank_bm25 import BM25Okapi
 import re
 import numpy as np
 from sentence_transformers import CrossEncoder
@@ -39,7 +38,7 @@ class SearchManager:
         self.bm25_initialized = False
 
         # Đường dẫn lưu BM25 index
-        self.data_dir = os.getenv("UPLOAD_DIR", "src/data")
+        self.data_dir = os.getenv("UPLOAD_DIR", "backend/data")
         
         # Lấy user_id từ vector_store
         user_id = self.vector_store.user_id if hasattr(self.vector_store, 'user_id') else None

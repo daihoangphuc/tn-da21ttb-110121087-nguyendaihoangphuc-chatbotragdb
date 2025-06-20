@@ -15,18 +15,18 @@ RUN apt-get update && apt-get install -y \
 FROM base AS dependencies
 
 # Copy requirements và cài đặt dependencies
-COPY requirements.txt .
+COPY src/requirements.txt .
 # Cài dependencies với timeout settings và parallel processing  
 RUN pip install --no-cache-dir --timeout 600 --retries 3 -r requirements.txt
 
 # Stage cho build
 FROM dependencies AS build
 
-# Copy source code
-COPY src/ ./src/
+# Copy source code - chú ý đường dẫn mới
+COPY src/backend/ ./backend/
 
 # Tạo thư mục data
-RUN mkdir -p src/data
+RUN mkdir -p backend/data
 
 # Đối số để nhận file env từ CI/CD
 ARG ENV_FILE=.env
@@ -44,5 +44,5 @@ ENV PYTHONUNBUFFERED=1
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Chạy ứng dụng
-CMD ["python", "-m", "uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]
+# Chạy ứng dụng - cập nhật đường dẫn module
+CMD ["python", "-m", "uvicorn", "backend.api:app", "--host", "0.0.0.0", "--port", "8000"]

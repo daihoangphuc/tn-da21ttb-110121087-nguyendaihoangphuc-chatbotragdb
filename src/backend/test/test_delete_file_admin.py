@@ -110,7 +110,7 @@ def test_vector_store_connection():
     print("🔍 Kiểm tra kết nối vector store...")
     
     try:
-        from src.vector_store import VectorStore
+        from backend.vector_store import VectorStore
         
         # Khởi tạo vector store
         vector_store = VectorStore()

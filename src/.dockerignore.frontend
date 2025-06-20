@@ -1,0 +1,73 @@
+# Git
+.git
+.gitignore
+.github
+
+# Node modules
+node_modules/
+npm-debug.log
+yarn-error.log
+.pnpm-debug.log
+
+# Build directories
+.next/
+out/
+build/
+dist/
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+logs/
+*.log
+
+# Test files
+__tests__/
+test/
+*.test.js
+*.spec.js
+coverage/
+.nyc_output/
+
+# Documentation
+docs/
+*.md
+README.md
+
+# Backend files (not needed for frontend)
+src/backend/
+backend/
+*.py
+__pycache__/
+venv/
+requirements.txt
+
+# Docker
+Dockerfile*
+docker-compose.yml
+.dockerignore
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Root level files not needed
+.cursorignore
+.pytest_cache/

@@ -15,7 +15,7 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
 
 # Import để test trực tiếp với database
-from src.supabase.client import SupabaseClient
+from backend.supabase.client import SupabaseClient
 
 # API Base URL
 BASE_URL = "http://localhost:8001/api/v1"
