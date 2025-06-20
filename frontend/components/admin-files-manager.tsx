@@ -21,6 +21,7 @@ import {
   Search,
   MoreHorizontal
 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { fetchApi } from "@/lib/api";
 
@@ -193,6 +194,7 @@ export function AdminFilesManager() {
     if (!confirm(`Bạn có chắc chắn muốn xóa file "${filename}"?`)) return;
     
     try {
+      setLoading(true);
       const response: DeleteResponse = await fetchApi(`/files/${encodeURIComponent(filename)}`, {
         method: 'DELETE'
       });
@@ -209,6 +211,8 @@ export function AdminFilesManager() {
         title: "Lỗi",
         description: "Không thể xóa file"
       });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -293,7 +297,16 @@ export function AdminFilesManager() {
   const categories = Array.from(new Set(files.map(f => f.category).filter(Boolean)));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
+      {/* Loading overlay */}
+      {loading && (
+        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-10 flex items-center justify-center">
+          <div className="flex flex-col items-center space-y-2">
+            <Upload className="h-8 w-8 animate-bounce text-primary" />
+            <p className="text-sm text-muted-foreground">Đang xử lý...</p>
+          </div>
+        </div>
+      )}
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
@@ -363,9 +376,10 @@ export function AdminFilesManager() {
                 size="sm"
                 onClick={fetchFiles}
                 className="flex items-center gap-2"
+                disabled={loading}
               >
                 <RefreshCw className="w-4 h-4" />
-                Làm mới
+                {loading ? "Đang tải..." : "Làm mới"}
               </Button>
               <Dialog open={showUploadModal} onOpenChange={setShowUploadModal}>
                 <DialogTrigger asChild>
@@ -460,8 +474,19 @@ export function AdminFilesManager() {
 
           {/* Files Table */}
           {loading ? (
-            <div className="flex justify-center py-8">
-              <div className="w-8 h-8 border-t-2 border-b-2 border-primary rounded-full animate-spin"></div>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="flex items-center space-x-4 p-4 border rounded">
+                    <Skeleton className="h-4 w-4" />
+                    <Skeleton className="h-4 w-48" />
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-8 w-8 rounded" />
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
             <Table>
@@ -490,7 +515,7 @@ export function AdminFilesManager() {
                       <TableCell className="text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" className="h-8 w-8 p-0">
+                            <Button variant="ghost" className="h-8 w-8 p-0" disabled={loading}>
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>

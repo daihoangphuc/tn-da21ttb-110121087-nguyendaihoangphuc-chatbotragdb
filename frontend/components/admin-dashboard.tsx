@@ -30,6 +30,7 @@ import {
   Crown,
   GraduationCap
 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { AdminUser, CreateUserData, UpdateUserData, BanUserData } from "./admin-types";
 import { adminAPI } from "./admin-api";
@@ -87,6 +88,7 @@ export function AdminDashboard() {
   // Create user function
   const createUser = async () => {
     try {
+      setLoading(true);
       await adminAPI.createUser(createForm);
       toast({
         variant: "success",
@@ -102,6 +104,8 @@ export function AdminDashboard() {
         title: "Lỗi",
         description: "Không thể tạo người dùng"
       });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -110,6 +114,7 @@ export function AdminDashboard() {
     if (!selectedUser) return;
     
     try {
+      setLoading(true);
       await adminAPI.updateUser(selectedUser.id, editForm);
       toast({
         variant: "success",
@@ -126,6 +131,8 @@ export function AdminDashboard() {
         title: "Lỗi",
         description: "Không thể cập nhật người dùng"
       });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -134,6 +141,7 @@ export function AdminDashboard() {
     if (!selectedUser) return;
     
     try {
+      setLoading(true);
       await adminAPI.banUser(selectedUser.id, banForm);
       toast({
         variant: "success",
@@ -150,12 +158,15 @@ export function AdminDashboard() {
         title: "Lỗi",
         description: "Không thể cấm người dùng"
       });
+    } finally {
+      setLoading(false);
     }
   };
 
   // Unban user function
   const unbanUser = async (userId: string) => {
     try {
+      setLoading(true);
       await adminAPI.unbanUser(userId);
       toast({
         variant: "success",
@@ -169,6 +180,8 @@ export function AdminDashboard() {
         title: "Lỗi",
         description: "Không thể bỏ cấm người dùng"
       });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -177,6 +190,7 @@ export function AdminDashboard() {
     if (!confirm("Bạn có chắc chắn muốn xóa người dùng này?")) return;
     
     try {
+      setLoading(true);
       await adminAPI.deleteUser(userId, true);
       toast({
         variant: "success",
@@ -190,6 +204,8 @@ export function AdminDashboard() {
         title: "Lỗi",
         description: "Không thể xóa người dùng"
       });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -221,7 +237,16 @@ export function AdminDashboard() {
   const totalPages = Math.ceil(totalCount / perPage);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
+      {/* Loading overlay */}
+      {loading && (
+        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-10 flex items-center justify-center">
+          <div className="flex flex-col items-center space-y-2">
+            <RefreshCw className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">Đang xử lý...</p>
+          </div>
+        </div>
+      )}
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card>
@@ -345,8 +370,8 @@ export function AdminDashboard() {
                       </div>
                     </div>
                     <DialogFooter>
-                      <Button type="submit" onClick={createUser}>
-                        Tạo tài khoản
+                      <Button type="submit" onClick={createUser} disabled={loading}>
+                        {loading ? "Đang tạo..." : "Tạo tài khoản"}
                       </Button>
                     </DialogFooter>
                   </DialogContent>
@@ -370,8 +395,19 @@ export function AdminDashboard() {
 
             {/* Users Table */}
             {loading ? (
-              <div className="flex justify-center py-8">
-                <div className="w-8 h-8 border-t-2 border-b-2 border-primary rounded-full animate-spin"></div>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="flex items-center space-x-4 p-4 border rounded">
+                      <Skeleton className="h-4 w-48" />
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="h-4 w-16" />
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-8 w-8 rounded" />
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : (
               <Table>
@@ -400,7 +436,7 @@ export function AdminDashboard() {
                       <TableCell className="text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" className="h-8 w-8 p-0">
+                            <Button variant="ghost" className="h-8 w-8 p-0" disabled={loading}>
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -533,8 +569,8 @@ export function AdminDashboard() {
             </div>
           </div>
           <DialogFooter>
-            <Button type="submit" onClick={updateUser}>
-              Cập nhật
+            <Button type="submit" onClick={updateUser} disabled={loading}>
+              {loading ? "Đang cập nhật..." : "Cập nhật"}
             </Button>
           </DialogFooter>
         </DialogContent>

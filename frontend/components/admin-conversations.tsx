@@ -27,6 +27,7 @@ import {
   Bot,
   UserIcon
 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
 
@@ -126,6 +127,7 @@ export function AdminConversations() {
     if (!conversationToDelete) return;
 
     try {
+      setLoading(true);
       await adminAPI.deleteConversation(conversationToDelete);
       toast({
         title: "Thành công",
@@ -141,6 +143,8 @@ export function AdminConversations() {
         description: "Không thể xóa hội thoại",
         variant: "destructive"
       });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -156,7 +160,16 @@ export function AdminConversations() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
+      {/* Loading overlay */}
+      {loading && (
+        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-10 flex items-center justify-center">
+          <div className="flex flex-col items-center space-y-2">
+            <MessageSquare className="h-8 w-8 animate-pulse text-primary" />
+            <p className="text-sm text-muted-foreground">Đang xử lý...</p>
+          </div>
+        </div>
+      )}
       {/* Stats Cards */}
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -264,20 +277,39 @@ export function AdminConversations() {
               </div>
 
               {/* Conversations Table */}
-              <div className="rounded-md border">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b bg-muted/50">
-                      <th className="p-2 text-left">ID</th>
-                      <th className="p-2 text-left">Email</th>
-                      <th className="p-2 text-left">Tin nhắn đầu</th>
-                      <th className="p-2 text-center">Số tin nhắn</th>
-                      <th className="p-2 text-left">Cập nhật</th>
-                      <th className="p-2 text-center">Hành động</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {conversations.map((conv) => (
+              {loading ? (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div key={i} className="flex items-center space-x-4 p-4 border rounded">
+                        <Skeleton className="h-4 w-16" />
+                        <Skeleton className="h-4 w-40" />
+                        <Skeleton className="h-4 w-64" />
+                        <Skeleton className="h-4 w-16" />
+                        <Skeleton className="h-4 w-32" />
+                        <div className="flex gap-2">
+                          <Skeleton className="h-8 w-8" />
+                          <Skeleton className="h-8 w-8" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-md border">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-2 text-left">ID</th>
+                        <th className="p-2 text-left">Email</th>
+                        <th className="p-2 text-left">Tin nhắn đầu</th>
+                        <th className="p-2 text-center">Số tin nhắn</th>
+                        <th className="p-2 text-left">Cập nhật</th>
+                        <th className="p-2 text-center">Hành động</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {conversations.map((conv) => (
                       <tr key={conv.conversation_id} className="border-b">
                         <td className="p-2 font-mono text-xs">
                           {conv.conversation_id.substring(0, 8)}...
@@ -292,6 +324,7 @@ export function AdminConversations() {
                               size="sm"
                               variant="outline"
                               onClick={() => handleViewMessages(conv)}
+                              disabled={loading}
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
@@ -302,22 +335,24 @@ export function AdminConversations() {
                                 setConversationToDelete(conv.conversation_id);
                                 setShowDeleteDialog(true);
                               }}
+                              disabled={loading}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
               {/* Pagination */}
               <div className="flex justify-between items-center mt-4">
                 <Button
                   onClick={() => setPage(page - 1)}
-                  disabled={page === 1}
+                  disabled={page === 1 || loading}
                   variant="outline"
                 >
                   Trang trước
@@ -325,7 +360,7 @@ export function AdminConversations() {
                 <span>Trang {page} / {totalPages}</span>
                 <Button
                   onClick={() => setPage(page + 1)}
-                  disabled={page === totalPages}
+                  disabled={page === totalPages || loading}
                   variant="outline"
                 >
                   Trang sau
@@ -353,7 +388,7 @@ export function AdminConversations() {
                 />
                 <Button onClick={handleSearchMessages} disabled={loading}>
                   <Search className="h-4 w-4 mr-2" />
-                  Tìm kiếm
+                  {loading ? "Đang tìm..." : "Tìm kiếm"}
                 </Button>
               </div>
 
@@ -519,8 +554,9 @@ export function AdminConversations() {
             <AlertDialogAction
               onClick={handleDeleteConversation}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={loading}
             >
-              Xóa
+              {loading ? "Đang xóa..." : "Xóa"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
