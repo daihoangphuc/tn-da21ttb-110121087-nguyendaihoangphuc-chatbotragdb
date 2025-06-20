@@ -156,8 +156,8 @@ def get_user_upload_dir(user_id: str) -> str:
 # Models cho API
 class QuestionRequest(BaseModel):
     question: str
-    sources: Optional[List[str]] = None  # Danh sách các file nguồn cần tìm kiếm (không khuyến khích sử dụng)
-    file_id: Optional[List[str]] = None  # Danh sách các file_id cần tìm kiếm (tùy chọn, nếu không cung cấp sẽ tìm kiếm trên toàn bộ tài liệu)
+    # sources: Optional[List[str]] = None  # Danh sách các file nguồn cần tìm kiếm (không khuyến khích sử dụng)
+    # file_id: Optional[List[str]] = None  # Danh sách các file_id cần tìm kiếm (tùy chọn, nếu không cung cấp sẽ tìm kiếm trên toàn bộ tài liệu)
     conversation_id: Optional[str] = (
         None  # ID phiên hội thoại, tự động tạo nếu không có
     )
@@ -487,7 +487,7 @@ async def ask_question_stream(
         rag_system.vector_store.user_id = user_id
 
         # Lấy danh sách file_id từ request nếu có
-        search_file_ids = request.file_id
+        search_file_ids = None
         
         # Nếu không có file_id trong request, lấy tất cả file_id có sẵn từ Supabase
         if not search_file_ids or len(search_file_ids) == 0:
@@ -540,7 +540,7 @@ async def ask_question_stream(
                 # Gọi RAG để lấy kết quả dạng stream với file_id
                 stream_generator = rag_system.query_with_sources_streaming(
                     request.question,
-                    file_id=search_file_ids,
+                    # file_id=search_file_ids,
                     conversation_history=conversation_history,
                 )
 
