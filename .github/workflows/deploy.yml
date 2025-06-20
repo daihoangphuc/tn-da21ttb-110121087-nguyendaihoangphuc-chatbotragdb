@@ -223,15 +223,19 @@ jobs:
           }
           EOF
 
+      - name: Prepare docker-compose file
+        run: |
+          # Copy docker-compose.yml ra root để dễ copy
+          cp src/docker-compose.yml ./docker-compose.yml
+
       - name: Copy files to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: "src/docker-compose.yml,docker-compose.override.yml,.env,nginx-backend.conf,nginx-frontend.conf"
+          source: "docker-compose.yml,docker-compose.override.yml,.env,nginx-backend.conf,nginx-frontend.conf"
           target: "~/app"
-          strip_components: 0
 
       - name: Deploy on VPS via SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -241,11 +245,6 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             cd ~/app
-            
-            # Di chuyển docker-compose.yml từ src ra root của app
-            if [ -f src/docker-compose.yml ]; then
-                mv src/docker-compose.yml .
-            fi
             
             # Kiểm tra và cài đặt Nginx nếu chưa có
             if ! command -v nginx &> /dev/null; then
