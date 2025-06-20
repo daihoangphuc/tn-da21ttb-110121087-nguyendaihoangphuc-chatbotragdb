@@ -1,7 +1,7 @@
 "use client";
 
-import { AdminDashboard } from "@/components/admin-dashboard";
+import { AdminDashboardStats } from "@/components/admin-dashboard-stats";
 
 export default function AdminPage() {
-  return <AdminDashboard />;
+  return <AdminDashboardStats />;
 } 

@@ -11,11 +11,12 @@ import {
   Files, 
   Settings, 
   LogOut,
-  Home,
   Shield,
   Menu,
   X,
-  ChevronRight
+  ChevronRight,
+  MessageSquare,
+  BarChart
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -33,11 +34,25 @@ interface SidebarItem {
 
 const sidebarItems: SidebarItem[] = [
   {
+    id: "dashboard",
+    label: "Dashboard",
+    icon: BarChart,
+    href: "/admin",
+    description: "Thống kê tổng quan hệ thống"
+  },
+  {
     id: "users",
     label: "Quản lý người dùng",
     icon: Users,
-    href: "/admin",
+    href: "/admin/users",
     description: "Quản lý tài khoản và quyền người dùng"
+  },
+  {
+    id: "conversations",
+    label: "Quản lý hội thoại",
+    icon: MessageSquare,
+    href: "/admin/conversations",
+    description: "Xem và quản lý hội thoại người dùng"
   },
   {
     id: "files",
@@ -45,13 +60,6 @@ const sidebarItems: SidebarItem[] = [
     icon: Files,
     href: "/admin/files",
     description: "Upload và quản lý tài liệu hệ thống"
-  },
-  {
-    id: "settings",
-    label: "Cài đặt hệ thống",
-    icon: Settings,
-    href: "/admin/settings",
-    description: "Cấu hình và cài đặt hệ thống"
   }
 ];
 
@@ -61,11 +69,87 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [currentPath, setCurrentPath] = useState("/admin");
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+
+  // Check if user has admin role
+  useEffect(() => {
+    if (user !== null) {
+      setIsCheckingAuth(false);
+      
+      // Check if user has admin role
+      if (user.role !== 'admin') {
+        console.log('User role:', user.role, 'Required: admin');
+        // Redirect to home page if not admin
+        router.push('/');
+        return;
+      }
+    }
+  }, [user, router]);
 
   // Update current path based on pathname
   useEffect(() => {
     setCurrentPath(pathname);
   }, [pathname]);
+
+  // Show loading while checking authentication
+  if (isCheckingAuth || !user) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Card className="w-96">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 p-3 bg-blue-100 rounded-full w-fit">
+              <Shield className="h-8 w-8 text-blue-600" />
+            </div>
+            <CardTitle>Đang kiểm tra quyền truy cập...</CardTitle>
+            <CardDescription>
+              Vui lòng chờ trong giây lát
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex justify-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Show access denied if user is not admin
+  if (user.role !== 'admin') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Card className="w-96">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 p-3 bg-red-100 rounded-full w-fit">
+              <Shield className="h-8 w-8 text-red-600" />
+            </div>
+            <CardTitle className="text-red-800">Không có quyền truy cập</CardTitle>
+            <CardDescription>
+              Bạn không có quyền truy cập trang quản trị. Chỉ tài khoản admin mới có thể sử dụng tính năng này.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
+              <div className="flex">
+                <div className="ml-3">
+                  <p className="text-sm text-yellow-700">
+                    <strong>Lưu ý:</strong> Nếu bạn cần quyền truy cập admin, vui lòng liên hệ quản trị viên hệ thống.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <Button 
+              onClick={() => router.push('/')} 
+              className="w-full"
+            >
+              Về trang chủ
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const handleNavigation = (href: string) => {
     router.push(href);
@@ -186,46 +270,17 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         {/* Bottom Actions */}
         <div className="p-4 border-t border-gray-200 space-y-2">
           {sidebarOpen ? (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => window.location.href = "/?student=true"}
-                className="w-full flex items-center gap-2"
-              >
-                <Home className="h-4 w-4" />
-                Chế độ Student
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={logout}
-                className="w-full flex items-center gap-2"
-              >
-                <LogOut className="h-4 w-4" />
-                Đăng xuất
-              </Button>
-            </>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={logout}
+              className="w-full flex items-center gap-2"
+            >
+              <LogOut className="h-4 w-4" />
+              Đăng xuất
+            </Button>
           ) : (
             <div className="flex flex-col items-center gap-2">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => window.location.href = "/?student=true"}
-                      className="w-full p-2 flex justify-center"
-                    >
-                      <Home className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    <p>Chế độ Student</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>

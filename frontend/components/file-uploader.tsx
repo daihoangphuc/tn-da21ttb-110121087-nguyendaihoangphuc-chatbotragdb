@@ -523,7 +523,7 @@ export function FileUploader({ onSelectedFilesChange }: FileUploaderProps) {
               <DialogHeader>
                 <DialogTitle>Tải lên tài liệu</DialogTitle>
                 <DialogDescription>
-                  Chọn tài liệu từ máy tính của bạn để tải lên hệ thống
+                  Chọn tài liệu từ máy tính của bạn để tải lên hệ thống (tối đa 10MB)
                 </DialogDescription>
               </DialogHeader>
               <div 
@@ -538,7 +538,7 @@ export function FileUploader({ onSelectedFilesChange }: FileUploaderProps) {
                   <FileUp className="h-6 w-6 text-primary" />
                 </div>
                 <h3 className="mb-1 text-lg font-semibold">Kéo thả hoặc tải lên tài liệu</h3>
-                <p className="mb-4 text-sm text-muted-foreground">Hỗ trợ PDF, DOCX, TXT và SQL</p>
+                <p className="mb-4 text-sm text-muted-foreground">Hỗ trợ PDF, DOCX, TXT và SQL (tối đa 10MB)</p>
                 <input 
                   type="file" 
                   ref={fileInputRef} 

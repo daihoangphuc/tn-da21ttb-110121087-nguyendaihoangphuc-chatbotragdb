@@ -75,6 +75,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Middleware để giới hạn kích thước request body (10MB)
+@app.middleware("http")
+async def limit_upload_size(request: Request, call_next):
+    # Chỉ áp dụng cho upload endpoints
+    if request.url.path.endswith("/upload"):
+        if request.headers.get("content-length"):
+            content_length = int(request.headers["content-length"])
+            max_size = 10 * 1024 * 1024  # 10MB
+            if content_length > max_size:
+                return JSONResponse(
+                    status_code=413,
+                    content={
+                        "detail": f"Request body quá lớn. Kích thước tối đa: 10MB, nhận được: {content_length / (1024*1024):.2f}MB"
+                    }
+                )
+    
+    response = await call_next(request)
+    return response
+
 # Khởi tạo hệ thống RAG
 rag_system = AdvancedDatabaseRAG()
 
@@ -663,6 +682,23 @@ async def upload_document(
         raise HTTPException(
             status_code=403, 
             detail="Chỉ admin mới có quyền upload tài liệu"
+        )
+    
+    # KIỂM TRA KÍCH THƯỚC FILE (10MB limit)
+    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB in bytes
+    if file.size and file.size > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File quá lớn. Kích thước tối đa cho phép là 10MB. File của bạn: {file.size / (1024*1024):.2f}MB"
+        )
+    
+    # KIỂM TRA ĐỊNH DẠNG FILE
+    allowed_extensions = ['.pdf', '.docx', '.doc', '.txt', '.sql', '.md']
+    file_extension = os.path.splitext(file.filename)[1].lower()
+    if file_extension not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Định dạng file {file_extension} không được hỗ trợ. Chỉ hỗ trợ: {', '.join(allowed_extensions)}"
         )
     
     try:
@@ -3378,6 +3414,508 @@ async def search_conversations_fallback(
     except Exception as e:
         print(f"[SEARCH] Lỗi trong fallback method: {str(e)}")
         return []
+
+# =====================================================================
+# ADMIN CONVERSATION MANAGEMENT APIs  
+# =====================================================================
+
+# Models cho Admin Conversation Management
+class AdminConversationListResponse(BaseModel):
+    conversations: List[Dict]
+    total_count: int
+    page: int
+    per_page: int
+    total_pages: int
+
+class AdminMessageListResponse(BaseModel):
+    conversation_id: str
+    messages: List[Dict]
+    total_messages: int
+    user_info: Dict
+
+class AdminMessageSearchRequest(BaseModel):
+    query: str
+    conversation_id: Optional[str] = None
+    user_id: Optional[str] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    page: int = 1
+    per_page: int = 50
+
+class AdminMessageSearchResponse(BaseModel):
+    messages: List[Dict]
+    total_count: int
+    page: int
+    per_page: int
+    search_query: str
+
+class AdminConversationStatsResponse(BaseModel):
+    total_conversations: int
+    total_messages: int
+    total_users: int
+    conversations_by_date: List[Dict]
+    messages_by_role: Dict[str, int]
+    top_users: List[Dict]
+
+
+
+@app.get(f"{PREFIX}/admin/conversations", response_model=AdminConversationListResponse)
+async def admin_list_conversations(
+    page: int = Query(1, ge=1, description="Trang hiện tại"),
+    per_page: int = Query(20, ge=1, le=100, description="Số conversation mỗi trang"),
+    user_id: Optional[str] = Query(None, description="Lọc theo user_id"),
+    date_from: Optional[str] = Query(None, description="Lọc từ ngày (YYYY-MM-DD)"),
+    date_to: Optional[str] = Query(None, description="Lọc đến ngày (YYYY-MM-DD)"),
+    admin_user=Depends(require_admin_role)
+):
+    """
+    [ADMIN] Lấy danh sách tất cả conversations trong hệ thống
+    
+    - **page**: Trang hiện tại
+    - **per_page**: Số conversation mỗi trang
+    - **user_id**: Lọc theo user_id cụ thể (tùy chọn)
+    - **date_from**: Lọc từ ngày (tùy chọn)
+    - **date_to**: Lọc đến ngày (tùy chọn)
+    """
+    try:
+        service_client = get_service_supabase_client()
+        offset = (page - 1) * per_page
+        
+        # Build query
+        query = service_client.table("conversations").select("*", count="exact")
+        
+        # Add filters
+        if user_id:
+            query = query.eq("user_id", user_id)
+        if date_from:
+            query = query.gte("last_updated", f"{date_from} 00:00:00")
+        if date_to:
+            query = query.lte("last_updated", f"{date_to} 23:59:59")
+        
+        # Execute query với pagination
+        result = query.order("last_updated", desc=True).range(offset, offset + per_page - 1).execute()
+        
+        conversations = result.data if result.data else []
+        total_count = result.count if hasattr(result, 'count') else len(conversations)
+        
+        # Enrich conversations với thông tin user và message count
+        enriched_conversations = []
+        for conv in conversations:
+            # Lấy thông tin user
+            user_info = {}
+            try:
+                user_result = service_client.auth.admin.get_user_by_id(conv["user_id"])
+                if hasattr(user_result, 'user') and user_result.user:
+                    user_info = {
+                        "email": user_result.user.email,
+                        "created_at": getattr(user_result.user, 'created_at', '').isoformat() if hasattr(getattr(user_result.user, 'created_at', ''), 'isoformat') else ''
+                    }
+            except:
+                user_info = {"email": "Unknown", "created_at": ""}
+            
+            # Lấy số lượng messages
+            msg_count_result = service_client.table("messages").select("conversation_id", count="exact").eq("conversation_id", conv["conversation_id"]).execute()
+            message_count = msg_count_result.count if hasattr(msg_count_result, 'count') else 0
+            
+            # Lấy first message để hiển thị
+            first_msg_result = service_client.table("messages").select("content").eq("conversation_id", conv["conversation_id"]).eq("role", "user").order("created_at").limit(1).execute()
+            first_message = first_msg_result.data[0]["content"] if first_msg_result.data else "Không có tin nhắn"
+            
+            enriched_conversations.append({
+                "conversation_id": conv["conversation_id"],
+                "user_id": conv["user_id"],
+                "user_email": user_info.get("email", "Unknown"),
+                "created_at": parse_and_format_vietnam_time(conv.get("created_at", "")),
+                "last_updated": parse_and_format_vietnam_time(conv.get("last_updated", "")),
+                "message_count": message_count,
+                "first_message": first_message[:100] + "..." if len(first_message) > 100 else first_message
+            })
+        
+        total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
+        
+        return AdminConversationListResponse(
+            conversations=enriched_conversations,
+            total_count=total_count,
+            page=page,
+            per_page=per_page,
+            total_pages=total_pages
+        )
+        
+    except Exception as e:
+        print(f"Lỗi khi lấy danh sách conversations: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Lỗi khi lấy danh sách conversations: {str(e)}"
+        )
+
+@app.get(f"{PREFIX}/admin/conversations/{{conversation_id}}/messages", response_model=AdminMessageListResponse)
+async def admin_get_conversation_messages(
+    conversation_id: str = Path(..., description="ID của conversation"),
+    admin_user=Depends(require_admin_role)
+):
+    """
+    [ADMIN] Xem chi tiết tin nhắn trong một conversation
+    
+    - **conversation_id**: ID của conversation cần xem
+    """
+    try:
+        service_client = get_service_supabase_client()
+        
+        # Kiểm tra conversation tồn tại
+        conv_result = service_client.table("conversations").select("*").eq("conversation_id", conversation_id).execute()
+        if not conv_result.data:
+            raise HTTPException(status_code=404, detail="Không tìm thấy conversation")
+        
+        conversation = conv_result.data[0]
+        
+        # Lấy thông tin user
+        user_info = {}
+        try:
+            user_result = service_client.auth.admin.get_user_by_id(conversation["user_id"])
+            if hasattr(user_result, 'user') and user_result.user:
+                user_info = {
+                    "id": user_result.user.id,
+                    "email": user_result.user.email,
+                    "created_at": getattr(user_result.user, 'created_at', '').isoformat() if hasattr(getattr(user_result.user, 'created_at', ''), 'isoformat') else ''
+                }
+        except:
+            user_info = {
+                "id": conversation["user_id"],
+                "email": "Unknown",
+                "created_at": ""
+            }
+        
+        # Lấy tất cả messages
+        messages_result = service_client.table("messages").select("*").eq("conversation_id", conversation_id).order("created_at").execute()
+        
+        messages = []
+        for msg in messages_result.data:
+            messages.append({
+                "message_id": msg.get("message_id"),
+                "role": msg.get("role"),
+                "content": msg.get("content"),
+                "created_at": parse_and_format_vietnam_time(msg.get("created_at", "")),
+                "sequence": msg.get("sequence", 0)
+            })
+        
+        return AdminMessageListResponse(
+            conversation_id=conversation_id,
+            messages=messages,
+            total_messages=len(messages),
+            user_info=user_info
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Lỗi khi lấy messages: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Lỗi khi lấy messages: {str(e)}"
+        )
+
+@app.post(f"{PREFIX}/admin/messages/search", response_model=AdminMessageSearchResponse)
+async def admin_search_messages(
+    request: AdminMessageSearchRequest,
+    admin_user=Depends(require_admin_role)
+):
+    """
+    [ADMIN] Tìm kiếm tin nhắn trong toàn hệ thống
+    
+    - **query**: Từ khóa tìm kiếm
+    - **conversation_id**: Lọc theo conversation_id (tùy chọn)
+    - **user_id**: Lọc theo user_id (tùy chọn)
+    - **date_from**: Tìm từ ngày (tùy chọn)
+    - **date_to**: Tìm đến ngày (tùy chọn)
+    """
+    try:
+        service_client = get_service_supabase_client()
+        offset = (request.page - 1) * request.per_page
+        
+        # Build base query
+        query = service_client.table("messages").select("*, conversations!inner(user_id)", count="exact")
+        
+        # Add search filter
+        if request.query:
+            query = query.ilike("content", f"%{request.query}%")
+        
+        # Add other filters
+        if request.conversation_id:
+            query = query.eq("conversation_id", request.conversation_id)
+        if request.user_id:
+            query = query.eq("conversations.user_id", request.user_id)
+        if request.date_from:
+            query = query.gte("created_at", f"{request.date_from} 00:00:00")
+        if request.date_to:
+            query = query.lte("created_at", f"{request.date_to} 23:59:59")
+        
+        # Execute query
+        result = query.order("created_at", desc=True).range(offset, offset + request.per_page - 1).execute()
+        
+        messages = []
+        for msg in result.data:
+            # Lấy thông tin user
+            user_email = "Unknown"
+            if msg.get("conversations") and msg["conversations"].get("user_id"):
+                try:
+                    user_result = service_client.auth.admin.get_user_by_id(msg["conversations"]["user_id"])
+                    if hasattr(user_result, 'user') and user_result.user:
+                        user_email = user_result.user.email
+                except:
+                    pass
+            
+            messages.append({
+                "message_id": msg.get("message_id"),
+                "conversation_id": msg.get("conversation_id"),
+                "user_id": msg["conversations"]["user_id"] if msg.get("conversations") else None,
+                "user_email": user_email,
+                "role": msg.get("role"),
+                "content": msg.get("content"),
+                "created_at": parse_and_format_vietnam_time(msg.get("created_at", ""))
+            })
+        
+        total_count = result.count if hasattr(result, 'count') else len(messages)
+        
+        return AdminMessageSearchResponse(
+            messages=messages,
+            total_count=total_count,
+            page=request.page,
+            per_page=request.per_page,
+            search_query=request.query
+        )
+        
+    except Exception as e:
+        print(f"Lỗi khi tìm kiếm messages: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Lỗi khi tìm kiếm messages: {str(e)}"
+        )
+
+@app.delete(f"{PREFIX}/admin/conversations/{{conversation_id}}")
+async def admin_delete_conversation(
+    conversation_id: str = Path(..., description="ID của conversation cần xóa"),
+    admin_user=Depends(require_admin_role)
+):
+    """
+    [ADMIN] Xóa một conversation và tất cả messages liên quan
+    
+    - **conversation_id**: ID của conversation cần xóa
+    """
+    try:
+        service_client = get_service_supabase_client()
+        
+        # Kiểm tra conversation tồn tại
+        conv_result = service_client.table("conversations").select("*").eq("conversation_id", conversation_id).execute()
+        if not conv_result.data:
+            raise HTTPException(status_code=404, detail="Không tìm thấy conversation")
+        
+        # Xóa messages trước (do foreign key constraint)
+        service_client.table("messages").delete().eq("conversation_id", conversation_id).execute()
+        
+        # Xóa conversation
+        service_client.table("conversations").delete().eq("conversation_id", conversation_id).execute()
+        
+        print(f"✅ Admin {admin_user.email} đã xóa conversation {conversation_id}")
+        
+        return {
+            "status": "success",
+            "message": f"Đã xóa conversation {conversation_id} và tất cả tin nhắn liên quan"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Lỗi khi xóa conversation: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Lỗi khi xóa conversation: {str(e)}"
+        )
+
+@app.get(f"{PREFIX}/admin/files/stats")
+async def admin_get_files_stats(
+    admin_user=Depends(require_admin_role)
+):
+    """
+    [ADMIN] Lấy thống kê về files trong hệ thống
+    """
+    try:
+        service_client = get_service_supabase_client()
+        
+        # Lấy danh sách file từ database
+        try:
+            from src.supabase.files_manager import FilesManager
+            from src.supabase.client import SupabaseClient
+            
+            supabase_client_with_service_role = SupabaseClient(use_service_key=True)
+            client = supabase_client_with_service_role.get_client()
+            files_manager = FilesManager(client)
+            
+            # Lấy tất cả file từ database
+            db_files = files_manager.get_all_files(include_deleted=False)
+            
+            # Thống kê theo loại file
+            file_types = {}
+            file_categories = {}
+            total_size = 0
+            
+            for file in db_files:
+                # Xử lý extension
+                ext = os.path.splitext(file.get("filename", ""))[1].lower()
+                if ext:
+                    file_types[ext] = file_types.get(ext, 0) + 1
+                
+                # Xử lý category
+                metadata = file.get("metadata", {}) or {}
+                category = metadata.get("category", "Không phân loại")
+                file_categories[category] = file_categories.get(category, 0) + 1
+                
+                # Tính tổng dung lượng
+                file_size = metadata.get("file_size", 0)
+                total_size += file_size
+            
+            # Thống kê theo thời gian upload
+            today = datetime.now()
+            last_7_days = 0
+            last_30_days = 0
+            
+            for file in db_files:
+                upload_time = file.get("upload_time")
+                if not upload_time:
+                    continue
+                
+                try:
+                    upload_date = datetime.fromisoformat(upload_time.replace("Z", "+00:00"))
+                    days_diff = (today - upload_date).days
+                    
+                    if days_diff <= 7:
+                        last_7_days += 1
+                    if days_diff <= 30:
+                        last_30_days += 1
+                except:
+                    pass
+            
+            return {
+                "total_files": len(db_files),
+                "total_size": total_size,
+                "file_types": file_types,
+                "file_categories": file_categories,
+                "last_7_days": last_7_days,
+                "last_30_days": last_30_days
+            }
+            
+        except Exception as e:
+            print(f"Lỗi khi lấy thống kê files: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Lỗi khi lấy thống kê files: {str(e)}"
+            )
+            
+    except Exception as e:
+        print(f"Lỗi không xác định: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Lỗi không xác định: {str(e)}"
+        )
+
+@app.get(f"{PREFIX}/admin/conversations/stats", response_model=AdminConversationStatsResponse)
+async def admin_get_conversation_stats(
+    days: int = Query(7, ge=1, le=365, description="Số ngày thống kê"),
+    admin_user=Depends(require_admin_role)
+):
+    """
+    [ADMIN] Lấy thống kê về conversations và messages
+    
+    - **days**: Số ngày để thống kê (mặc định 7 ngày)
+    """
+    try:
+        service_client = get_service_supabase_client()
+        
+        # Tính ngày bắt đầu thống kê
+        start_date = (get_vietnam_time() - timedelta(days=days)).strftime("%Y-%m-%d")
+        
+        # Tổng conversations
+        total_conv_result = service_client.table("conversations").select("conversation_id", count="exact").execute()
+        total_conversations = total_conv_result.count if hasattr(total_conv_result, 'count') else 0
+        
+        # Tổng messages
+        total_msg_result = service_client.table("messages").select("message_id", count="exact").execute()
+        total_messages = total_msg_result.count if hasattr(total_msg_result, 'count') else 0
+        
+        # Tổng users (có conversation)
+        unique_users_result = service_client.table("conversations").select("user_id").execute()
+        unique_user_ids = set(conv["user_id"] for conv in unique_users_result.data) if unique_users_result.data else set()
+        total_users = len(unique_user_ids)
+        
+        # Conversations by date (7 ngày gần nhất)
+        conv_by_date_result = service_client.table("conversations").select("last_updated").gte("last_updated", start_date).execute()
+        
+        # Group by date
+        date_counts = {}
+        for conv in conv_by_date_result.data:
+            date_str = conv["last_updated"][:10]  # Lấy YYYY-MM-DD
+            date_counts[date_str] = date_counts.get(date_str, 0) + 1
+        
+        conversations_by_date = [
+            {"date": date, "count": count}
+            for date, count in sorted(date_counts.items())
+        ]
+        
+        # Messages by role
+        user_msg_result = service_client.table("messages").select("role", count="exact").eq("role", "user").execute()
+        assistant_msg_result = service_client.table("messages").select("role", count="exact").eq("role", "assistant").execute()
+        
+        messages_by_role = {
+            "user": user_msg_result.count if hasattr(user_msg_result, 'count') else 0,
+            "assistant": assistant_msg_result.count if hasattr(assistant_msg_result, 'count') else 0
+        }
+        
+        # Top users (by conversation count)
+        top_users = []
+        user_conv_counts = {}
+        for conv in unique_users_result.data:
+            user_id = conv["user_id"]
+            user_conv_counts[user_id] = user_conv_counts.get(user_id, 0) + 1
+        
+        # Sort và lấy top 10
+        sorted_users = sorted(user_conv_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+        
+        for user_id, conv_count in sorted_users:
+            try:
+                user_result = service_client.auth.admin.get_user_by_id(user_id)
+                if hasattr(user_result, 'user') and user_result.user:
+                    email = user_result.user.email
+                else:
+                    email = "Unknown"
+            except:
+                email = "Unknown"
+            
+            top_users.append({
+                "user_id": user_id,
+                "email": email,
+                "conversation_count": conv_count
+            })
+        
+        return AdminConversationStatsResponse(
+            total_conversations=total_conversations,
+            total_messages=total_messages,
+            total_users=total_users,
+            conversations_by_date=conversations_by_date,
+            messages_by_role=messages_by_role,
+            top_users=top_users
+        )
+        
+    except Exception as e:
+        print(f"Lỗi khi lấy thống kê: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Lỗi khi lấy thống kê: {str(e)}"
+        )
+
+
+
+# =====================================================================
+# END ADMIN CONVERSATION MANAGEMENT APIs  
+# =====================================================================
 
 if __name__ == "__main__":
     uvicorn.run("src.api:app", host="0.0.0.0", port=8000, reload=True)

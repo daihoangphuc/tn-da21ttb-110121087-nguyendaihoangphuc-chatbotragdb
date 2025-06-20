@@ -214,12 +214,18 @@ export const uploadApi = {
     try {
       console.log('Uploading file:', file.name, 'size:', file.size, 'type:', file.type);
       
+      // Kiểm tra kích thước file (10MB limit)
+      const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+      if (file.size > MAX_FILE_SIZE) {
+        throw new Error(`File quá lớn. Kích thước tối đa cho phép là 10MB. File của bạn: ${(file.size / (1024*1024)).toFixed(2)}MB`);
+      }
+      
       // Kiểm tra file có hợp lệ không
-      const validTypes = ['.pdf', '.docx', '.doc', '.txt', '.sql'];
+      const validTypes = ['.pdf', '.docx', '.doc', '.txt', '.sql', '.md'];
       const fileExtension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
       
       if (!validTypes.includes(fileExtension)) {
-        throw new Error(`Định dạng file ${fileExtension} không được hỗ trợ. Vui lòng sử dụng: PDF, DOCX, TXT hoặc SQL.`);
+        throw new Error(`Định dạng file ${fileExtension} không được hỗ trợ. Vui lòng sử dụng: PDF, DOCX, TXT, SQL hoặc MD.`);
       }
       
       // Tạo FormData

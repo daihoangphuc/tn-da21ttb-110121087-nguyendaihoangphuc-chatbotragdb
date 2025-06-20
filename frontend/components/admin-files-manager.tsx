@@ -229,12 +229,12 @@ export function AdminFilesManager() {
         return;
       }
 
-      // Check file size (50MB limit)
-      if (file.size > 50 * 1024 * 1024) {
+      // Check file size (10MB limit)
+      if (file.size > 10 * 1024 * 1024) {
         toast({
           variant: "destructive",
           title: "Lỗi",
-          description: "File không được lớn hơn 50MB"
+          description: "File không được lớn hơn 10MB"
         });
         return;
       }
@@ -378,7 +378,7 @@ export function AdminFilesManager() {
                   <DialogHeader>
                     <DialogTitle>Upload tài liệu mới</DialogTitle>
                     <DialogDescription>
-                      Chọn tài liệu để upload vào hệ thống. Hỗ trợ PDF, DOCX, TXT, MD, SQL.
+                      Chọn tài liệu để upload vào hệ thống. Hỗ trợ PDF, DOCX, TXT, MD, SQL (tối đa 10MB).
                     </DialogDescription>
                   </DialogHeader>
                   <div className="grid gap-4 py-4">

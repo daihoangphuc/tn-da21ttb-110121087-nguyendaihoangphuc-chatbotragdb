@@ -135,11 +135,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       // Tạo hội thoại mới sau khi đăng nhập thành công
       try {
-        const conversationResponse = await conversationsApi.createConversation();
-        if (conversationResponse && conversationResponse.conversation_id) {
-          // Lưu conversation_id vào localStorage để MainLayout có thể sử dụng
-          setLocalStorage("current_conversation_id", conversationResponse.conversation_id);
-          console.log("Đã tạo hội thoại mới:", conversationResponse.conversation_id);
+        // Chỉ tạo conversation mới khi user không phải là admin
+        if (response.user.role !== "admin") {
+          const conversationResponse = await conversationsApi.createConversation();
+          if (conversationResponse && conversationResponse.conversation_id) {
+            // Lưu conversation_id vào localStorage để MainLayout có thể sử dụng
+            setLocalStorage("current_conversation_id", conversationResponse.conversation_id);
+            console.log("Đã tạo hội thoại mới:", conversationResponse.conversation_id);
+          }
+        } else {
+          console.log("Bỏ qua việc tạo hội thoại mới vì người dùng có vai trò admin");
         }
       } catch (error) {
         console.log("Không thể tạo hội thoại mới sau khi đăng nhập, sẽ tạo khi cần thiết");
@@ -151,10 +156,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         description: "Đăng nhập thành công. Chào mừng bạn quay trở lại!",
       });
 
-      // Chuyển hướng trực tiếp đến trang chủ bằng cách thay đổi location.href
+      // Chuyển hướng trực tiếp sau khi đăng nhập thành công
       // Bọc trong setTimeout để đảm bảo toast message được hiển thị
       setTimeout(() => {
-        window.location.href = "/";
+        // Nếu là admin, chuyển tới trang admin dashboard
+        if (response.user.role === "admin") {
+          window.location.href = "/admin";
+        } else {
+          // Nếu là student hoặc vai trò khác, chuyển về trang chủ
+          window.location.href = "/";
+        }
       }, 0);
       
       return response;
@@ -197,10 +208,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       // Tạo hội thoại mới sau khi đăng ký thành công
       try {
-        const conversationResponse = await conversationsApi.createConversation();
-        if (conversationResponse && conversationResponse.conversation_id) {
-          // Lưu conversation_id vào localStorage để MainLayout có thể sử dụng
-          setLocalStorage("current_conversation_id", conversationResponse.conversation_id);
+        // Chỉ tạo conversation mới khi user không phải là admin
+        if (response.user.role !== "admin") {
+          const conversationResponse = await conversationsApi.createConversation();
+          if (conversationResponse && conversationResponse.conversation_id) {
+            // Lưu conversation_id vào localStorage để MainLayout có thể sử dụng
+            setLocalStorage("current_conversation_id", conversationResponse.conversation_id);
+            console.log("Đã tạo hội thoại mới sau khi đăng ký:", conversationResponse.conversation_id);
+          }
+        } else {
+          console.log("Bỏ qua việc tạo hội thoại mới vì người dùng có vai trò admin");
         }
       } catch (error) {
         console.log("Không thể tạo hội thoại mới sau khi đăng ký, sẽ tạo khi cần thiết");

@@ -45,8 +45,8 @@ export function AdminSettings() {
               <Input
                 id="max-file-size"
                 type="number"
-                placeholder="50"
-                defaultValue="50"
+                placeholder="10"
+                defaultValue="10"
               />
             </div>
           </div>
