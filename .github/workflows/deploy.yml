@@ -15,9 +15,8 @@ jobs:
     outputs:
       env: ${{ steps.vars.outputs.env }}
       tag: ${{ steps.vars.outputs.tag }}
-      frontend_domain: ${{ steps.vars.outputs.frontend_domain }}
-      backend_domain: ${{ steps.vars.outputs.backend_domain }}
-      api_url: ${{ steps.vars.outputs.api_url }}
+      is_production: ${{ steps.vars.outputs.is_production }}
+      is_staging: ${{ steps.vars.outputs.is_staging }}
       sha_short: ${{ steps.vars.outputs.sha_short }}
     steps:
       - name: Set environment variables
@@ -26,21 +25,18 @@ jobs:
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "env=production" >> $GITHUB_OUTPUT
             echo "tag=latest" >> $GITHUB_OUTPUT
-            echo "frontend_domain=https://chat.phucndh.me" >> $GITHUB_OUTPUT
-            echo "backend_domain=https://api.phucndh.me" >> $GITHUB_OUTPUT
-            echo "api_url=https://api.phucndh.me/api" >> $GITHUB_OUTPUT
+            echo "is_production=true" >> $GITHUB_OUTPUT
+            echo "is_staging=false" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
             echo "env=staging" >> $GITHUB_OUTPUT
             echo "tag=staging" >> $GITHUB_OUTPUT
-            echo "frontend_domain=https://staging.chat.phucndh.me" >> $GITHUB_OUTPUT
-            echo "backend_domain=https://staging.api.phucndh.me" >> $GITHUB_OUTPUT
-            echo "api_url=https://staging.api.phucndh.me/api" >> $GITHUB_OUTPUT
+            echo "is_production=false" >> $GITHUB_OUTPUT
+            echo "is_staging=true" >> $GITHUB_OUTPUT
           else
             echo "env=development" >> $GITHUB_OUTPUT
             echo "tag=dev" >> $GITHUB_OUTPUT
-            echo "frontend_domain=http://${{ secrets.VPS_HOST }}:3000" >> $GITHUB_OUTPUT
-            echo "backend_domain=http://${{ secrets.VPS_HOST }}:8000" >> $GITHUB_OUTPUT
-            echo "api_url=http://${{ secrets.VPS_HOST }}:8000/api" >> $GITHUB_OUTPUT
+            echo "is_production=false" >> $GITHUB_OUTPUT
+            echo "is_staging=false" >> $GITHUB_OUTPUT
           fi
           echo "sha_short=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
 
@@ -76,14 +72,28 @@ jobs:
         if: matrix.service == 'backend'
         run: |
           echo "${{ secrets.BACKEND_ENV }}" > .env.backend
-          echo "FRONTEND_URL=${{ needs.setup.outputs.frontend_domain }}" >> .env.backend
-          echo "CORS_ORIGINS=${{ needs.setup.outputs.frontend_domain }}" >> .env.backend
+          if [[ "${{ needs.setup.outputs.is_production }}" == "true" ]]; then
+            echo "FRONTEND_URL=https://chat.phucndh.me" >> .env.backend
+            echo "CORS_ORIGINS=https://chat.phucndh.me" >> .env.backend
+          elif [[ "${{ needs.setup.outputs.is_staging }}" == "true" ]]; then
+            echo "FRONTEND_URL=https://staging.chat.phucndh.me" >> .env.backend
+            echo "CORS_ORIGINS=https://staging.chat.phucndh.me" >> .env.backend
+          else
+            echo "FRONTEND_URL=http://${{ secrets.VPS_HOST }}:3000" >> .env.backend
+            echo "CORS_ORIGINS=http://${{ secrets.VPS_HOST }}:3000" >> .env.backend
+          fi
 
       - name: Prepare frontend env file
         if: matrix.service == 'frontend'
         run: |
           echo "${{ secrets.FRONTEND_ENV }}" > .env.frontend
-          echo "NEXT_PUBLIC_API_URL=${{ needs.setup.outputs.api_url }}" >> .env.frontend
+          if [[ "${{ needs.setup.outputs.is_production }}" == "true" ]]; then
+            echo "NEXT_PUBLIC_API_URL=https://api.phucndh.me/api" >> .env.frontend
+          elif [[ "${{ needs.setup.outputs.is_staging }}" == "true" ]]; then
+            echo "NEXT_PUBLIC_API_URL=https://staging.api.phucndh.me/api" >> .env.frontend
+          else
+            echo "NEXT_PUBLIC_API_URL=http://${{ secrets.VPS_HOST }}:8000/api" >> .env.frontend
+          fi
 
       - name: Build and push backend image
         if: matrix.service == 'backend'
@@ -101,6 +111,18 @@ jobs:
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
 
+      - name: Set frontend build args
+        if: matrix.service == 'frontend'
+        id: frontend_args
+        run: |
+          if [[ "${{ needs.setup.outputs.is_production }}" == "true" ]]; then
+            echo "api_url=https://api.phucndh.me/api" >> $GITHUB_OUTPUT
+          elif [[ "${{ needs.setup.outputs.is_staging }}" == "true" ]]; then
+            echo "api_url=https://staging.api.phucndh.me/api" >> $GITHUB_OUTPUT
+          else
+            echo "api_url=http://${{ secrets.VPS_HOST }}:8000/api" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build and push frontend image
         if: matrix.service == 'frontend'
         uses: docker/build-push-action@v5
@@ -113,7 +135,7 @@ jobs:
             ${{ env.DOCKERHUB_REGISTRY }}/db-rag-frontend:${{ needs.setup.outputs.sha_short }}
           build-args: |
             ENV_FILE=.env.frontend
-            NEXT_PUBLIC_API_URL=${{ needs.setup.outputs.api_url }}
+            NEXT_PUBLIC_API_URL=${{ steps.frontend_args.outputs.api_url }}
           platforms: linux/amd64
           pull: true
 
@@ -137,9 +159,21 @@ jobs:
           echo "${{ secrets.BACKEND_ENV }}" > .env
           echo "DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}" >> .env
           echo "TAG=${{ needs.setup.outputs.tag }}" >> .env
-          echo "FRONTEND_URL=${{ needs.setup.outputs.frontend_domain }}" >> .env
-          echo "CORS_ORIGINS=${{ needs.setup.outputs.frontend_domain }}" >> .env
-          echo "NEXT_PUBLIC_API_URL=${{ needs.setup.outputs.api_url }}" >> .env
+          
+          # Set URLs based on environment
+          if [[ "${{ needs.setup.outputs.is_production }}" == "true" ]]; then
+            echo "FRONTEND_URL=https://chat.phucndh.me" >> .env
+            echo "CORS_ORIGINS=https://chat.phucndh.me" >> .env
+            echo "NEXT_PUBLIC_API_URL=https://api.phucndh.me/api" >> .env
+          elif [[ "${{ needs.setup.outputs.is_staging }}" == "true" ]]; then
+            echo "FRONTEND_URL=https://staging.chat.phucndh.me" >> .env
+            echo "CORS_ORIGINS=https://staging.chat.phucndh.me" >> .env
+            echo "NEXT_PUBLIC_API_URL=https://staging.api.phucndh.me/api" >> .env
+          else
+            echo "FRONTEND_URL=http://${{ secrets.VPS_HOST }}:3000" >> .env
+            echo "CORS_ORIGINS=http://${{ secrets.VPS_HOST }}:3000" >> .env
+            echo "NEXT_PUBLIC_API_URL=http://${{ secrets.VPS_HOST }}:8000/api" >> .env
+          fi
           
           # Copy docker-compose.yml từ src
           cp src/docker-compose.yml ./docker-compose.yml
