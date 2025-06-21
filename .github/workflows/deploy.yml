@@ -3,10 +3,49 @@ name: CI/CD Pipeline
 on:
   push:
     branches:
-      - required
+      - require_v2
+
+env:
+  DOCKERHUB_REGISTRY: ${{ secrets.DOCKERHUB_USERNAME }}
 
 jobs:
+  # Job để set environment variables một lần duy nhất
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      env: ${{ steps.vars.outputs.env }}
+      tag: ${{ steps.vars.outputs.tag }}
+      frontend_domain: ${{ steps.vars.outputs.frontend_domain }}
+      backend_domain: ${{ steps.vars.outputs.backend_domain }}
+      api_url: ${{ steps.vars.outputs.api_url }}
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+    steps:
+      - name: Set environment variables
+        id: vars
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "env=production" >> $GITHUB_OUTPUT
+            echo "tag=latest" >> $GITHUB_OUTPUT
+            echo "frontend_domain=https://chat.phucndh.me" >> $GITHUB_OUTPUT
+            echo "backend_domain=https://api.phucndh.me" >> $GITHUB_OUTPUT
+            echo "api_url=https://api.phucndh.me/api" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+            echo "env=staging" >> $GITHUB_OUTPUT
+            echo "tag=staging" >> $GITHUB_OUTPUT
+            echo "frontend_domain=https://staging.chat.phucndh.me" >> $GITHUB_OUTPUT
+            echo "backend_domain=https://staging.api.phucndh.me" >> $GITHUB_OUTPUT
+            echo "api_url=https://staging.api.phucndh.me/api" >> $GITHUB_OUTPUT
+          else
+            echo "env=development" >> $GITHUB_OUTPUT
+            echo "tag=dev" >> $GITHUB_OUTPUT
+            echo "frontend_domain=http://${{ secrets.VPS_HOST }}:3000" >> $GITHUB_OUTPUT
+            echo "backend_domain=http://${{ secrets.VPS_HOST }}:8000" >> $GITHUB_OUTPUT
+            echo "api_url=http://${{ secrets.VPS_HOST }}:8000/api" >> $GITHUB_OUTPUT
+          fi
+          echo "sha_short=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
+
   build-and-push:
+    needs: setup
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -15,31 +54,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set environment variables
-        id: vars
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "ENV=production" >> $GITHUB_OUTPUT
-            echo "TAG=latest" >> $GITHUB_OUTPUT
-            echo "FRONTEND_DOMAIN=https://chat.phucndh.me" >> $GITHUB_OUTPUT
-            echo "BACKEND_DOMAIN=https://api.phucndh.me" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
-            echo "ENV=staging" >> $GITHUB_OUTPUT
-            echo "TAG=staging" >> $GITHUB_OUTPUT
-            echo "FRONTEND_DOMAIN=https://staging.chat.phucndh.me" >> $GITHUB_OUTPUT
-            echo "BACKEND_DOMAIN=https://staging.api.phucndh.me" >> $GITHUB_OUTPUT
-          else
-            echo "ENV=development" >> $GITHUB_OUTPUT
-            echo "TAG=dev" >> $GITHUB_OUTPUT
-            echo "FRONTEND_DOMAIN=http://${{ secrets.VPS_HOST }}:3000" >> $GITHUB_OUTPUT
-            echo "BACKEND_DOMAIN=http://${{ secrets.VPS_HOST }}:8000" >> $GITHUB_OUTPUT
-          fi
-          echo "SHA_SHORT=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Không sử dụng cache cho frontend để đảm bảo rebuild hoàn toàn
       - name: Cache Docker layers
         if: matrix.service != 'frontend'
         uses: actions/cache@v3
@@ -59,22 +76,14 @@ jobs:
         if: matrix.service == 'backend'
         run: |
           echo "${{ secrets.BACKEND_ENV }}" > .env.backend
-          echo "FRONTEND_URL=${{ steps.vars.outputs.FRONTEND_DOMAIN }}" >> .env.backend
-          echo "CORS_ORIGINS=${{ steps.vars.outputs.FRONTEND_DOMAIN }}" >> .env.backend
+          echo "FRONTEND_URL=${{ needs.setup.outputs.frontend_domain }}" >> .env.backend
+          echo "CORS_ORIGINS=${{ needs.setup.outputs.frontend_domain }}" >> .env.backend
 
       - name: Prepare frontend env file
         if: matrix.service == 'frontend'
         run: |
           echo "${{ secrets.FRONTEND_ENV }}" > .env.frontend
-          # Force HTTPS for production and staging
-          if [[ "${{ steps.vars.outputs.ENV }}" == "production" || "${{ steps.vars.outputs.ENV }}" == "staging" ]]; then
-            echo "NEXT_PUBLIC_API_URL=https://api.phucndh.me/api" >> .env.frontend
-          else
-            echo "NEXT_PUBLIC_API_URL=${{ steps.vars.outputs.BACKEND_DOMAIN }}/api" >> .env.frontend
-          fi
-          # Debug info
-          echo "Environment: ${{ steps.vars.outputs.ENV }}"
-          echo "API URL: $(grep NEXT_PUBLIC_API_URL .env.frontend)"
+          echo "NEXT_PUBLIC_API_URL=${{ needs.setup.outputs.api_url }}" >> .env.frontend
 
       - name: Build and push backend image
         if: matrix.service == 'backend'
@@ -84,8 +93,8 @@ jobs:
           file: src/Dockerfile.backend
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/db-rag-backend:${{ steps.vars.outputs.TAG }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/db-rag-backend:${{ steps.vars.outputs.SHA_SHORT }}
+            ${{ env.DOCKERHUB_REGISTRY }}/db-rag-backend:${{ needs.setup.outputs.tag }}
+            ${{ env.DOCKERHUB_REGISTRY }}/db-rag-backend:${{ needs.setup.outputs.sha_short }}
           build-args: |
             ENV_FILE=.env.backend
           platforms: linux/amd64
@@ -100,11 +109,11 @@ jobs:
           file: src/Dockerfile.frontend
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/db-rag-frontend:${{ steps.vars.outputs.TAG }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/db-rag-frontend:${{ steps.vars.outputs.SHA_SHORT }}
+            ${{ env.DOCKERHUB_REGISTRY }}/db-rag-frontend:${{ needs.setup.outputs.tag }}
+            ${{ env.DOCKERHUB_REGISTRY }}/db-rag-frontend:${{ needs.setup.outputs.sha_short }}
           build-args: |
             ENV_FILE=.env.frontend
-            NEXT_PUBLIC_API_URL=https://api.phucndh.me/api
+            NEXT_PUBLIC_API_URL=${{ needs.setup.outputs.api_url }}
           platforms: linux/amd64
           pull: true
 
@@ -115,60 +124,27 @@ jobs:
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
   deploy:
-    needs: build-and-push
+    needs: [setup, build-and-push]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set environment variables
-        id: vars
+      - name: Create deployment files
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "ENV=production" >> $GITHUB_OUTPUT
-            echo "TAG=latest" >> $GITHUB_OUTPUT
-            echo "FRONTEND_DOMAIN=https://chat.phucndh.me" >> $GITHUB_OUTPUT
-            echo "BACKEND_DOMAIN=https://api.phucndh.me" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
-            echo "ENV=staging" >> $GITHUB_OUTPUT
-            echo "TAG=staging" >> $GITHUB_OUTPUT
-            echo "FRONTEND_DOMAIN=https://staging.chat.phucndh.me" >> $GITHUB_OUTPUT
-            echo "BACKEND_DOMAIN=https://staging.api.phucndh.me" >> $GITHUB_OUTPUT
-          else
-            echo "ENV=development" >> $GITHUB_OUTPUT
-            echo "TAG=dev" >> $GITHUB_OUTPUT
-            echo "FRONTEND_DOMAIN=http://${{ secrets.VPS_HOST }}:3000" >> $GITHUB_OUTPUT
-            echo "BACKEND_DOMAIN=http://${{ secrets.VPS_HOST }}:8000" >> $GITHUB_OUTPUT
-          fi
-          echo "SHA_SHORT=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
-
-      - name: Create .env file
-        run: |
+          # Tạo .env file cho deployment
           echo "${{ secrets.BACKEND_ENV }}" > .env
           echo "DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}" >> .env
-          echo "TAG=${{ steps.vars.outputs.TAG }}" >> .env
-          echo "FRONTEND_URL=${{ steps.vars.outputs.FRONTEND_DOMAIN }}" >> .env
-          echo "CORS_ORIGINS=${{ steps.vars.outputs.FRONTEND_DOMAIN }}" >> .env
-
-      - name: Create docker-compose override
-        run: |
-          cat > docker-compose.override.yml << EOF
-          version: '3'
-          services:
-            backend:
-              image: \${DOCKERHUB_USERNAME}/db-rag-backend:\${TAG}
-              environment:
-                - FRONTEND_URL=${{ steps.vars.outputs.FRONTEND_DOMAIN }}
-                - CORS_ORIGINS=${{ steps.vars.outputs.FRONTEND_DOMAIN }}
-            frontend:
-              image: \${DOCKERHUB_USERNAME}/db-rag-frontend:\${TAG}
-              environment:
-                - NEXT_PUBLIC_API_URL=https://api.phucndh.me/api
-          EOF
-
-      - name: Create nginx config for backend
-        run: |
+          echo "TAG=${{ needs.setup.outputs.tag }}" >> .env
+          echo "FRONTEND_URL=${{ needs.setup.outputs.frontend_domain }}" >> .env
+          echo "CORS_ORIGINS=${{ needs.setup.outputs.frontend_domain }}" >> .env
+          echo "NEXT_PUBLIC_API_URL=${{ needs.setup.outputs.api_url }}" >> .env
+          
+          # Copy docker-compose.yml từ src
+          cp src/docker-compose.yml ./docker-compose.yml
+          
+          # Tạo nginx config cho backend
           cat > nginx-backend.conf << EOF
           server {
               listen 80;
@@ -196,6 +172,7 @@ jobs:
           }
           EOF
           
+          # Tạo nginx config cho frontend
           cat > nginx-frontend.conf << EOF
           server {
               listen 80;
@@ -223,18 +200,13 @@ jobs:
           }
           EOF
 
-      - name: Prepare docker-compose file
-        run: |
-          # Copy docker-compose.yml ra root để dễ copy
-          cp src/docker-compose.yml ./docker-compose.yml
-
       - name: Copy files to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: "docker-compose.yml,docker-compose.override.yml,.env,nginx-backend.conf,nginx-frontend.conf"
+          source: "docker-compose.yml,.env,nginx-backend.conf,nginx-frontend.conf"
           target: "~/app"
 
       - name: Deploy on VPS via SSH
@@ -246,35 +218,28 @@ jobs:
           script: |
             cd ~/app
             
-            # Kiểm tra và cài đặt Nginx nếu chưa có
+            # Cài đặt và cấu hình Nginx
             if ! command -v nginx &> /dev/null; then
-                sudo apt update
-                sudo apt install -y nginx
+                sudo apt update && sudo apt install -y nginx
             fi
             
-            # Kiểm tra và cài đặt Certbot nếu chưa có
+            # Cài đặt Certbot
             if ! command -v certbot &> /dev/null; then
-                sudo apt update
-                sudo apt install -y certbot python3-certbot-nginx
+                sudo apt update && sudo apt install -y certbot python3-certbot-nginx
             fi
             
             # Cấu hình Nginx
             sudo cp nginx-backend.conf /etc/nginx/sites-available/api.phucndh.me
             sudo cp nginx-frontend.conf /etc/nginx/sites-available/chat.phucndh.me
             
-            # Tạo symbolic link nếu chưa tồn tại
-            if [ ! -f /etc/nginx/sites-enabled/api.phucndh.me ]; then
-                sudo ln -s /etc/nginx/sites-available/api.phucndh.me /etc/nginx/sites-enabled/
-            fi
+            # Tạo symbolic links
+            sudo ln -sf /etc/nginx/sites-available/api.phucndh.me /etc/nginx/sites-enabled/
+            sudo ln -sf /etc/nginx/sites-available/chat.phucndh.me /etc/nginx/sites-enabled/
             
-            if [ ! -f /etc/nginx/sites-enabled/chat.phucndh.me ]; then
-                sudo ln -s /etc/nginx/sites-available/chat.phucndh.me /etc/nginx/sites-enabled/
-            fi
-            
-            # Kiểm tra cấu hình Nginx
+            # Test nginx config
             sudo nginx -t
             
-            # Tạo SSL certificate nếu chưa tồn tại
+            # Tạo SSL certificates nếu chưa có
             if [ ! -d /etc/letsencrypt/live/api.phucndh.me ]; then
                 sudo certbot --nginx -d api.phucndh.me --non-interactive --agree-tos -m admin@phucndh.me
             fi
@@ -283,37 +248,22 @@ jobs:
                 sudo certbot --nginx -d chat.phucndh.me --non-interactive --agree-tos -m admin@phucndh.me
             fi
             
-            # Khởi động lại Nginx
+            # Restart nginx
             sudo systemctl restart nginx
             
-            # Xóa container cũ
+            # Deploy application
             docker compose down
-            
-            # Xóa image frontend cũ để đảm bảo pull image mới
             docker rmi $(docker images | grep "db-rag-frontend" | awk '{print $3}') -f || true
-            
-            # Deploy ứng dụng
             docker compose pull
             docker compose up -d --remove-orphans
             
-            # Đợi frontend container khởi động
-            echo "Waiting for frontend container to start..."
-            sleep 10
+            # Wait for services to start
+            echo "Waiting for services to start..."
+            sleep 15
             
-            # Hiển thị thông tin debug sau khi deploy
-            echo "Environment variables after deployment:"
-            docker exec app-frontend-1 env | grep NEXT_PUBLIC || echo "Frontend container not running or not accessible"
-            
-            # Kiểm tra URL API trong frontend
-            echo "Checking API URL in frontend container:"
-            docker exec app-frontend-1 cat /app/.next/static/chunks/*.js | grep -o "http://[^\"]*" || echo "No hardcoded HTTP URLs found"
-            docker exec app-frontend-1 cat /app/.next/static/chunks/*.js | grep -o "https://[^\"]*" || echo "No hardcoded HTTPS URLs found"
-            
-            # Xóa các images không có tag (dangling images)
+            # Cleanup old images
             docker image prune -f
-            
-            # Xóa cụ thể các images có tag <none>
             docker images | grep "<none>" | awk '{print $3}' | xargs -r docker rmi -f
-            
-            # Xóa các container không sử dụng và các network không sử dụng
             docker system prune -f --filter "until=24h"
+            
+            echo "✅ Deployment completed successfully!"
