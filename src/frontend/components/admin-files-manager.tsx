@@ -141,7 +141,8 @@ export function AdminFilesManager() {
       }
 
       // Use the same API base URL as fetchApi
-      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://34.30.191.213:8000/api';
+      const { getApiUrl } = await import('@/lib/config');
+      const API_BASE_URL = getApiUrl();
       const url = `${API_BASE_URL}/upload`;
       
       console.log('Uploading to URL:', url);
@@ -294,7 +295,7 @@ export function AdminFilesManager() {
   });
 
   // Get unique categories
-  const categories = Array.from(new Set(files.map(f => f.category).filter(Boolean)));
+  const categories = Array.from(new Set(files.map(f => f.category).filter(Boolean))) as string[];
 
   return (
     <div className="space-y-6 relative">

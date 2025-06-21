@@ -6,9 +6,10 @@ import {
   AuthResponse, 
   ForgotPasswordResponse 
 } from '@/types/auth';
+import { getApiUrl } from '@/lib/config';
 
-// Định nghĩa URL cơ sở cho API
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://34.30.191.213:8000/api';
+// Định nghĩa URL cơ sở cho API - sử dụng dynamic config
+export const API_BASE_URL = getApiUrl();
 
 // Hàm tiện ích để truy cập localStorage an toàn
 const getLocalStorage = (key: string): string | null => {
