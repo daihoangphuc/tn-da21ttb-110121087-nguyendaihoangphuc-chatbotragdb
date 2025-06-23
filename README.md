@@ -52,34 +52,38 @@ cd V2
 
 ### 2. Cấu hình môi trường
 
-Tạo file `.env` trong thư mục `src/`:
+Tạo file `.env` trong thư mục `src/` bằng cách copy nội dung dưới đây:
 
 ```bash
-cp src/.env.example src/.env
-```
-
-Chỉnh sửa file `src/.env` với thông tin của bạn:
-
-```env
+# src/.env
 # Supabase Configuration
-SUPABASE_URL=your-supabase-url
-SUPABASE_KEY=your-supabase-anon-key
-SUPABASE_SERVICE_KEY=your-supabase-service-key
-
-# API Configuration
-API_PREFIX=/api
-FRONTEND_URL=http://localhost:3000
-CORS_ORIGINS=http://localhost:3000
+SUPABASE_URL="your-supabase-url"
+SUPABASE_KEY="your-supabase-anon-key"
+SUPABASE_SERVICE_KEY="your-supabase-service-key"
 
 # LLM Configuration
-GEMINI_API_KEY=your-gemini-api-key
+GEMINI_API_KEY="your-gemini-api-key"
 
-# Vector Store Configuration
-QDRANT_URL=your-qdrant-url
-QDRANT_API_KEY=your-qdrant-api-key
+# Vector Store Configuration (nếu dùng Qdrant)
+QDRANT_URL="your-qdrant-url"
+QDRANT_API_KEY="your-qdrant-api-key"
+
+# Environment variables for Docker Compose
+# Các biến này được sử dụng khi chạy với docker-compose
+DOCKERHUB_USERNAME="your-dockerhub-username"
+TAG="latest"
+FRONTEND_URL="http://localhost:3000"
+CORS_ORIGINS="http://localhost:3000"
+NEXT_PUBLIC_API_URL="http://localhost:8000/api"
 ```
 
-### 3. Chạy hệ thống với Docker
+**Lưu ý:**
+- Các biến `SUPABASE_*` và `GEMINI_API_KEY` là bắt buộc cho cả khi chạy bằng Docker và chạy local.
+- Các biến còn lại (`DOCKERHUB_USERNAME`, `TAG`, `FRONTEND_URL`, `CORS_ORIGINS`, `NEXT_PUBLIC_API_URL`) chủ yếu dành cho `docker-compose`. Khi chạy local, các giá trị này sẽ được override bởi code.
+
+### 3. Chạy hệ thống với Docker (Khuyến khích)
+
+Đây là cách đơn giản nhất để chạy toàn bộ hệ thống.
 
 ```bash
 cd src
@@ -87,22 +91,36 @@ docker-compose up --build
 ```
 
 Hệ thống sẽ khởi động với:
-- Backend: http://localhost:8000
-- Frontend: http://localhost:3000
+- **Backend:** `http://localhost:8000` (API docs tại `http://localhost:8000/docs`)
+- **Frontend:** `http://localhost:3000`
 
-### 4. Chạy riêng từng service (nếu cần)
+Frontend đã được cấu hình để tự động kết nối với backend qua địa chỉ trên.
 
-**Chỉ backend:**
+### 4. Chạy riêng từng service (Dành cho Development)
+
+Nếu bạn muốn phát triển và xem thay đổi ngay lập tức (hot-reloading).
+
+**Chạy Backend:**
 ```bash
-cd src
-docker-compose up backend --build
-```
+# Từ thư mục gốc V2/
+cd src/backend
+python -m venv venv
+source venv/bin/activate  # Trên Windows: venv\Scripts\activate
+pip install -r ../requirements.txt
 
-**Chỉ frontend:**
-```bash
-cd src
-docker-compose up frontend --build
+# Chạy FastAPI server
+uvicorn api:app --reload --host 0.0.0.0 --port 8000
 ```
+- **Quan trọng:** Backend cần các biến môi trường `SUPABASE_*` và `GEMINI_API_KEY`. Hãy đảm bảo file `src/.env` đã được tạo và cấu hình đúng. Backend sẽ tự động đọc file này.
+
+**Chạy Frontend:**
+```bash
+# Từ thư mục gốc V2/
+cd src/frontend
+pnpm install
+pnpm dev
+```
+- Frontend sẽ chạy tại `http://localhost:3000` và tự động kết nối đến backend tại `http://localhost:8000/api` nhờ cấu hình trong `src/frontend/lib/config.ts`. Bạn không cần set `NEXT_PUBLIC_API_URL` khi chạy local.
 
 ## Phát triển (Development)
 

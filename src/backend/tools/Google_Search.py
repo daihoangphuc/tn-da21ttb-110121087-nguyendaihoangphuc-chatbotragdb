@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SearchConfig:
     """Cấu hình cho Google Search tool"""
-    max_results: int = 1
+    max_results: int = 3
     include_answer: bool = True
     include_raw_content: bool = True
     temperature: float = 0.0
