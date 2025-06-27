@@ -352,7 +352,7 @@ class AdvancedDatabaseRAG:
     async def semantic_search_async(
         self,
         query: str,
-        k: int = 10,
+        k: int = 15,
         sources: List[str] = None,
         file_id: List[str] = None,
     ) -> List[Dict]:
@@ -394,7 +394,7 @@ class AdvancedDatabaseRAG:
     def semantic_search(
         self,
         query: str,
-        k: int = 10,
+        k: int = 15,
         sources: List[str] = None,
         file_id: List[str] = None,
     ) -> List[Dict]:
@@ -444,7 +444,7 @@ class AdvancedDatabaseRAG:
     async def query_with_sources_streaming(
         self,
         query: str,
-        k: int = 10,
+        k: int = 15,
         sources: List[str] = None,
         file_id: List[str] = None,
         conversation_history: str = None,
@@ -778,7 +778,7 @@ class AdvancedDatabaseRAG:
 
         # Chuẩn bị context từ các kết quả đã rerank
         context_docs = []
-        for i, result in enumerate(reranked_results[:10]):  
+        for i, result in enumerate(reranked_results[:15]):  
             # Chuẩn bị metadata
             metadata = result.get("metadata", {})
             source = metadata.get("source", "unknown")

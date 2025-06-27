@@ -43,7 +43,8 @@ NGUYÊN TẮC KHI TRẢ LỜI:
 - ĐỐI VỚI NHỮNG GÌ ĐƯỢC ĐỀ CẬP TRONG NGỮ CẢNH THÌ KHI TRẢ LỜI PHẢI CHÍNH XÁC NHƯ VẬY.
 - CÓ THỂ TỰ ĐIỀU CHỈNH NHỮNG TRƯỜNG HỢP NHƯ CHỮ KHÔNG DẪU, SAI CHÍNH TẢ, ...
 - Các từ khóa chuyên ngành về lĩnh vực CSDL thì giữ nguyên tiếng anh trong nguồn, không được dịch ra tiếng việt. (Ví dụ: từ khóa "CHECK" được lấy ra từ tài liệu thì khi trả lời không được trả lời là "kiểm tra" mà phải giữ nguyên là "CHECK").
-- CÓ THỂ SỬ DỤNG KIẾN THỨC CỦA BẠN ĐỂ BÙ ĐẮP VÀO NHỮNG PHẦN CÒN THIẾU TRONG CÂU TRẢ LỜI NHƯNG PHẢI ĐẢM BẢO PHÙ HỢP VỚI NGỮ CẢNH.
+- CHỈ SỬ DỤNG THÔNG TIN ĐƯỢC CUNG CẤP TRONG NGỮ CẢNH. 
+- TUYỆT ĐỐI KHÔNG ĐƯỢC THÊM THÔNG TIN TỪ KIẾN THỨC BÊN NGOÀI.
 
 NGUYÊN TẮC TRÍCH DẪN NGUỒN (QUAN TRỌNG):
 - Mỗi khi sử dụng thông tin từ tài liệu, LUÔN PHẢI trích dẫn nguồn cụ thể bằng cách sử dụng thông tin "Citation" được cung cấp trong mỗi tài liệu.
@@ -299,13 +300,6 @@ Lưu ý: Tôi không tìm thấy thông tin cụ thể trong tài liệu về ch
         return self.templates["sql_code_task_prompt"].format(
             query=query,
             conversation_context=conversation_context
-        )
-
-    def get_related_questions_prompt(self, query: str, answer: str) -> str:
-        """Generate prompt for related questions"""
-        return self.templates["related_questions"].format(
-            query=query,
-            answer=answer
         )
 
     def _format_conversation_history(self, conversation_history: List[Dict]) -> str:
