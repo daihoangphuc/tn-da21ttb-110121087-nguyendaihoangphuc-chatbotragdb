@@ -3,6 +3,7 @@ import json
 import re
 from typing import Tuple, Dict
 from backend.llm import GeminiLLM
+import asyncio
 
 # Cấu hình logging
 logging.basicConfig(format="[QueryHandler] %(message)s", level=logging.INFO)
@@ -18,6 +19,7 @@ class QueryHandler:
     """
     Module hợp nhất xử lý và phân loại câu hỏi của người dùng trong một bước duy nhất
     để giảm số lần gọi LLM. Bao gồm tính năng sửa lỗi chính tả và viết tắt.
+    Hỗ trợ async đầy đủ.
     """
 
     def __init__(self):
@@ -198,137 +200,197 @@ class QueryHandler:
         {history_context}
         ---
 
-        Câu hỏi hiện tại: "{query}"
+        **CÂU HỎI HIỆN TẠI:** {query}
 
-        **XUẤT KẾT QUẢ:**
-        CHỈ trả về JSON hợp lệ, không có text khác:
-        ```json
-        {{
-          "expanded_query": "...",
-          "query_type": "...",
-          "corrections_made": [...]
-        }}
-        ```
+        Hãy trả về JSON chính xác với 3 trường như mô tả trên:
         """
+
         return prompt
 
-    def expand_and_classify_query(self, query: str, conversation_history: str) -> Tuple[str, str]:
+    async def expand_and_classify_query(self, query: str, conversation_history: str) -> Tuple[str, str]:
         """
-        Xử lý câu hỏi của người dùng để mở rộng và phân loại trong một lệnh gọi LLM duy nhất.
-        Bao gồm tính năng sửa lỗi chính tả và viết tắt.
-
+        Mở rộng và phân loại câu hỏi bằng LLM một lần duy nhất (bất đồng bộ)
+        
         Args:
             query: Câu hỏi gốc từ người dùng
-            conversation_history: Lịch sử hội thoại để hiểu ngữ cảnh
-
+            conversation_history: Lịch sử hội thoại để cung cấp ngữ cảnh
+            
         Returns:
-            Một tuple chứa (expanded_query, query_type).
+            Tuple của (expanded_query, query_type)
         """
-        # Bước 1: Tiền xử lý cơ bản (sửa lỗi chính tả phổ biến)
+        print(f"🔄 Bắt đầu xử lý và phân loại query: '{query[:50]}...'")
+        
+        # Bước 1: Tiền xử lý cơ bản
         preprocessed_query = self._preprocess_query(query)
         
-        # Bước 2: Tạo prompt nâng cao
-        prompt = self._create_enhanced_prompt(preprocessed_query, conversation_history)
-        
-        print(f"🤖 Gọi LLM với query: '{query}' → '{preprocessed_query}'")
-        print(f"📜 History length: {len(conversation_history) if conversation_history else 0}")
+        # Bước 2: Tạo prompt và gọi LLM
+        enhanced_prompt = self._create_enhanced_prompt(preprocessed_query, conversation_history)
         
         try:
-            response = self.llm.invoke(prompt)
+            # Gọi LLM bất đồng bộ
+            response = await self.llm.invoke(enhanced_prompt)
             response_text = response.content.strip()
-            print(f"🤖 LLM response: {response_text[:300]}..." if len(response_text) > 300 else f"🤖 LLM response: {response_text}")
-
-            # Trích xuất phần JSON từ phản hồi
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response_text, re.DOTALL)
+            print(f"📝 Raw LLM response: {response_text[:200]}...")
+            
+            # Bước 3: Parse JSON response
+            # Tìm JSON trong response (có thể có text phụ xung quanh)
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
             if json_match:
-                json_str = json_match.group(0)
-                parsed_response = json.loads(json_str)
+                json_str = json_match.group()
+                result = json.loads(json_str)
                 
-                expanded_query = parsed_response.get("expanded_query", "").strip()
-                query_type = parsed_response.get("query_type", "").strip()
-                corrections_made = parsed_response.get("corrections_made", [])
-
-                # Xác thực và fallback
-                if not expanded_query or not isinstance(expanded_query, str):
-                    expanded_query = preprocessed_query
-                    print(f"⚠️ Không có expanded_query hợp lệ, sử dụng preprocessed query")
+                expanded_query = result.get("expanded_query", preprocessed_query)
+                query_type = result.get("query_type", "question_from_document")
+                corrections_made = result.get("corrections_made", [])
                 
-                valid_types = ["question_from_document", "realtime_question", "sql_code_task", "other_question"]
-                if query_type not in valid_types:
-                    print(f"⚠️ Query type không hợp lệ '{query_type}', mặc định 'question_from_document'")
-                    query_type = 'question_from_document'
-                
-                # Log kết quả
-                print(f"✅ QueryHandler thành công:")
-                print(f"   📝 Query gốc: '{query}'")
-                if preprocessed_query != query:
-                    print(f"   🔧 Tiền xử lý: '{preprocessed_query}'")
-                print(f"   📈 Query mở rộng: '{expanded_query}'")
-                print(f"   🏷️ Loại: '{query_type}'")
+                print(f"✅ Expanded query: '{expanded_query}'")
+                print(f"🏷️ Query type: {query_type}")
                 if corrections_made:
-                    print(f"   🔧 Sửa đổi: {corrections_made}")
+                    print(f"🔧 Corrections made: {corrections_made}")
                 
                 return expanded_query, query_type
+                
             else:
-                raise json.JSONDecodeError("Không tìm thấy JSON trong response", response_text, 0)
-
-        except (json.JSONDecodeError, AttributeError, KeyError, TypeError) as e:
-            print(f"❌ QueryHandler gặp lỗi: {type(e).__name__}: {e}")
-            print(f"🔄 Fallback - Query: '{preprocessed_query}' | Type: 'question_from_document'")
+                print("⚠️ Không tìm thấy JSON trong response, sử dụng giá trị mặc định")
+                return preprocessed_query, "question_from_document"
+                
+        except json.JSONDecodeError as e:
+            print(f"⚠️ Lỗi parse JSON: {e}, sử dụng giá trị mặc định")
+            return preprocessed_query, "question_from_document"
             
-            # Fallback nâng cao: ít nhất sử dụng preprocessed query
-            return preprocessed_query, 'question_from_document'
-        
         except Exception as e:
-            print(f"❌ Lỗi không mong muốn: {type(e).__name__}: {e}")
-            print(f"🔄 Emergency fallback - Query gốc: '{query}' | Type: 'question_from_document'")
-            return query, 'question_from_document'
-    
-    def get_response_for_other_question(self, query: str) -> str:
-        """
-        Trả về phản hồi cho các câu hỏi không liên quan đến cơ sở dữ liệu
+            print(f"⚠️ Lỗi khi gọi LLM: {e}, sử dụng giá trị mặc định")
+            return preprocessed_query, "question_from_document"
 
+    def expand_and_classify_query_sync(self, query: str, conversation_history: str) -> Tuple[str, str]:
+        """
+        Mở rộng và phân loại câu hỏi bằng LLM một lần duy nhất (đồng bộ - để tương thích ngược)
+        
         Args:
-            query: Câu hỏi cần phản hồi
-
+            query: Câu hỏi gốc từ người dùng
+            conversation_history: Lịch sử hội thoại để cung cấp ngữ cảnh
+            
         Returns:
-            Phản hồi cố định cho câu hỏi không liên quan
+            Tuple của (expanded_query, query_type)
         """
-        return """Xin chào! 👋 
+        print(f"🔄 Bắt đầu xử lý và phân loại query: '{query[:50]}...'")
+        
+        # Bước 1: Tiền xử lý cơ bản
+        preprocessed_query = self._preprocess_query(query)
+        
+        # Bước 2: Tạo prompt và gọi LLM
+        enhanced_prompt = self._create_enhanced_prompt(preprocessed_query, conversation_history)
+        
+        try:
+            # Gọi LLM đồng bộ
+            response = self.llm.invoke_sync(enhanced_prompt)
+            response_text = response.content.strip()
+            print(f"📝 Raw LLM response: {response_text[:200]}...")
+            
+            # Bước 3: Parse JSON response
+            # Tìm JSON trong response (có thể có text phụ xung quanh)
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group()
+                result = json.loads(json_str)
+                
+                expanded_query = result.get("expanded_query", preprocessed_query)
+                query_type = result.get("query_type", "question_from_document")
+                corrections_made = result.get("corrections_made", [])
+                
+                print(f"✅ Expanded query: '{expanded_query}'")
+                print(f"🏷️ Query type: {query_type}")
+                if corrections_made:
+                    print(f"🔧 Corrections made: {corrections_made}")
+                
+                return expanded_query, query_type
+                
+            else:
+                print("⚠️ Không tìm thấy JSON trong response, sử dụng giá trị mặc định")
+                return preprocessed_query, "question_from_document"
+                
+        except json.JSONDecodeError as e:
+            print(f"⚠️ Lỗi parse JSON: {e}, sử dụng giá trị mặc định")
+            return preprocessed_query, "question_from_document"
+            
+        except Exception as e:
+            print(f"⚠️ Lỗi khi gọi LLM: {e}, sử dụng giá trị mặc định")
+            return preprocessed_query, "question_from_document"
 
-Mình là trợ lý AI chuyên về **Cơ sở dữ liệu** và **SQL**. Mình có thể giúp bạn:
+    async def get_response_for_other_question(self, query: str) -> str:
+        """
+        Tạo phản hồi lịch sự cho những câu hỏi không liên quan đến lĩnh vực CSDL (bất đồng bộ)
+        
+        Args:
+            query: Câu hỏi của người dùng
+            
+        Returns:
+            Phản hồi lịch sự hướng dẫn người dùng quay lại chủ đề CSDL
+        """
+        default_response = f"""
+        Xin chào! Tôi là DBR - chatbot chuyên về cơ sở dữ liệu. 
 
-🔹 **Học khái niệm**: CSDL, RDBMS, NoSQL, thiết kế cơ sở dữ liệu
-🔹 **Viết SQL**: SELECT, INSERT, UPDATE, DELETE, JOIN, subquery
-🔹 **Tối ưu hóa**: Index, query optimization, performance tuning  
-🔹 **Giải thích**: Phân tích và debug câu lệnh SQL
-🔹 **So sánh**: MySQL vs PostgreSQL, SQL vs NoSQL
+        Câu hỏi của bạn: "{query}" có vẻ không liên quan đến lĩnh vực cơ sở dữ liệu mà tôi được đào tạo để hỗ trợ.
 
-Bạn có câu hỏi nào về cơ sở dữ liệu không? 😊"""
+        Tôi có thể giúp bạn với:
+        • Các khái niệm về cơ sở dữ liệu
+        • Thiết kế và chuẩn hóa CSDL  
+        • Ngôn ngữ SQL và các truy vấn
+        • Hệ quản trị CSDL (MySQL, PostgreSQL, MongoDB...)
+        • Tối ưu hóa hiệu suất và bảo mật
+
+        Bạn có muốn hỏi gì về cơ sở dữ liệu không? Tôi sẽ rất vui được hỗ trợ! 😊
+        """
+        return default_response
+
+    def get_response_for_other_question_sync(self, query: str) -> str:
+        """
+        Tạo phản hồi lịch sự cho những câu hỏi không liên quan đến lĩnh vực CSDL (đồng bộ)
+        
+        Args:
+            query: Câu hỏi của người dùng
+            
+        Returns:
+            Phản hồi lịch sự hướng dẫn người dùng quay lại chủ đề CSDL
+        """
+        default_response = f"""
+        Xin chào! Tôi là DBR - chatbot chuyên về cơ sở dữ liệu. 
+
+        Câu hỏi của bạn: "{query}" có vẻ không liên quan đến lĩnh vực cơ sở dữ liệu mà tôi được đào tạo để hỗ trợ.
+
+        Tôi có thể giúp bạn với:
+        • Các khái niệm về cơ sở dữ liệu
+        • Thiết kế và chuẩn hóa CSDL  
+        • Ngôn ngữ SQL và các truy vấn
+        • Hệ quản trị CSDL (MySQL, PostgreSQL, MongoDB...)
+        • Tối ưu hóa hiệu suất và bảo mật
+
+        Bạn có muốn hỏi gì về cơ sở dữ liệu không? Tôi sẽ rất vui được hỗ trợ! 😊
+        """
+        return default_response
 
     def test_preprocessing(self, test_queries: list = None) -> None:
         """
-        Hàm test để kiểm tra khả năng preprocessing của QueryHandler
+        Test phương thức tiền xử lý với một số câu hỏi mẫu
         
         Args:
-            test_queries: Danh sách câu hỏi test, nếu None sẽ dùng mặc định
+            test_queries: Danh sách câu hỏi để test, nếu None sẽ dùng mẫu có sẵn
         """
         if test_queries is None:
             test_queries = [
-                "Khái niệm hệ quản trị cdld là gì?",
-                "select * from bang user",
-                "co so du lieu quan tri la gi?", 
-                "Tạo bang với khoa chinh",
-                "inner join va left join khac nhau nhu the nao?",
-                "Backup va restore du lieu",
-                "Cách tối ưu truy van sql"
+                "Làm thế nào để tạo bảng trong mysql?",
+                "Cách tạo cdld mới",
+                "co so du lieu la gi?",
+                "quan tri csdl khac gi voi DBMS?",
+                "select * from bang nao do",
+                "inner join vs left join",
             ]
-        
-        print("🧪 TESTING QUERY PREPROCESSING:")
+            
+        print("🧪 Testing query preprocessing:")
         print("=" * 50)
         
-        for i, query in enumerate(test_queries, 1):
+        for query in test_queries:
             processed = self._preprocess_query(query)
-            print(f"{i}. '{query}'")
-            print(f"   → '{processed}'")
-            print()
+            print(f"Original:  {query}")
+            print(f"Processed: {processed}")
+            print("-" * 30)

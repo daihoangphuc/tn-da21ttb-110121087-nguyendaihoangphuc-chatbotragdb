@@ -1,6 +1,6 @@
 "use client"
 
-import { Sheet, SheetContent } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Sidebar } from "@/components/sidebar"
 
 interface MobileNavProps {
@@ -23,6 +23,7 @@ export function MobileNav({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="left" className="p-0 w-[320px]">
+        <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
         <Sidebar 
           onSelectConversation={onSelectConversation} 
           currentConversationId={currentConversationId}

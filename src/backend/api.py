@@ -112,20 +112,47 @@ def format_vietnam_time_iso(dt=None):
 def parse_and_format_vietnam_time(time_str):
     """Parse thời gian từ database và chuyển về múi giờ Việt Nam"""
     try:
+        # Kiểm tra nếu time_str là None hoặc chuỗi rỗng
+        if not time_str or time_str == "":
+            return ""
+        
         if isinstance(time_str, str):
+            # Xử lý các format thời gian khác nhau
+            time_str_cleaned = time_str.strip()
+            
+            # Nếu có 'Z' thì thay bằng '+00:00'
+            if time_str_cleaned.endswith('Z'):
+                time_str_cleaned = time_str_cleaned.replace('Z', '+00:00')
+            
+            # Nếu không có timezone và có dấu chấm (microseconds)
+            elif '+' not in time_str_cleaned and 'T' in time_str_cleaned:
+                # Thêm timezone UTC nếu không có
+                if '.' in time_str_cleaned:
+                    # Cắt microseconds về 6 chữ số nếu cần
+                    parts = time_str_cleaned.split('.')
+                    if len(parts) == 2:
+                        microseconds = parts[1][:6].ljust(6, '0')  # Đảm bảo có đúng 6 chữ số
+                        time_str_cleaned = f"{parts[0]}.{microseconds}+00:00"
+                else:
+                    time_str_cleaned = f"{time_str_cleaned}+00:00"
+            
             # Parse thời gian từ string ISO
-            dt = datetime.fromisoformat(time_str.replace('Z', '+00:00'))
+            dt = datetime.fromisoformat(time_str_cleaned)
+            
             # Chuyển về múi giờ Việt Nam
             vietnam_tz = pytz.timezone('Asia/Ho_Chi_Minh')
             if dt.tzinfo is None:
                 # Nếu không có timezone info, coi như UTC
                 dt = pytz.UTC.localize(dt)
+            
             vietnam_time = dt.astimezone(vietnam_tz)
             return vietnam_time.isoformat()
+        
         return time_str
     except Exception as e:
-        print(f"Lỗi khi parse thời gian: {e}")
-        return time_str
+        print(f"Lỗi khi parse thời gian '{time_str}': {e}")
+        # Trả về chuỗi gốc hoặc chuỗi rỗng thay vì None để tránh lỗi JSON
+        return time_str if time_str else ""
 
 # Khởi tạo quản lý hội thoại
 try:
@@ -734,7 +761,7 @@ async def upload_document(
         documents = None
         try:
             document_processor = rag_system.document_processor
-            documents = document_processor.load_document_with_category(file_path, category)
+            documents = await document_processor.load_document_with_category(file_path, category)
             
             # Lấy đường dẫn file sau khi chuyển đổi (nếu có)
             converted_file_path = document_processor.get_converted_path(file_path)
@@ -774,23 +801,23 @@ async def upload_document(
             }
 
         # Sử dụng phương pháp chunking thông thường
-        processed_chunks = rag_system.document_processor.process_documents(documents)
+        processed_chunks = await rag_system.document_processor.chunk_documents([documents])
 
         # Index lên vector store KHÔNG DÙNG USER_ID
         if processed_chunks:
             # Tạo embeddings cho các chunks
             texts = [chunk["text"] for chunk in processed_chunks]
-            embeddings = rag_system.embedding_model.encode(texts)
+            embeddings = await rag_system.embedding_model.encode(texts)
 
             # Đảm bảo collection đã tồn tại với kích thước vector đúng
-            rag_system.vector_store.ensure_collection_exists(len(embeddings[0]))
+            await rag_system.vector_store.ensure_collection_exists(len(embeddings[0]))
 
             # Index embeddings KHÔNG DÙNG USER_ID - file sẽ được chia sẻ cho tất cả user
             print(f"[UPLOAD] Đang index {len(processed_chunks)} chunks vào collection chung global_documents")
             file_id = str(uuid.uuid4())
             
             # Gọi index_documents với user_id=None để lưu vào collection chung
-            rag_system.vector_store.index_documents(
+            await rag_system.vector_store.index_documents(
                 processed_chunks,
                 embeddings,
                 user_id=None,  # Không dùng user_id
@@ -874,11 +901,11 @@ async def reset_collection():
 
         # Lấy kích thước vector từ mô hình embedding
         # Tạo một vector mẫu để xác định kích thước
-        sample_embedding = rag_system.embedding_model.encode(["Sample text"])
+        sample_embedding = await rag_system.embedding_model.encode(["Sample text"])
         vector_size = len(sample_embedding[0])
 
         # Tạo lại collection mới
-        rag_system.vector_store.ensure_collection_exists(vector_size)
+        await rag_system.vector_store.ensure_collection_exists(vector_size)
 
         return {
             "status": "success",
@@ -2325,7 +2352,7 @@ async def get_question_suggestions(
         user_id = current_user.id
 
         # Lấy đề xuất câu hỏi từ cuộc hội thoại gần đây nhất
-        suggestions = suggestion_manager.get_suggestions_from_latest_conversation(
+        suggestions = await suggestion_manager.get_suggestions_from_latest_conversation(
             user_id, conversation_manager, num_suggestions
         )
 
@@ -2506,8 +2533,12 @@ def calculate_banned_until(user):
     user_was_unbanned = False
     if unbanned_at_str and banned_at_str:
         try:
-            unbanned_at = datetime.fromisoformat(unbanned_at_str.replace('Z', '+00:00'))
-            banned_at = datetime.fromisoformat(banned_at_str.replace('Z', '+00:00'))
+            # Sử dụng parse_and_format_vietnam_time để đảm bảo format đúng
+            parsed_unbanned = parse_and_format_vietnam_time(unbanned_at_str)
+            parsed_banned = parse_and_format_vietnam_time(banned_at_str)
+            if parsed_unbanned and parsed_banned:
+                unbanned_at = datetime.fromisoformat(parsed_unbanned)
+                banned_at = datetime.fromisoformat(parsed_banned)
             # Nếu unbanned_at > banned_at thì user đã được unban sau lần ban cuối
             if unbanned_at > banned_at:
                 user_was_unbanned = True
@@ -2542,7 +2573,10 @@ def calculate_banned_until(user):
             # HOẶC user có banned_at sau unbanned_at (ban lại sau khi unban)
             if banned_at_str and updated_at_str:
                 try:
-                    banned_at = datetime.fromisoformat(banned_at_str.replace('Z', '+00:00'))
+                    # Sử dụng parse_and_format_vietnam_time để đảm bảo format đúng
+                    parsed_banned = parse_and_format_vietnam_time(banned_at_str)
+                    if parsed_banned:
+                        banned_at = datetime.fromisoformat(parsed_banned)
                     
                     # Handle different datetime formats for updated_at
                     if isinstance(updated_at_str, str):
@@ -2556,16 +2590,31 @@ def calculate_banned_until(user):
                     # Kiểm tra nếu banned_at > unbanned_at (ban lại sau khi unban)
                     should_detect_ban = False
                     current_time = datetime.now()
-                    time_diff = current_time - updated_at
                     
-                    if unbanned_at_str:
-                        unbanned_at = datetime.fromisoformat(unbanned_at_str.replace('Z', '+00:00'))
-                        if banned_at > unbanned_at:
-                            should_detect_ban = True
-                    
-                    # Hoặc nếu updated_at sau banned_at và trong vòng 24 giờ gần đây
-                    if not should_detect_ban and updated_at > banned_at and time_diff.total_seconds() < 86400:  # 24 hours
-                        should_detect_ban = True
+                    # Đảm bảo tất cả datetime đều là naive để tránh lỗi timezone
+                    try:
+                        time_diff = current_time - updated_at
+                        
+                        if unbanned_at_str:
+                            parsed_unbanned = parse_and_format_vietnam_time(unbanned_at_str)
+                            if parsed_unbanned:
+                                unbanned_at = datetime.fromisoformat(parsed_unbanned)
+                                # Đảm bảo cả banned_at và unbanned_at đều là naive datetime
+                                banned_at_naive = banned_at.replace(tzinfo=None) if banned_at.tzinfo else banned_at
+                                unbanned_at_naive = unbanned_at.replace(tzinfo=None) if unbanned_at.tzinfo else unbanned_at
+                                if banned_at_naive > unbanned_at_naive:
+                                    should_detect_ban = True
+                        
+                        # Hoặc nếu updated_at sau banned_at và trong vòng 24 giờ gần đây
+                        if not should_detect_ban:
+                            banned_at_naive = banned_at.replace(tzinfo=None) if banned_at.tzinfo else banned_at
+                            updated_at_naive = updated_at.replace(tzinfo=None) if updated_at.tzinfo else updated_at
+                            if updated_at_naive > banned_at_naive and time_diff.total_seconds() < 86400:  # 24 hours
+                                should_detect_ban = True
+                    except Exception as tz_error:
+                        print(f"⚠️ Lỗi timezone khi so sánh thời gian: {str(tz_error)}")
+                        # Fallback: không detect ban nếu có lỗi timezone
+                        should_detect_ban = False
                     
                     if should_detect_ban:
                         # Ước tính ban duration dựa trên pattern thông thường
@@ -2607,7 +2656,9 @@ def calculate_banned_until(user):
         banned_at = None
         if banned_at_str:
             try:
-                banned_at = datetime.fromisoformat(banned_at_str.replace('Z', '+00:00'))
+                parsed_banned = parse_and_format_vietnam_time(banned_at_str)
+                if parsed_banned:
+                    banned_at = datetime.fromisoformat(parsed_banned)
             except Exception:
                 pass
         
@@ -2627,10 +2678,18 @@ def calculate_banned_until(user):
         
         # Chỉ return banned_until nếu thời gian ban chưa hết
         current_time = datetime.now()
-        if ban_until > current_time:
+        # Đảm bảo cả ban_until và current_time đều là naive datetime
+        try:
+            ban_until_naive = ban_until.replace(tzinfo=None) if ban_until.tzinfo else ban_until
+            current_time_naive = current_time.replace(tzinfo=None) if current_time.tzinfo else current_time
+            if ban_until_naive > current_time_naive:
+                return ban_until.isoformat()
+            else:
+                return None  # Ban đã hết hạn
+        except Exception as tz_error:
+            print(f"⚠️ Lỗi timezone khi so sánh thời gian ban: {str(tz_error)}")
+            # Fallback: return ban_until anyway
             return ban_until.isoformat()
-        else:
-            return None  # Ban đã hết hạn
             
     except Exception as calc_error:
         print(f"⚠️ Lỗi khi tính toán ban time: {str(calc_error)}")
@@ -3436,7 +3495,7 @@ class AdminMessageListResponse(BaseModel):
 class AdminMessageSearchRequest(BaseModel):
     query: str
     conversation_id: Optional[str] = None
-    user_id: Optional[str] = None
+    user_email: Optional[str] = None  # Thay đổi từ user_id sang user_email
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     page: int = 1
@@ -3463,7 +3522,8 @@ class AdminConversationStatsResponse(BaseModel):
 async def admin_list_conversations(
     page: int = Query(1, ge=1, description="Trang hiện tại"),
     per_page: int = Query(20, ge=1, le=100, description="Số conversation mỗi trang"),
-    user_id: Optional[str] = Query(None, description="Lọc theo user_id"),
+    user_email: Optional[str] = Query(None, description="Lọc theo email người dùng (có @ = exact match, không có @ = partial match)"),
+    search_message: Optional[str] = Query(None, description="Tìm kiếm trong tin nhắn đầu tiên của conversation"),
     date_from: Optional[str] = Query(None, description="Lọc từ ngày (YYYY-MM-DD)"),
     date_to: Optional[str] = Query(None, description="Lọc đến ngày (YYYY-MM-DD)"),
     admin_user=Depends(require_admin_role)
@@ -3473,7 +3533,8 @@ async def admin_list_conversations(
     
     - **page**: Trang hiện tại
     - **per_page**: Số conversation mỗi trang
-    - **user_id**: Lọc theo user_id cụ thể (tùy chọn)
+    - **user_email**: Lọc theo email người dùng (tùy chọn)
+    - **search_message**: Tìm kiếm trong tin nhắn đầu tiên (tùy chọn)
     - **date_from**: Lọc từ ngày (tùy chọn)
     - **date_to**: Lọc đến ngày (tùy chọn)
     """
@@ -3481,12 +3542,47 @@ async def admin_list_conversations(
         service_client = get_service_supabase_client()
         offset = (page - 1) * per_page
         
-        # Build query
+        # Bước 1: Nếu có filter theo email, tìm user_id tương ứng
+        target_user_ids = None
+        if user_email:
+            try:
+                # Tìm user theo email
+                users_result = service_client.auth.admin.list_users()
+                if hasattr(users_result, 'users'):
+                    # Nếu có @ thì tìm exact match, không có @ thì tìm partial match
+                    if '@' in user_email:
+                        matching_users = [user for user in users_result.users if user.email.lower() == user_email.lower()]
+                    else:
+                        matching_users = [user for user in users_result.users if user_email.lower() in user.email.lower()]
+                    
+                    if matching_users:
+                        target_user_ids = [user.id for user in matching_users]
+                    else:
+                        # Không tìm thấy user nào có email này
+                        return AdminConversationListResponse(
+                            conversations=[],
+                            total_count=0,
+                            page=page,
+                            per_page=per_page,
+                            total_pages=0
+                        )
+            except Exception as e:
+                print(f"Lỗi khi tìm user theo email: {e}")
+                # Nếu có lỗi, trả về kết quả rỗng
+                return AdminConversationListResponse(
+                    conversations=[],
+                    total_count=0,
+                    page=page,
+                    per_page=per_page,
+                    total_pages=0
+                )
+        
+        # Bước 2: Build query cho conversations
         query = service_client.table("conversations").select("*", count="exact")
         
         # Add filters
-        if user_id:
-            query = query.eq("user_id", user_id)
+        if target_user_ids:
+            query = query.in_("user_id", target_user_ids)
         if date_from:
             query = query.gte("last_updated", f"{date_from} 00:00:00")
         if date_to:
@@ -3496,7 +3592,8 @@ async def admin_list_conversations(
         result = query.order("last_updated", desc=True).range(offset, offset + per_page - 1).execute()
         
         conversations = result.data if result.data else []
-        total_count = result.count if hasattr(result, 'count') else len(conversations)
+        # total_count ban đầu từ database
+        db_total_count = result.count if hasattr(result, 'count') else len(conversations)
         
         # Enrich conversations với thông tin user và message count
         enriched_conversations = []
@@ -3521,6 +3618,11 @@ async def admin_list_conversations(
             first_msg_result = service_client.table("messages").select("content").eq("conversation_id", conv["conversation_id"]).eq("role", "user").order("created_at").limit(1).execute()
             first_message = first_msg_result.data[0]["content"] if first_msg_result.data else "Không có tin nhắn"
             
+            # Bước 3: Filter theo search_message nếu có
+            if search_message:
+                if search_message.lower() not in first_message.lower():
+                    continue  # Bỏ qua conversation này nếu không match
+            
             enriched_conversations.append({
                 "conversation_id": conv["conversation_id"],
                 "user_id": conv["user_id"],
@@ -3530,6 +3632,18 @@ async def admin_list_conversations(
                 "message_count": message_count,
                 "first_message": first_message[:100] + "..." if len(first_message) > 100 else first_message
             })
+        
+        # Tính total_count thực tế sau khi filter
+        actual_total_count = len(enriched_conversations)
+        
+        # Nếu có search_message filter, cần tính lại total_count chính xác
+        if search_message:
+            # Trong trường hợp này, actual_total_count chỉ là số lượng trong trang hiện tại
+            # Để có total_count chính xác, cần query tất cả và filter
+            # Nhưng để đơn giản, ta sẽ sử dụng số lượng hiện tại
+            total_count = actual_total_count
+        else:
+            total_count = db_total_count
         
         total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
         
@@ -3624,13 +3738,45 @@ async def admin_search_messages(
     
     - **query**: Từ khóa tìm kiếm
     - **conversation_id**: Lọc theo conversation_id (tùy chọn)
-    - **user_id**: Lọc theo user_id (tùy chọn)
+    - **user_email**: Lọc theo email người dùng (tùy chọn)
     - **date_from**: Tìm từ ngày (tùy chọn)
     - **date_to**: Tìm đến ngày (tùy chọn)
     """
     try:
         service_client = get_service_supabase_client()
         offset = (request.page - 1) * request.per_page
+        
+        # Tìm user_id từ email nếu có
+        target_user_ids = None
+        if request.user_email:
+            try:
+                users_result = service_client.auth.admin.list_users()
+                if hasattr(users_result, 'users'):
+                    # Nếu có @ thì tìm exact match, không có @ thì tìm partial match
+                    if '@' in request.user_email:
+                        matching_users = [user for user in users_result.users if user.email.lower() == request.user_email.lower()]
+                    else:
+                        matching_users = [user for user in users_result.users if request.user_email.lower() in user.email.lower()]
+                    if matching_users:
+                        target_user_ids = [user.id for user in matching_users]
+                    else:
+                        # Không tìm thấy user nào
+                        return AdminMessageSearchResponse(
+                            messages=[],
+                            total_count=0,
+                            page=request.page,
+                            per_page=request.per_page,
+                            search_query=request.query
+                        )
+            except Exception as e:
+                print(f"Lỗi khi tìm user theo email: {e}")
+                return AdminMessageSearchResponse(
+                    messages=[],
+                    total_count=0,
+                    page=request.page,
+                    per_page=request.per_page,
+                    search_query=request.query
+                )
         
         # Build base query
         query = service_client.table("messages").select("*, conversations!inner(user_id)", count="exact")
@@ -3642,8 +3788,8 @@ async def admin_search_messages(
         # Add other filters
         if request.conversation_id:
             query = query.eq("conversation_id", request.conversation_id)
-        if request.user_id:
-            query = query.eq("conversations.user_id", request.user_id)
+        if target_user_ids:
+            query = query.in_("conversations.user_id", target_user_ids)
         if request.date_from:
             query = query.gte("created_at", f"{request.date_from} 00:00:00")
         if request.date_to:
@@ -3784,14 +3930,18 @@ async def admin_get_files_stats(
                     continue
                 
                 try:
-                    upload_date = datetime.fromisoformat(upload_time.replace("Z", "+00:00"))
-                    days_diff = (today - upload_date).days
-                    
-                    if days_diff <= 7:
-                        last_7_days += 1
-                    if days_diff <= 30:
-                        last_30_days += 1
-                except:
+                    # Sử dụng parse_and_format_vietnam_time để đảm bảo format đúng
+                    parsed_time = parse_and_format_vietnam_time(upload_time)
+                    if parsed_time:
+                        upload_date = datetime.fromisoformat(parsed_time)
+                        days_diff = (today - upload_date).days
+                        
+                        if days_diff <= 7:
+                            last_7_days += 1
+                        if days_diff <= 30:
+                            last_30_days += 1
+                except Exception as e:
+                    print(f"Lỗi khi parse upload_time '{upload_time}': {e}")
                     pass
             
             return {

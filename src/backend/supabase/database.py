@@ -91,7 +91,7 @@ class SupabaseDatabase:
             result = self.client.postgrest.rpc(
                 "run_sql", {"sql": direct_sql}
             ).execute()
-            print(f"Kết quả tạo bảng: {result}")
+            # print(f"Kết quả tạo bảng: {result}")
             return result
 
         except Exception as e:

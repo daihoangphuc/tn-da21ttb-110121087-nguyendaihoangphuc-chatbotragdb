@@ -19,13 +19,14 @@ from dotenv import load_dotenv
 import json
 import re
 from typing import List, Optional
+import asyncio
 
 # Load biến môi trường từ .env
 load_dotenv()
 
 
 class GeminiLLM:
-    """Lớp quản lý mô hình ngôn ngữ lớn Gemini"""
+    """Lớp quản lý mô hình ngôn ngữ lớn Gemini với hỗ trợ async đầy đủ"""
 
     def __init__(self, api_key=None):
         """Khởi tạo mô hình Gemini"""
@@ -90,8 +91,43 @@ class GeminiLLM:
         # Trả về response gốc mà không xử lý gì thêm
         return response
 
-    def invoke(self, prompt):
-        """Gọi mô hình LLM với prompt"""
+    async def invoke(self, prompt):
+        """Gọi mô hình LLM với prompt bất đồng bộ"""
+        processed_prompt = prompt
+
+        max_retries = len(self.api_keys)
+        retry_count = 0
+
+        while retry_count < max_retries:
+            try:
+                # Chạy invoke trong thread pool để không block
+                loop = asyncio.get_event_loop()
+                return await loop.run_in_executor(
+                    None, 
+                    lambda: self.model.invoke(processed_prompt)
+                )
+            except Exception as e:
+                error_str = str(e).lower()
+                retry_count += 1
+
+                # Kiểm tra các lỗi liên quan đến quota hoặc rate limit
+                if any(
+                    err in error_str
+                    for err in ["quota", "rate limit", "429", "exceeds", "limit"]
+                ):
+                    print(
+                        f"API key hiện tại đã hết quota hoặc bị giới hạn: {error_str}"
+                    )
+                    if self._try_next_api_key() and retry_count < max_retries:
+                        print(f"Thử lại với API key mới ({retry_count}/{max_retries})")
+                        continue
+
+                # Nếu đã thử tất cả các key hoặc lỗi không phải do quota
+                print(f"Lỗi khi gọi LLM: {str(e)}")
+                raise
+
+    def invoke_sync(self, prompt):
+        """Gọi mô hình LLM với prompt đồng bộ (để tương thích ngược)"""
         processed_prompt = prompt
 
         max_retries = len(self.api_keys)
@@ -130,6 +166,7 @@ class GeminiLLM:
         """
         async for chunk in self.invoke_streaming(prompt):
             yield chunk
+    
     async def invoke_streaming(self, prompt):
         """Gọi mô hình LLM với prompt và trả về kết quả dạng streaming"""
         processed_prompt = prompt
@@ -198,6 +235,6 @@ class GeminiLLM:
                         )
                         continue
 
-                # Ném lỗi nếu đã thử hết tất cả key hoặc lỗi không phải do quota
+                # Nếu đã thử tất cả các key hoặc lỗi không phải do quota
                 print(f"Lỗi khi gọi LLM streaming: {str(e)}")
                 raise

@@ -5,6 +5,7 @@ import shutil
 import re
 import uuid
 from typing import List, Dict
+import asyncio
 
 from langchain_community.document_loaders import (
     TextLoader,
@@ -32,7 +33,7 @@ logger = logging.getLogger(__name__)
 # DocumentProcessor
 # ------------------------------------------------------------
 class DocumentProcessor:
-    """Manage loading, normalising, and chunking documents for RAG."""
+    """Manage loading, normalising, and chunking documents for RAG với hỗ trợ async."""
 
     # --------------------------------------------------------
     # Construction helpers
@@ -177,14 +178,61 @@ class DocumentProcessor:
             ".odp",
         ]
 
-        # Default LibreOffice path – override with env var LIBREOFFICE_PATH if needed
-        self.libreoffice_path = os.getenv(
-            "LIBREOFFICE_PATH", r"C:\\Program Files\\LibreOffice\\program\\soffice.exe"
-        )
+        # Default LibreOffice path – override with env var LIBREOFFICE_PATH if needed
+        self.libreoffice_path = self._get_default_libreoffice_path()
 
     # --------------------------------------------------------
     # Conversion helpers
     # --------------------------------------------------------
+    def _get_default_libreoffice_path(self):
+        """Tự động detect LibreOffice path theo platform"""
+        # Kiểm tra biến môi trường trước
+        env_path = os.getenv("LIBREOFFICE_PATH")
+        if env_path and os.path.exists(env_path):
+            return env_path
+        
+        import platform
+        system = platform.system().lower()
+        
+        if system == "windows":
+            # Các đường dẫn phổ biến trên Windows
+            possible_paths = [
+                r"C:\Program Files\LibreOffice\program\soffice.exe",
+                r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+                r"C:\Program Files\LibreOffice 7\program\soffice.exe",
+                r"C:\Program Files (x86)\LibreOffice 7\program\soffice.exe",
+            ]
+        elif system == "darwin":  # macOS
+            possible_paths = [
+                "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+                "/usr/local/bin/soffice",
+            ]
+        else:  # Linux và Unix-like systems
+            possible_paths = [
+                "/usr/bin/libreoffice",
+                "/usr/local/bin/libreoffice",
+                "/snap/bin/libreoffice",
+                "/usr/bin/soffice",
+                "/usr/local/bin/soffice",
+            ]
+        
+        # Tìm path đầu tiên tồn tại
+        for path in possible_paths:
+            if os.path.exists(path):
+                print(f"Tìm thấy LibreOffice tại: {path}")
+                return path
+        
+        # Nếu không tìm thấy, thử tìm trong PATH
+        import shutil
+        soffice_in_path = shutil.which("soffice") or shutil.which("libreoffice")
+        if soffice_in_path:
+            print(f"Tìm thấy LibreOffice trong PATH: {soffice_in_path}")
+            return soffice_in_path
+        
+        # Trường hợp cuối cùng, dùng default của Windows (backward compatibility)
+        default_path = r"C:\Program Files\LibreOffice\program\soffice.exe"
+        print(f"Không tìm thấy LibreOffice, sử dụng path mặc định: {default_path}")
+        return default_path
     def get_converted_path(self, input_path: str) -> str:
         """Return the path to the PDF version of *input_path* if it already exists."""
         file_ext = os.path.splitext(input_path)[1].lower()
@@ -196,335 +244,485 @@ class DocumentProcessor:
         pdf_path = os.path.join(output_dir, f"{file_stem}.pdf")
         return pdf_path if os.path.exists(pdf_path) else input_path
 
-    def convert_to_pdf(self, input_path: str, *, remove_original: bool = True) -> str:
-        """Convert *input_path* to PDF (if recognised format) using LibreOffice.
-        Returns the path to a PDF file if available; otherwise returns the original path.
-        """
+    async def convert_to_pdf(self, input_path: str, *, remove_original: bool = True) -> str:
+        """Convert *input_path* to PDF (if recognised format) using LibreOffice (bất đồng bộ)."""
         file_ext = os.path.splitext(input_path)[1].lower()
+        
+        # If already PDF or not a convertible format, return as-is
         if file_ext == ".pdf" or file_ext not in self.convertible_formats:
-            return input_path  # Nothing to do
+            return input_path
 
         output_dir = os.path.dirname(input_path)
-        file_stem = os.path.splitext(os.path.basename(input_path))[0]
-        pdf_path = os.path.join(output_dir, f"{file_stem}.pdf")
+        pdf_path = self.get_converted_path(input_path)
 
-        # Avoid re‑converting if PDF already exists
+        # If PDF version already exists, return it
         if os.path.exists(pdf_path):
-            if remove_original and os.path.exists(input_path) and input_path != pdf_path:
-                try:
-                    os.remove(input_path)
-                    print(f"Đã xóa tập tin gốc: {input_path}")
-                except OSError as exc:
-                    print(f"Không thể xóa tập tin gốc {input_path}: {exc}")
+            print(f"PDF version already exists: {pdf_path}")
+            if remove_original and input_path != pdf_path:
+                os.remove(input_path)
             return pdf_path
 
-        print(f"Đang chuyển đổi {input_path} sang PDF…")
+        if not os.path.exists(self.libreoffice_path):
+            print(f"LibreOffice not found at {self.libreoffice_path}. Returning original file.")
+            return input_path
+
         try:
-            subprocess.run(
+            print(f"Converting {input_path} to PDF using LibreOffice...")
+            
+            # Run LibreOffice conversion in thread pool
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    [
+                        self.libreoffice_path,
+                        "--headless",
+                        "--convert-to", "pdf",
+                        "--outdir", output_dir,
+                        input_path
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+            )
+
+            if result.returncode == 0 and os.path.exists(pdf_path):
+                print(f"Successfully converted to PDF: {pdf_path}")
+                if remove_original:
+                    os.remove(input_path)
+                return pdf_path
+            else:
+                print(f"LibreOffice conversion failed: {result.stderr}")
+                return input_path
+
+        except subprocess.TimeoutExpired:
+            print("LibreOffice conversion timed out")
+            return input_path
+        except Exception as e:
+            print(f"Error during LibreOffice conversion: {str(e)}")
+            return input_path
+
+    def convert_to_pdf_sync(self, input_path: str, *, remove_original: bool = True) -> str:
+        """Convert *input_path* to PDF (if recognised format) using LibreOffice (đồng bộ)."""
+        file_ext = os.path.splitext(input_path)[1].lower()
+        
+        # If already PDF or not a convertible format, return as-is
+        if file_ext == ".pdf" or file_ext not in self.convertible_formats:
+            return input_path
+
+        output_dir = os.path.dirname(input_path)
+        pdf_path = self.get_converted_path(input_path)
+
+        # If PDF version already exists, return it
+        if os.path.exists(pdf_path):
+            print(f"PDF version already exists: {pdf_path}")
+            if remove_original and input_path != pdf_path:
+                os.remove(input_path)
+            return pdf_path
+
+        if not os.path.exists(self.libreoffice_path):
+            print(f"LibreOffice not found at {self.libreoffice_path}. Returning original file.")
+            return input_path
+
+        try:
+            print(f"Converting {input_path} to PDF using LibreOffice...")
+            result = subprocess.run(
                 [
                     self.libreoffice_path,
                     "--headless",
-                    "--convert-to",
-                    "pdf",
-                    input_path,
-                    "--outdir",
-                    output_dir,
+                    "--convert-to", "pdf",
+                    "--outdir", output_dir,
+                    input_path
                 ],
-                check=True,
-                stderr=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=30
             )
-        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-            print(f"Chuyển đổi sang PDF thất bại ({exc}). Tạm dùng tệp gốc.")
+
+            if result.returncode == 0 and os.path.exists(pdf_path):
+                print(f"Successfully converted to PDF: {pdf_path}")
+                if remove_original:
+                    os.remove(input_path)
+                return pdf_path
+            else:
+                print(f"LibreOffice conversion failed: {result.stderr}")
+                return input_path
+
+        except subprocess.TimeoutExpired:
+            print("LibreOffice conversion timed out")
+            return input_path
+        except Exception as e:
+            print(f"Error during LibreOffice conversion: {str(e)}")
             return input_path
 
-        if os.path.exists(pdf_path):
-            print(f"Chuyển đổi thành công: {pdf_path}")
-            if remove_original and os.path.exists(input_path):
-                try:
-                    os.remove(input_path)
-                    print(f"Đã xóa tập tin gốc: {input_path}")
-                except OSError as exc:
-                    print(f"Không thể xóa tập tin gốc {input_path}: {exc}")
-            return pdf_path
-
-        print("Không tìm thấy PDF sau khi chuyển đổi – trả về tệp gốc")
-        return input_path
-
-    # --------------------------------------------------------
-    # Loading helpers
-    # --------------------------------------------------------
     @staticmethod
     def _ensure_page_metadata(docs: List):
-        """Guarantee each LangChain Document has a numeric 1‑based `page` field.
-        If loader already supplies a 0‑based integer, convert to 1‑based; if no page
-        info present, default to 1. This is purely additive; existing keys are left
-        unchanged except the normalisation from 0→1‑based.
-        """
-        for d in docs:
-            if not hasattr(d, "metadata"):
-                continue
-            meta = d.metadata
-            if "page" not in meta:
-                meta["page"] = 1
-            else:
-                try:
-                    # Only convert if int/str representing int
-                    page_val = int(meta["page"])
-                    if page_val == 0:
-                        meta["page"] = 1
-                    else:
-                        meta["page"] = page_val  # ensure int type
-                except (ValueError, TypeError):
-                    # leave as‑is if conversion fails (string like "section_1")
-                    pass
+        """Ensure each document has page metadata."""
+        for i, doc in enumerate(docs):
+            if not hasattr(doc, "metadata") or not doc.metadata:
+                doc.metadata = {}
+            
+            # Try to extract page number from existing metadata
+            page_num = doc.metadata.get("page", doc.metadata.get("page_number", i + 1))
+            doc.metadata["page"] = page_num
+            doc.metadata["page_number"] = page_num
+            
+            # Ensure source is present
+            if "source" not in doc.metadata:
+                doc.metadata["source"] = "unknown"
+        
+        return docs
 
-    def load_documents(self, data_dir: str) -> List[Dict]:
-        """Load **all** documents under *data_dir* into LangChain Document objects."""
+    async def load_documents(self, data_dir: str) -> List[Dict]:
+        """Load all documents from a directory (bất đồng bộ)."""
         documents = []
-        for fname in os.listdir(data_dir):
-            file_path = os.path.join(data_dir, fname)
-            converted_path = self.convert_to_pdf(file_path)
-            ext = os.path.splitext(converted_path)[1].lower()
-
-            if ext not in self.loaders:
-                print(f"Bỏ qua định dạng không hỗ trợ: {fname}")
-                continue
-
-            try:
-                loader_cls = self.loaders[ext]
-                loaded_docs = loader_cls(converted_path).load()
-
-                # Ensure page metadata exists and is 1‑based
-                self._ensure_page_metadata(loaded_docs)
-
-                for doc in loaded_docs:
-                    # Basic provenance metadata
-                    doc.metadata.setdefault("source", fname)
-                    if converted_path != file_path:
-                        doc.metadata["original_file"] = fname
-                        doc.metadata["converted_from"] = os.path.splitext(fname)[1]
-                documents.extend(loaded_docs)
-            except Exception as exc:  # noqa: BLE001 – catch‑all acceptable at this layer
-                print(f"Error loading {converted_path}: {exc}")
+        
+        if not os.path.exists(data_dir):
+            print(f"Directory không tồn tại: {data_dir}")
+            return documents
+            
+        for filename in os.listdir(data_dir):
+            file_path = os.path.join(data_dir, filename)
+            if os.path.isfile(file_path):
+                try:
+                    doc = await self.load_document_with_category(file_path)
+                    if doc:
+                        documents.append(doc)
+                except Exception as e:
+                    print(f"Lỗi khi load file {filename}: {str(e)}")
+                    
+        print(f"Đã load {len(documents)} documents từ {data_dir}")
         return documents
 
-    # Single file loader with optional category override (kept for API compatibility)
-    def load_document_with_category(self, file_path: str, category: str | None = None):
-        converted_path = self.convert_to_pdf(file_path)
-        ext = os.path.splitext(converted_path)[1].lower()
-        if ext not in self.loaders:
-            print(f"Định dạng {ext} không được hỗ trợ")
-            return []
+    def load_documents_sync(self, data_dir: str) -> List[Dict]:
+        """Load all documents from a directory (đồng bộ)."""
+        documents = []
+        
+        if not os.path.exists(data_dir):
+            print(f"Directory không tồn tại: {data_dir}")
+            return documents
+            
+        for filename in os.listdir(data_dir):
+            file_path = os.path.join(data_dir, filename)
+            if os.path.isfile(file_path):
+                try:
+                    doc = self.load_document_with_category_sync(file_path)
+                    if doc:
+                        documents.append(doc)
+                except Exception as e:
+                    print(f"Lỗi khi load file {filename}: {str(e)}")
+                    
+        print(f"Đã load {len(documents)} documents từ {data_dir}")
+        return documents
+
+    async def load_document_with_category(self, file_path: str, category: str | None = None):
+        """Load a single document with automatic category detection (bất đồng bộ)."""
+        file_ext = os.path.splitext(file_path)[1].lower()
+        
+        if file_ext not in self.loaders:
+            print(f"Không hỗ trợ định dạng file: {file_ext}")
+            return None
+            
         try:
-            docs = self.loaders[ext](converted_path).load()
-            self._ensure_page_metadata(docs)
-            for doc in docs:
-                doc.metadata.setdefault("source", os.path.basename(file_path))
-                if converted_path != file_path:
-                    doc.metadata["original_file"] = os.path.basename(file_path)
-                    doc.metadata["converted_from"] = os.path.splitext(file_path)[1]
-                if category:
-                    doc.metadata["category"] = category
-                else:
-                    doc.metadata["category"] = self._classify_document_content(doc.page_content)
-            return docs
-        except Exception as exc:  # noqa: BLE001
-            print(f"Lỗi khi tải tài liệu {converted_path}: {exc}")
-            return []
+            # Convert to PDF if needed
+            processed_path = await self.convert_to_pdf(file_path, remove_original=False)
+            
+            # Use appropriate loader
+            final_ext = os.path.splitext(processed_path)[1].lower()
+            loader_class = self.loaders.get(final_ext, TextLoader)
+            
+            # Load document in thread pool
+            loop = asyncio.get_event_loop()
+            docs = await loop.run_in_executor(
+                None,
+                lambda: loader_class(processed_path).load()
+            )
+            
+            if not docs:
+                return None
+                
+            # Ensure page metadata
+            docs = self._ensure_page_metadata(docs)
+            
+            # Get document content for category detection
+            content = " ".join([doc.page_content for doc in docs])
+            detected_category = category or self._classify_document_content(content)
+            
+            return {
+                "file_path": file_path,
+                "processed_path": processed_path,
+                "content": content,
+                "category": detected_category,
+                "docs": docs,
+                "metadata": {
+                    "source": os.path.basename(file_path),
+                    "category": detected_category,
+                    "file_ext": file_ext,
+                    "total_pages": len(docs)
+                }
+            }
+            
+        except Exception as e:
+            print(f"Lỗi khi load document {file_path}: {str(e)}")
+            return None
+
+    def load_document_with_category_sync(self, file_path: str, category: str | None = None):
+        """Load a single document with automatic category detection (đồng bộ)."""
+        file_ext = os.path.splitext(file_path)[1].lower()
+        
+        if file_ext not in self.loaders:
+            print(f"Không hỗ trợ định dạng file: {file_ext}")
+            return None
+            
+        try:
+            # Convert to PDF if needed
+            processed_path = self.convert_to_pdf_sync(file_path, remove_original=False)
+            
+            # Use appropriate loader
+            final_ext = os.path.splitext(processed_path)[1].lower()
+            loader_class = self.loaders.get(final_ext, TextLoader)
+            
+            docs = loader_class(processed_path).load()
+            
+            if not docs:
+                return None
+                
+            # Ensure page metadata
+            docs = self._ensure_page_metadata(docs)
+            
+            # Get document content for category detection
+            content = " ".join([doc.page_content for doc in docs])
+            detected_category = category or self._classify_document_content(content)
+            
+            return {
+                "file_path": file_path,
+                "processed_path": processed_path,
+                "content": content,
+                "category": detected_category,
+                "docs": docs,
+                "metadata": {
+                    "source": os.path.basename(file_path),
+                    "category": detected_category,
+                    "file_ext": file_ext,
+                    "total_pages": len(docs)
+                }
+            }
+            
+        except Exception as e:
+            print(f"Lỗi khi load document {file_path}: {str(e)}")
+            return None
 
     # --------------------------------------------------------
     # Chunking helpers
     # --------------------------------------------------------
-    def _chunk_by_size(self, text: str, metadata: Dict) -> List[Dict]:
-        """Fallback chunking strategy: fixed size chunks using Recursive splitter."""
-        chunks = self.text_splitter.create_documents([text], [metadata])
-        output = []
-        for i, chunk in enumerate(chunks):
-            meta = dict(chunk.metadata)
-            if "page" not in meta:
-                meta["page"] = 1
-            meta.setdefault("chunk_type", "text")
-            meta["position"] = f"chunk {i + 1} of {len(chunks)}"
-            output.append(
-                {
-                    "id": str(uuid.uuid4()),
-                    "text": chunk.page_content,
-                    "metadata": meta,
-                    "source": meta.get("source", "unknown"),
-                }
-            )
-        return output
-
-    def _chunk_by_structure(self, text: str, metadata: Dict) -> List[Dict]:
-        """Structure‑aware chunking that attempts to keep headings with their content."""
-        heading_pattern = r"(?:^|\n)([A-Za-z0-9\u00C0-\u1EF9][^\n.!?]{5,99})\n\s*\n"
-        positions: List[tuple[int, int, str | None]] = []
-        try:
-            # Attempt to find headings; on Unix we can timeout the regex to avoid worst‑case.
-            import signal
-
-            def _timeout_handler(_signum, _frame):
-                raise TimeoutError("Regex heading detection timed‑out")
-
-            if os.name != "nt":
-                signal.signal(signal.SIGALRM, _timeout_handler)
-                signal.alarm(5)
-            headings = list(re.finditer(heading_pattern, text, re.MULTILINE))
-            if os.name != "nt":
-                signal.alarm(0)
-        except Exception as exc:
-            print(f"Heading detection failed ({exc}); dùng chunk theo kích thước")
-            return self._chunk_by_size(text, metadata)
-
-        if len(headings) > 100:
-            print("Quá nhiều tiêu đề, chuyển sang chunk theo kích thước")
-            return self._chunk_by_size(text, metadata)
-
-        # Build positions list
-        last_idx = 0
-        for m in headings:
-            start_idx = m.start(1)
-            if start_idx > last_idx:
-                positions.append((last_idx, start_idx, None))
-            positions.append((start_idx, m.end(1), m.group(1)))
-            last_idx = m.end(1)
-        if last_idx < len(text):
-            positions.append((last_idx, len(text), None))
-
-        results: List[Dict] = []
-        skip_next = False
-        total = len(positions)
-        for i, (start, end, heading) in enumerate(positions):
-            if skip_next:
-                skip_next = False
+    async def chunk_documents(self, documents: List[Dict]) -> List[Dict]:
+        """Split documents into smaller chunks (bất đồng bộ)."""
+        all_chunks = []
+        
+        for doc_data in documents:
+            try:
+                docs = doc_data.get("docs", [])
+                if not docs:
+                    continue
+                    
+                # Run chunking in thread pool
+                loop = asyncio.get_event_loop()
+                chunks = await loop.run_in_executor(
+                    None,
+                    lambda: self.text_splitter.split_documents(docs)
+                )
+                
+                # Process chunks
+                for chunk_idx, chunk in enumerate(chunks):
+                    chunk_dict = {
+                        "text": chunk.page_content,
+                        "metadata": chunk.metadata.copy(),
+                        "source": chunk.metadata.get("source", "unknown"),
+                        "chunk_id": f"{chunk.metadata.get('source', 'unknown')}_{chunk_idx}"
+                    }
+                    
+                    # Add category and other metadata from document
+                    chunk_dict["metadata"]["category"] = doc_data.get("category", "unknown")
+                    chunk_dict["metadata"]["chunk_index"] = chunk_idx
+                    chunk_dict["metadata"]["total_chunks"] = len(chunks)
+                    
+                    # Add rich metadata for better search
+                    chunk_dict["metadata"].update(
+                        await self._analyze_chunk_content(chunk.page_content)
+                    )
+                    
+                    all_chunks.append(chunk_dict)
+                    
+            except Exception as e:
+                print(f"Lỗi khi chunk document: {str(e)}")
                 continue
-            chunk_text = text[start:end].strip()
-            if not chunk_text:
+                
+        print(f"Đã tạo {len(all_chunks)} chunks từ {len(documents)} documents")
+        return all_chunks
+
+    def chunk_documents_sync(self, documents: List[Dict]) -> List[Dict]:
+        """Split documents into smaller chunks (đồng bộ)."""
+        all_chunks = []
+        
+        for doc_data in documents:
+            try:
+                docs = doc_data.get("docs", [])
+                if not docs:
+                    continue
+                    
+                chunks = self.text_splitter.split_documents(docs)
+                
+                # Process chunks
+                for chunk_idx, chunk in enumerate(chunks):
+                    chunk_dict = {
+                        "text": chunk.page_content,
+                        "metadata": chunk.metadata.copy(),
+                        "source": chunk.metadata.get("source", "unknown"),
+                        "chunk_id": f"{chunk.metadata.get('source', 'unknown')}_{chunk_idx}"
+                    }
+                    
+                    # Add category and other metadata from document
+                    chunk_dict["metadata"]["category"] = doc_data.get("category", "unknown")
+                    chunk_dict["metadata"]["chunk_index"] = chunk_idx
+                    chunk_dict["metadata"]["total_chunks"] = len(chunks)
+                    
+                    # Add rich metadata for better search
+                    chunk_dict["metadata"].update(
+                        self._analyze_chunk_content_sync(chunk.page_content)
+                    )
+                    
+                    all_chunks.append(chunk_dict)
+                    
+            except Exception as e:
+                print(f"Lỗi khi chunk document: {str(e)}")
                 continue
-            chunk_type = "heading" if heading else "text"
-            # Simple heuristics
-            if not heading and "|" in chunk_text and "-" in chunk_text and len(chunk_text) < 5000:
-                chunk_type = "table"
-            elif not heading and (
-                "* " in chunk_text or "- " in chunk_text or (". " in chunk_text and len(chunk_text) < 3000)
-            ):
-                chunk_type = "list"
-            elif "```" in chunk_text or chunk_text.count("  ") > 5:
-                chunk_type = "code"
+                
+        print(f"Đã tạo {len(all_chunks)} chunks từ {len(documents)} documents")
+        return all_chunks
 
-            # If current is a heading, merge with immediate next block
-            if chunk_type == "heading" and i < total - 1 and positions[i + 1][2] is None:
-                nxt_start, nxt_end, _ = positions[i + 1]
-                chunk_text = f"{chunk_text}\n\n{text[nxt_start:nxt_end].strip()}"
-                skip_next = True
+    async def process_documents(self, data_dir: str) -> List[Dict]:
+        """Complete document processing pipeline (bất đồng bộ)."""
+        print(f"Bắt đầu xử lý documents từ {data_dir}")
+        
+        # Load documents
+        documents = await self.load_documents(data_dir)
+        if not documents:
+            print("Không có documents nào để xử lý")
+            return []
+            
+        # Chunk documents
+        chunks = await self.chunk_documents(documents)
+        return chunks
 
-            # Metadata copy + enrich
-            meta = dict(metadata)
-            meta.setdefault("page", metadata.get("page", 1))
-            meta["chunk_type"] = chunk_type
-            meta["position"] = f"section {i + 1} of {total}"
-            if heading:
-                meta["heading"] = heading
-            meta = self._enhance_chunk_metadata(chunk_text, meta)
+    def process_documents_sync(self, data_dir: str) -> List[Dict]:
+        """Complete document processing pipeline (đồng bộ)."""
+        print(f"Bắt đầu xử lý documents từ {data_dir}")
+        
+        # Load documents
+        documents = self.load_documents_sync(data_dir)
+        if not documents:
+            print("Không có documents nào để xử lý")
+            return []
+            
+        # Chunk documents
+        chunks = self.chunk_documents_sync(documents)
+        return chunks
 
-            results.append(
-                {
-                    "id": str(uuid.uuid4()),
-                    "text": chunk_text,
-                    "metadata": meta,
-                    "source": meta.get("source", "unknown"),
-                }
-            )
+    async def _analyze_chunk_content(self, content: str) -> Dict:
+        """Analyze chunk content to add rich metadata (bất đồng bộ)."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            self._analyze_chunk_content_sync,
+            content
+        )
 
-        return results if results else self._chunk_by_size(text, metadata)
-
-    # --------------------------------------------------------
-    # Public processing entrypoint
-    # --------------------------------------------------------
-    def process_documents(self, documents: List) -> List[Dict]:
-        """Convert LangChain Documents (or raw dicts) into enriched chunk dicts."""
-        processed: List[Dict] = []
-        for doc in documents:
-            if hasattr(doc, "page_content") and hasattr(doc, "metadata"):
-                text = doc.page_content
-                meta = dict(doc.metadata)
-            else:
-                text = doc.get("text", doc.get("page_content", ""))
-                meta = dict(doc.get("metadata", {}))
-
-            if "category" not in meta:
-                meta["category"] = self._classify_document_content(text)
-
-            if self.use_structural_chunking:
-                chunks = self._chunk_by_structure(text, meta)
-            else:
-                chunks = self._chunk_by_size(text, meta)
-            processed.extend(chunks)
-        return processed
-
-    # --------------------------------------------------------
-    # Classification & metadata enrichment helpers
-    # --------------------------------------------------------
-    def _classify_document_content(self, text: str) -> str:
-        text_lower = text.lower()
-        scores: Dict[str, float] = {}
-        for cat, keywords in self.category_keywords.items():
-            score = sum(len(re.findall(r"\b" + re.escape(kw) + r"\b", text_lower)) for kw in keywords)
-            scores[cat] = score / (len(text_lower.split()) + 1) * 100
-        if scores:
-            best_cat, best_score = max(scores.items(), key=lambda x: x[1])
-            return best_cat if best_score > 0.5 else "general"
-        return "general"
-
-    def _enhance_chunk_metadata(self, text: str, metadata: Dict) -> Dict:
-        enhanced = dict(metadata)
-        text_lower = text.lower()
-
-        # Quick definition/syntax/code detectors (unchanged)
+    def _analyze_chunk_content_sync(self, content: str) -> Dict:
+        """Analyze chunk content to add rich metadata (đồng bộ)."""
+        metadata = {}
+        content_lower = content.lower()
+        
+        # Check for definitions
         definition_patterns = [
-            r"\b(là|được định nghĩa là|được hiểu là|có nghĩa là|refers to|is defined as|is)\b",
-            r"^(định nghĩa|definition|khái niệm|concept)[\s\:]",
-            r"\b(nghĩa là|có nghĩa là|tức là|means|meaning)\b",
+            r'(là|is|được định nghĩa|defined as|nghĩa là)',
+            r'(khái niệm|concept|definition|định nghĩa)',
         ]
-        syntax_patterns = [
-            r"\b(cú pháp|syntax|format|khai báo|declaration|statement)\b",
-            r"(SELECT|CREATE|ALTER|DROP|INSERT|UPDATE|DELETE)[\s\w]+\b(FROM|TABLE|INTO|VALUES|SET|WHERE)\b",
-            r"(sử dụng|usage|how to use|cách sử dụng)\s+.+\s+(lệnh|command|statement)",
-            r"(general|standard|chuẩn)\s+(format|syntax|form)",
+        metadata["chứa_định_nghĩa"] = any(
+            re.search(pattern, content_lower) for pattern in definition_patterns
+        )
+        
+        # Check for SQL syntax
+        sql_keywords = [
+            "select", "insert", "update", "delete", "create", "alter", "drop",
+            "join", "where", "group by", "order by", "having", "union"
         ]
-        code_patterns = [
-            r"```\w*\n[\s\S]*?\n```",
-            r"(?:SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)[\s\S]*?;",
-            r"(?:^|\n)(?:  |\t)[\s\S]+(?:\n|$)",
-            r"(?:Ví dụ|Example|For example)[\s\:][\s\S]*?(?:SELECT|INSERT|UPDATE|DELETE)[\s\S]*?;",
+        metadata["chứa_cú_pháp"] = any(keyword in content_lower for keyword in sql_keywords)
+        
+        # Check for specific SQL syntax types
+        metadata["chứa_cú_pháp_select"] = "select" in content_lower
+        metadata["chứa_cú_pháp_join"] = any(
+            join_type in content_lower 
+            for join_type in ["join", "inner join", "left join", "right join", "full join"]
+        )
+        metadata["chứa_cú_pháp_ddl"] = any(
+            ddl in content_lower 
+            for ddl in ["create", "alter", "drop", "table", "index", "view"]
+        )
+        
+        # Check for examples
+        example_patterns = [
+            r'(ví dụ|example|minh họa|demonstration)',
+            r'(như sau|as follows|for instance)',
+            r'(xem xét|consider|let\'s)',
         ]
+        metadata["chứa_ví_dụ"] = any(
+            re.search(pattern, content_lower) for pattern in example_patterns
+        )
+        
+        # Check for comparisons
+        comparison_patterns = [
+            r'(so sánh|compare|khác nhau|difference|versus|vs)',
+            r'(tốt hơn|better|worse|worse than)',
+            r'(ưu điểm|advantage|nhược điểm|disadvantage)',
+        ]
+        metadata["chứa_so_sánh"] = any(
+            re.search(pattern, content_lower) for pattern in comparison_patterns
+        )
+        
+        # Check for error/troubleshooting content
+        error_patterns = [
+            r'(lỗi|error|bug|issue|problem)',
+            r'(không hoạt động|not working|failed|failure)',
+            r'(sửa|fix|debug|troubleshoot|resolve)',
+        ]
+        metadata["chứa_lỗi"] = any(
+            re.search(pattern, content_lower) for pattern in error_patterns
+        )
+        
+        # Check for tables/data structures
+        metadata["chứa_bảng"] = any(
+            table_keyword in content_lower 
+            for table_keyword in ["table", "bảng", "column", "cột", "row", "hàng"]
+        )
+        
+        return metadata
 
-        for p in definition_patterns:
-            if re.search(p, text, re.IGNORECASE):
-                enhanced["chứa_định_nghĩa"] = True
-                break
-        for p in syntax_patterns:
-            if re.search(p, text, re.IGNORECASE):
-                enhanced["chứa_cú_pháp"] = True
-                break
-        for p in code_patterns:
-            if re.search(p, text, re.MULTILINE):
-                enhanced["chứa_mẫu_code"] = True
-                break
-
-        # Specific SQL syntax flags
-        if "SELECT" in text and "FROM" in text:
-            enhanced["chứa_cú_pháp_select"] = True
-        if "JOIN" in text and ("ON" in text or "USING" in text):
-            enhanced["chứa_cú_pháp_join"] = True
-        if ("CREATE" in text and "TABLE" in text) or ("ALTER" in text and "TABLE" in text):
-            enhanced["chứa_cú_pháp_ddl"] = True
-        if "INSERT" in text or "UPDATE" in text or "DELETE" in text:
-            enhanced["chứa_cú_pháp_dml"] = True
-
-        # Table / image heuristics
-        if "|" in text and "-" in text and re.search(r"\|\s*-+\s*\|", text):
-            enhanced["chứa_bảng"] = True
-        if re.search(r"!\[.*?\]\(.*?\)", text) or re.search(r"<img.*?>", text):
-            enhanced["chứa_hình_ảnh"] = True
-        return enhanced
+    # --------------------------------------------------------
+    # Classification helpers  
+    # --------------------------------------------------------
+    def _classify_document_content(self, content: str) -> str:
+        """Classify document content based on keywords."""
+        content_lower = content.lower()
+        
+        # Count keywords for each category
+        category_scores = {}
+        for category, keywords in self.category_keywords.items():
+            score = sum(1 for keyword in keywords if keyword in content_lower)
+            category_scores[category] = score
+            
+        # Return category with highest score, or 'general' if no matches
+        if not category_scores or all(score == 0 for score in category_scores.values()):
+            return "general"
+            
+        return max(category_scores.keys(), key=lambda k: category_scores[k])

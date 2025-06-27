@@ -1,6 +1,3 @@
-############################
-# 1. Python (FastAPI)
-############################
 __pycache__/
 *.py[cod]
 *$py.class
@@ -18,9 +15,6 @@ instance/
 .coverage
 htmlcov/
 
-############################
-# 2. Node/NestJS
-############################
 node_modules/
 dist/
 # Bun / pnpm / turbo
@@ -34,18 +28,10 @@ coverage/
 out/
 *.tsbuildinfo
 .next/
-
-############################
-# 3. Môi trường & cấu hình
-############################
 .env
 .DS_Store
 *.log
 logs/
-
-############################
-# 4. Công cụ IDE
-############################
 .idea/
 .vscode/
 *.swp
@@ -53,9 +39,7 @@ logs/
 .cursor/
 .cursorignore
 
-############################
-# 5. Dữ liệu dự án
-############################
+
 src/data/*
 !src/data/.gitkeep
 src/feedback/*
@@ -63,21 +47,13 @@ src/feedback/*
 src/conversation_history/*
 !src/conversation_history/.gitkeep
 
-############################
-# 6. Qdrant
-############################
 .qdrant/
 qdrant_data/
 
-############################
-# 7. Model files (nếu cần)
-############################
 *.pt
 *.pth
 *.onnx
-############################
-# 8. Các file tạm thời khác
-############################
+
 *.tmp
 *.bak
 *.swp
@@ -88,8 +64,5 @@ tmp/
 *.cache
 *.pid
 
-############################
-# 9. CI/CD & Testing
-############################
 .env.frontend
 .env.backend

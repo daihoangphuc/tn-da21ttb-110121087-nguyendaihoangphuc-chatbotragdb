@@ -42,7 +42,7 @@ export interface AdminMessageListResponse {
 export interface AdminMessageSearchParams {
   query: string;
   conversation_id?: string;
-  user_id?: string;
+  user_email?: string;  // Đổi từ user_id thành user_email
   date_from?: string;
   date_to?: string;
   page?: number;
@@ -130,14 +130,14 @@ export class AdminAPI {
   async fetchConversations(params?: {
     page?: number;
     per_page?: number;
-    user_id?: string;
+    user_email?: string;  // Đổi từ user_id thành user_email
     date_from?: string;
     date_to?: string;
   }): Promise<AdminConversationListResponse> {
     const queryParams = new URLSearchParams();
     if (params?.page) queryParams.append("page", params.page.toString());
     if (params?.per_page) queryParams.append("per_page", params.per_page.toString());
-    if (params?.user_id) queryParams.append("user_id", params.user_id);
+    if (params?.user_email) queryParams.append("user_email", params.user_email);  // Đổi parameter
     if (params?.date_from) queryParams.append("date_from", params.date_from);
     if (params?.date_to) queryParams.append("date_to", params.date_to);
 

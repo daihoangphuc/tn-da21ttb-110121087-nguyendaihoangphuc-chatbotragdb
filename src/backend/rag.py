@@ -73,13 +73,10 @@ def initialize_global_resources():
         global_prompt_manager = PromptManager()
         print("Đã khởi tạo Prompt Manager toàn cục")
 
-        # Tạo search manager dùng chung với VectorStore không có user_id
-        # Điều này đảm bảo không tạo hay tải BM25 index không cần thiết khi khởi tạo
-        # BM25 index phù hợp sẽ được tải khi user_id thực sử dụng
-        # empty_vector_store = VectorStore()  # VectorStore không có user_id
-        # global_search_manager = SearchManager(empty_vector_store, global_embedding_model)
-        # print("Đã khởi tạo Search Manager toàn cục (BM25, reranker)")
-        # print("SearchManager toàn cục sẽ tải BM25 index phù hợp khi được gán cho user_id cụ thể")
+        # Search manager sẽ được tạo riêng cho từng user để tránh conflict
+        # Không tạo global search manager để tránh vấn đề với BM25 index
+        global_search_manager = None
+        print("Search Manager sẽ được tạo riêng cho từng user khi cần thiết")
 
         global_resources_initialized = True
         print("Hoàn thành khởi tạo tất cả tài nguyên toàn cục")
@@ -177,12 +174,60 @@ class AdvancedDatabaseRAG:
         # Cài đặt cơ chế xử lý song song
         self.max_workers = int(os.getenv("MAX_PARALLEL_WORKERS", "4"))
 
+    async def load_documents_async(self, data_dir: str) -> List[Dict]:
+        """Tải tài liệu từ thư mục (bất đồng bộ)"""
+        return await self.document_processor.load_documents(data_dir)
+
     def load_documents(self, data_dir: str) -> List[Dict]:
-        """Tải tài liệu từ thư mục"""
-        return self.document_processor.load_documents(data_dir)
+        """Tải tài liệu từ thư mục (đồng bộ)"""
+        return self.document_processor.load_documents_sync(data_dir)
+
+    async def process_documents_async(self, documents: List[Dict]) -> List[Dict]:
+        """Xử lý và chia nhỏ tài liệu với xử lý song song (bất đồng bộ)"""
+        # Xử lý song song nếu có nhiều tài liệu
+        if len(documents) > 5:  # Chỉ xử lý song song khi có nhiều tài liệu
+            print(
+                f"Xử lý song song {len(documents)} tài liệu với {self.max_workers} workers"
+            )
+            chunks = []
+
+            # Sử dụng asyncio để xử lý song song
+            tasks = []
+            semaphore = asyncio.Semaphore(self.max_workers)
+            
+            async def process_with_semaphore(doc):
+                async with semaphore:
+                    return await self._process_single_document_async(doc)
+            
+            for doc in documents:
+                task = asyncio.create_task(process_with_semaphore(doc))
+                tasks.append(task)
+            
+            # Chờ tất cả tasks hoàn thành
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    print(f"Lỗi khi xử lý tài liệu {i}: {str(result)}")
+                else:
+                    chunks.extend(result)
+
+            print(f"Đã xử lý xong {len(documents)} tài liệu, tạo ra {len(chunks)} chunks")
+            return chunks
+
+        else:
+            # Xử lý tuần tự cho ít tài liệu
+            print(f"Xử lý tuần tự {len(documents)} tài liệu")
+            all_chunks = []
+            for doc in documents:
+                chunks = await self._process_single_document_async(doc)
+                all_chunks.extend(chunks)
+
+            print(f"Đã xử lý xong {len(documents)} tài liệu, tạo ra {len(all_chunks)} chunks")
+            return all_chunks
 
     def process_documents(self, documents: List[Dict]) -> List[Dict]:
-        """Xử lý và chia nhỏ tài liệu với xử lý song song"""
+        """Xử lý và chia nhỏ tài liệu với xử lý song song (đồng bộ)"""
         # Xử lý song song nếu có nhiều tài liệu
         if len(documents) > 5:  # Chỉ xử lý song song khi có nhiều tài liệu
             print(
@@ -204,87 +249,147 @@ class AdvancedDatabaseRAG:
                 for future in concurrent.futures.as_completed(future_to_doc):
                     doc_index = future_to_doc[future]
                     try:
-                        result = future.result()
-                        chunks.extend(result)
-                        print(
-                            f"Đã xử lý xong tài liệu {doc_index+1}/{len(documents)}: {len(result)} chunks"
-                        )
-                    except Exception as e:
-                        print(
-                            f"Lỗi khi xử lý tài liệu {doc_index+1}/{len(documents)}: {str(e)}"
-                        )
+                        doc_chunks = future.result()
+                        chunks.extend(doc_chunks)
+                        print(f"Đã xử lý xong tài liệu {doc_index}")
+                    except Exception as exc:
+                        print(f"Lỗi khi xử lý tài liệu {doc_index}: {exc}")
 
+            print(f"Đã xử lý xong {len(documents)} tài liệu, tạo ra {len(chunks)} chunks")
             return chunks
+
         else:
             # Xử lý tuần tự cho ít tài liệu
-            return self.document_processor.process_documents(documents)
+            print(f"Xử lý tuần tự {len(documents)} tài liệu")
+            all_chunks = []
+            for doc in documents:
+                chunks = self._process_single_document(doc)
+                all_chunks.extend(chunks)
+
+            print(f"Đã xử lý xong {len(documents)} tài liệu, tạo ra {len(all_chunks)} chunks")
+            return all_chunks
+
+    async def _process_single_document_async(self, document: Dict) -> List[Dict]:
+        """Xử lý một tài liệu đơn lẻ (bất đồng bộ)"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._process_single_document, document
+        )
 
     def _process_single_document(self, document: Dict) -> List[Dict]:
         """Xử lý một tài liệu đơn lẻ"""
-        return self.document_processor.process_documents([document])
+        return self.document_processor.chunk_documents_sync([document])
 
-    def index_to_qdrant(self, chunks: List[Dict], user_id) -> None:
-        """Index dữ liệu lên Qdrant với xử lý song song cho embedding"""
-        # Sử dụng user_id được truyền vào
-        if not user_id:
-            raise ValueError(
-                "user_id là bắt buộc để xác định collection cho từng người dùng"
-            )
+    async def index_to_qdrant_async(self, chunks: List[Dict], user_id) -> None:
+        """Index chunks lên Qdrant (bất đồng bộ)"""
+        if not chunks:
+            print("Không có chunks nào để index")
+            return
 
-        current_user_id = user_id
-
-        # Xử lý embedding song song theo batches
-        texts = [chunk["text"] for chunk in chunks]
-        batch_size = 32  # Số lượng văn bản xử lý trong mỗi batch
-
-        print(f"Tính embedding cho {len(texts)} chunks với batch_size={batch_size}...")
+        start_time = time.time()
+        print(f"Bắt đầu index {len(chunks)} chunks lên Qdrant cho user_id={user_id}")
 
         try:
-            embeddings = self.embedding_model.encode(
-                texts, batch_size=batch_size, show_progress=True
-            )
+            # Tạo embeddings batch để tối ưu tốc độ
+            texts = [chunk["text"] for chunk in chunks]
+            print(f"Đang tạo embeddings cho {len(texts)} texts...")
+
+            # Sử dụng async batch encoding
+            embeddings = await self.embedding_model.encode_batch(texts)
+            print(f"Đã tạo xong {len(embeddings)} embeddings")
+
+            # Lấy file_id từ chunk đầu tiên (giả sử tất cả chunks thuộc cùng một file)
+            file_id = chunks[0].get("file_id", str(uuid.uuid4()))
+
+            # Index lên vector store
+            await self.vector_store.index_documents(chunks, embeddings, user_id, file_id)
+
+            end_time = time.time()
+            processing_time = end_time - start_time
             print(
-                f"Đã hoàn thành embedding, shape: {embeddings.shape if hasattr(embeddings, 'shape') else 'unknown'}"
+                f"Hoàn thành index {len(chunks)} chunks trong {processing_time:.2f}s "
+                f"(trung bình {processing_time/len(chunks):.3f}s/chunk)"
             )
+
         except Exception as e:
-            print(f"Lỗi khi tạo embeddings: {str(e)}")
-            print("Thử tạo embeddings lại với các tham số khác...")
-            try:
-                # Thử lại với batch nhỏ hơn
-                batch_size = 16
-                embeddings = self.embedding_model.encode(
-                    texts, batch_size=batch_size, show_progress=True
-                )
-            except Exception as e2:
-                print(f"Vẫn lỗi khi tạo embeddings lần 2: {str(e2)}")
-                raise ValueError(
-                    f"Không thể tạo embeddings cho các texts đã cung cấp: {str(e2)}"
-                )
+            print(f"Lỗi khi index chunks: {str(e)}")
+            raise
 
-        print(
-            f"Đã hoàn thành embedding, đang index lên Qdrant cho user_id={current_user_id}..."
-        )
+    def index_to_qdrant(self, chunks: List[Dict], user_id) -> None:
+        """Index chunks lên Qdrant (đồng bộ)"""
+        if not chunks:
+            print("Không có chunks nào để index")
+            return
 
-        # Chuyển danh sách embeddings thành danh sách các vector
-        if hasattr(embeddings, "tolist"):
-            # Nếu embeddings là một mảng NumPy
-            embeddings_list = embeddings.tolist()
-        elif isinstance(embeddings, list):
-            # Nếu embeddings đã là một danh sách
-            embeddings_list = embeddings
-        else:
-            print(f"Loại embeddings không rõ: {type(embeddings)}")
-            # Cố gắng chuyển đổi sang danh sách nếu có thể
-            try:
-                embeddings_list = list(embeddings)
-            except:
-                raise ValueError(
-                    f"Không thể chuyển đổi embeddings sang danh sách, loại: {type(embeddings)}"
-                )
+        start_time = time.time()
+        print(f"Bắt đầu index {len(chunks)} chunks lên Qdrant cho user_id={user_id}")
 
-        self.vector_store.index_documents(
-            chunks, embeddings_list, user_id=current_user_id
-        )
+        try:
+            # Tạo embeddings batch để tối ưu tốc độ
+            texts = [chunk["text"] for chunk in chunks]
+            print(f"Đang tạo embeddings cho {len(texts)} texts...")
+
+            # Sử dụng sync batch encoding
+            embeddings = self.embedding_model.encode_batch_sync(texts)
+            print(f"Đã tạo xong {len(embeddings)} embeddings")
+
+            # Lấy file_id từ chunk đầu tiên (giả sử tất cả chunks thuộc cùng một file)
+            file_id = chunks[0].get("file_id", str(uuid.uuid4()))
+
+            # Index lên vector store
+            self.vector_store.index_documents_sync(chunks, embeddings, user_id, file_id)
+
+            end_time = time.time()
+            processing_time = end_time - start_time
+            print(
+                f"Hoàn thành index {len(chunks)} chunks trong {processing_time:.2f}s "
+                f"(trung bình {processing_time/len(chunks):.3f}s/chunk)"
+            )
+
+        except Exception as e:
+            print(f"Lỗi khi index chunks: {str(e)}")
+            raise
+
+    async def semantic_search_async(
+        self,
+        query: str,
+        k: int = 10,
+        sources: List[str] = None,
+        file_id: List[str] = None,
+    ) -> List[Dict]:
+        """Tìm kiếm ngữ nghĩa (bất đồng bộ)"""
+        print(f"Semantic search với query='{query}', k={k}")
+        
+        if sources:
+            print(f"Filtering by sources: {sources}")
+        if file_id:
+            print(f"Filtering by file_id: {file_id}")
+
+        try:
+            # Sử dụng search manager với async
+            results = await self.search_manager.semantic_search(
+                query=query,
+                k=k,
+                sources=sources,
+                file_id=file_id,
+            )
+
+            print(f"Tìm thấy {len(results)} kết quả từ semantic search")
+
+            # Log thông tin kết quả để debug
+            if results:
+                for i, result in enumerate(results[:3]):  # Log 3 kết quả đầu
+                    score = result.get("score", 0)
+                    source = result.get("source", "unknown")
+                    text_preview = result.get("text", "")[:100] + "..." if result.get("text", "") else ""
+                    print(f"  Result {i+1}: score={score:.4f}, source={source}, text={text_preview}")
+
+            return results
+
+        except Exception as e:
+            print(f"Lỗi trong semantic search: {str(e)}")
+            import traceback
+            print(f"Chi tiết lỗi: {traceback.format_exc()}")
+            return []
 
     def semantic_search(
         self,
@@ -293,38 +398,48 @@ class AdvancedDatabaseRAG:
         sources: List[str] = None,
         file_id: List[str] = None,
     ) -> List[Dict]:
-        """
-        Tìm kiếm ngữ nghĩa với khả năng lọc theo nguồn
+        """Tìm kiếm ngữ nghĩa (đồng bộ)"""
+        print(f"Semantic search với query='{query}', k={k}")
+        
+        if sources:
+            print(f"Filtering by sources: {sources}")
+        if file_id:
+            print(f"Filtering by file_id: {file_id}")
 
-        Args:
-            query: Câu truy vấn
-            k: Số lượng kết quả trả về
-            sources: Danh sách nguồn tài liệu (legacy, sử dụng file_id thay thế)
-            file_id: Danh sách ID file cần tìm kiếm
-
-        Returns:
-            Danh sách kết quả tìm kiếm đã được sắp xếp theo điểm số
-        """
-        print(f"Thực hiện semantic search cho: '{query}'")
-        print(f"Tham số: k={k}, sources={sources}, file_id={file_id}")
-
-        # CẬP NHẬT: Không dùng user_id nữa vì sử dụng collection chung
-        if sources or file_id:
-            # Gọi search_with_filter trên SearchManager (không truyền user_id)
-            results = self.search_manager.semantic_search(
-                query=query, k=k, sources=sources, file_id=file_id
+        try:
+            # Sử dụng search manager với sync
+            results = self.search_manager.semantic_search_sync(
+                query=query,
+                k=k,
+                sources=sources,
+                file_id=file_id,
             )
-        else:
-            # Tìm kiếm thông thường trên toàn bộ collection (không truyền user_id)
-            results = self.search_manager.semantic_search(query=query, k=k)
 
-        print(f"Semantic search trả về {len(results)} kết quả")
+            print(f"Tìm thấy {len(results)} kết quả từ semantic search")
 
-        return results
+            # Log thông tin kết quả để debug
+            if results:
+                for i, result in enumerate(results[:3]):  # Log 3 kết quả đầu
+                    score = result.get("score", 0)
+                    source = result.get("source", "unknown")
+                    text_preview = result.get("text", "")[:100] + "..." if result.get("text", "") else ""
+                    print(f"  Result {i+1}: score={score:.4f}, source={source}, text={text_preview}")
+
+            return results
+
+        except Exception as e:
+            print(f"Lỗi trong semantic search: {str(e)}")
+            import traceback
+            print(f"Chi tiết lỗi: {traceback.format_exc()}")
+            return []
+
+    async def rerank_results_async(self, query: str, results: List[Dict]) -> List[Dict]:
+        """Tái xếp hạng kết quả (bất đồng bộ)"""
+        return await self.search_manager.rerank_results(query, results)
 
     def rerank_results(self, query: str, results: List[Dict]) -> List[Dict]:
-        """Tái xếp hạng kết quả"""
-        return self.search_manager.rerank_results(query, results)
+        """Tái xếp hạng kết quả (đồng bộ)"""
+        return self.search_manager.rerank_results_sync(query, results)
 
     async def query_with_sources_streaming(
         self,
@@ -361,7 +476,7 @@ class AdvancedDatabaseRAG:
 
         # Xử lý và phân loại câu hỏi trong một lệnh gọi LLM duy nhất
         original_query = query
-        expanded_query, query_type = self.query_handler.expand_and_classify_query(
+        expanded_query, query_type = await self.query_handler.expand_and_classify_query(
             query, conversation_history
         )
         query_to_use = expanded_query
@@ -389,7 +504,7 @@ class AdvancedDatabaseRAG:
             }
 
             # Trả về nội dung
-            response = self.query_handler.get_response_for_other_question(query)
+            response = await self.query_handler.get_response_for_other_question(query)
             yield {"type": "content", "data": {"content": response}}
 
             # Trả về kết thúc
@@ -559,7 +674,7 @@ class AdvancedDatabaseRAG:
             return
 
         # Thực hiện semantic search
-        search_results = self.semantic_search(
+        search_results = await self.semantic_search_async(
             query_to_use, k=k, sources=sources, file_id=file_id
         )
         
@@ -652,7 +767,7 @@ class AdvancedDatabaseRAG:
         
         # Rerank kết quả nếu có nhiều hơn 1 kết quả
         if len(search_results) > 1:
-            reranked_results = self.rerank_results(
+            reranked_results = await self.rerank_results_async(
                 query_to_use, search_results
             )
             # Lấy số lượng kết quả đã rerank
@@ -816,7 +931,7 @@ class AdvancedDatabaseRAG:
             prompt = self.prompt_manager.create_related_questions_prompt(query, answer)
 
             # Gọi LLM để tạo câu hỏi gợi ý
-            response = self.llm.invoke(prompt)
+            response = await self.llm.invoke(prompt)
 
             # Xử lý kết quả để trích xuất các câu hỏi
             response_text = response.content.strip()

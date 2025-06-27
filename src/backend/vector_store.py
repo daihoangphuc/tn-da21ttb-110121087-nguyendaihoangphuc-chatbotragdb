@@ -2,6 +2,7 @@ from sqlalchemy import null
 from qdrant_client import QdrantClient, models
 import logging
 import numpy as np
+import asyncio
 
 # Cấu hình logging
 logging.basicConfig(format="[Vector Store] %(message)s", level=logging.INFO)
@@ -27,7 +28,7 @@ load_dotenv()
 
 
 class VectorStore:
-    """Lớp quản lý kho lưu trữ vector với Qdrant"""
+    """Lớp quản lý kho lưu trữ vector với Qdrant và hỗ trợ async"""
 
     def __init__(
         self,
@@ -86,8 +87,45 @@ class VectorStore:
 
         return self.collection_name
 
-    def ensure_collection_exists(self, vector_size, user_id=None):
-        """Đảm bảo collection tồn tại trong Qdrant"""
+    async def ensure_collection_exists(self, vector_size, user_id=None):
+        """Đảm bảo collection tồn tại trong Qdrant (bất đồng bộ)"""
+        # Nếu có user_id mới, cập nhật collection_name
+        if user_id and user_id != self.user_id:
+            self.collection_name = self.get_collection_name_for_user(user_id)
+
+        # Nếu không có collection_name, không thực hiện gì cả và trả về False
+        if not self.collection_name:
+            print(
+                "THÔNG BÁO: Bỏ qua tạo collection vì chưa có collection_name hoặc user_id"
+            )
+            return False
+
+        # Chạy operations trong thread pool để không block
+        loop = asyncio.get_event_loop()
+        
+        collections = await loop.run_in_executor(
+            None, lambda: self.client.get_collections().collections
+        )
+        collection_names = [c.name for c in collections]
+
+        if self.collection_name not in collection_names:
+            print(
+                f"Tạo collection mới: {self.collection_name} với vector_size={vector_size}"
+            )
+            await loop.run_in_executor(
+                None,
+                lambda: self.client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+                )
+            )
+            return True
+        else:
+            print(f"Collection {self.collection_name} đã tồn tại")
+            return True
+
+    def ensure_collection_exists_sync(self, vector_size, user_id=None):
+        """Đảm bảo collection tồn tại trong Qdrant (đồng bộ)"""
         # Nếu có user_id mới, cập nhật collection_name
         if user_id and user_id != self.user_id:
             self.collection_name = self.get_collection_name_for_user(user_id)
@@ -115,8 +153,8 @@ class VectorStore:
             print(f"Collection {self.collection_name} đã tồn tại")
             return True
 
-    def index_documents(self, chunks, embeddings, user_id, file_id):
-        """Index dữ liệu lên Qdrant"""
+    async def index_documents(self, chunks, embeddings, user_id, file_id):
+        """Index dữ liệu lên Qdrant (bất đồng bộ)"""
         start_time = time.time()
 
         # CẬP NHẬT: Cho phép user_id=None để index vào collection chung
@@ -142,7 +180,12 @@ class VectorStore:
         )
 
         # Đảm bảo collection có tồn tại
-        if not self.client.collection_exists(self.collection_name):
+        loop = asyncio.get_event_loop()
+        collection_exists = await loop.run_in_executor(
+            None, lambda: self.client.collection_exists(self.collection_name)
+        )
+        
+        if not collection_exists:
             # Lấy kích thước vector an toàn
             vector_size = 768  # Giá trị mặc định
             if embeddings is not None and len(embeddings) > 0:
@@ -157,7 +200,7 @@ class VectorStore:
             print(
                 f"[INDEX] Collection {self.collection_name} chưa tồn tại, tạo mới với size={vector_size}"
             )
-            self.ensure_collection_exists(vector_size)
+            await self.ensure_collection_exists(vector_size)
 
         points = []
         # Kiểm tra file_id
@@ -198,217 +241,384 @@ class VectorStore:
             # Tạo payload theo cấu trúc mới
             payload = {
                 "text": chunk["text"],
+                "source": source,
+                "file_id": file_id,
                 "metadata": chunk["metadata"],
-                "source": source,  # Lưu trực tiếp vào root để dễ truy vấn
             }
 
-            # CẬP NHẬT: Chỉ thêm user_id vào payload nếu user_id không phải None
-            if user_id is not None:
-                payload["user_id"] = user_id
-
-            # Thêm file_id vào payload để dễ filter và delete sau này
-            if file_id:
-                payload["file_id"] = file_id
-
-            # Thêm point vào danh sách
-            points.append(
-                PointStruct(id=point_id, vector=current_embedding, payload=payload)
+            point = PointStruct(
+                id=point_id,
+                vector=current_embedding,
+                payload=payload,
             )
+            points.append(point)
 
-        # Upload toàn bộ points lên Qdrant
-        try:
-            operation_info = self.client.upsert(
-                collection_name=self.collection_name, 
-                points=points
+        # Gửi dữ liệu lên Qdrant bất đồng bộ
+        await loop.run_in_executor(
+            None,
+            lambda: self.client.upsert(
+                collection_name=self.collection_name,
+                points=points,
             )
-            
-            # Tính thời gian xử lý
-            end_time = time.time()
-            processing_time = end_time - start_time
-            
-            print(
-                f"[INDEX] Đã index {len(points)} chunks trong {processing_time:.2f} giây. Collection: {self.collection_name}"
-            )
-            
-            return {
-                "indexed_count": len(points),
-                "processing_time": processing_time,
-                "collection_name": self.collection_name,
-                "operation_info": operation_info
-            }
-            
-        except Exception as e:
-            print(f"[INDEX] Lỗi khi upload lên Qdrant: {str(e)}")
-            raise e
+        )
 
-    def search(self, query_vector, limit=5, user_id=None):
-        """
-        Tìm kiếm ngữ nghĩa trong collection
+        end_time = time.time()
+        print(
+            f"[INDEX] Hoàn thành index {len(chunks)} chunks vào collection {self.collection_name} trong {end_time - start_time:.2f}s"
+        )
 
-        Args:
-            query_vector: Vector query để tìm kiếm
-            limit: Số lượng kết quả tối đa
-            user_id: ID người dùng (tùy chọn, có thể None nếu dùng collection chung)
+    def index_documents_sync(self, chunks, embeddings, user_id, file_id):
+        """Index dữ liệu lên Qdrant (đồng bộ - để tương thích ngược)"""
+        start_time = time.time()
 
-        Returns:
-            Danh sách kết quả tìm kiếm
-        """
-        # CẬP NHẬT: Cho phép user_id=None khi đã có collection_name
+        # CẬP NHẬT: Cho phép user_id=None để index vào collection chung
         if user_id is not None:
-            # Cập nhật collection_name theo user_id nếu cần
+            # Cập nhật collection_name nếu user_id khác hoặc chưa có collection_name
             if self.user_id != user_id or not self.collection_name:
                 self.collection_name = self.get_collection_name_for_user(user_id)
+                print(
+                    f"[INDEX] Sử dụng collection: {self.collection_name} cho user_id: {user_id}"
+                )
         else:
-            # Trường hợp user_id=None, kiểm tra collection_name đã được thiết lập
+            # Trường hợp user_id=None, sử dụng collection đã được set từ trước
             if not self.collection_name:
                 raise ValueError(
                     "collection_name phải được thiết lập khi user_id=None"
                 )
+            print(
+                f"[INDEX] Sử dụng collection chung: {self.collection_name} (không dùng user_id)"
+            )
 
-        print(f"[SEARCH] Tìm kiếm trong collection: {self.collection_name}")
+        print(
+            f"[INDEX] Bắt đầu index {len(chunks)} chunks vào collection {self.collection_name}"
+        )
 
-        # Kiểm tra collection có tồn tại không
+        # Đảm bảo collection có tồn tại
         if not self.client.collection_exists(self.collection_name):
-            print(f"[SEARCH] Collection {self.collection_name} không tồn tại")
+            # Lấy kích thước vector an toàn
+            vector_size = 768  # Giá trị mặc định
+            if embeddings is not None and len(embeddings) > 0:
+                if isinstance(embeddings[0], (list, np.ndarray)):
+                    # Kiểm tra xem embeddings[0] có phải là mảng hoặc danh sách
+                    vector_size = len(embeddings[0])
+                else:
+                    print(
+                        "[INDEX] Cảnh báo: embeddings[0] không phải là mảng như mong đợi"
+                    )
+
+            print(
+                f"[INDEX] Collection {self.collection_name} chưa tồn tại, tạo mới với size={vector_size}"
+            )
+            self.ensure_collection_exists_sync(vector_size)
+
+        points = []
+        # Kiểm tra file_id
+        if not file_id:
+            print(
+                "[INDEX] Cảnh báo: file_id không được thiết lập"
+            )
+        for idx, chunk in enumerate(chunks):
+            # Tạo ID ngẫu nhiên cho mỗi điểm để tránh ghi đè
+            point_id = str(uuid.uuid4())
+
+            # Đảm bảo source có trong cả payload trực tiếp và metadata
+            source = chunk.get("source", "unknown")
+
+            # Đảm bảo metadata là một dict
+            if "metadata" not in chunk or not isinstance(chunk["metadata"], dict):
+                chunk["metadata"] = {}
+
+            # Đảm bảo source cũng có trong metadata
+            if source and "source" not in chunk["metadata"]:
+                chunk["metadata"]["source"] = source
+
+            # Thêm timestamp để theo dõi nếu chưa có
+            if "indexed_at" not in chunk["metadata"]:
+                chunk["metadata"]["indexed_at"] = int(time.time())
+
+            # In thông tin để debug nếu là chunk đầu tiên hoặc mỗi 50 chunks
+            if idx == 0 or idx % 50 == 0 or idx == len(chunks) - 1:
+                print(
+                    f"[INDEX] Indexing chunk {idx}/{len(chunks)}: id={point_id}, source={source}"
+                )
+
+            # Đảm bảo embedding là danh sách trước khi thêm vào points
+            current_embedding = embeddings[idx]
+            if isinstance(current_embedding, np.ndarray):
+                current_embedding = current_embedding.tolist()
+
+            # Tạo payload theo cấu trúc mới
+            payload = {
+                "text": chunk["text"],
+                "source": source,
+                "file_id": file_id,
+                "metadata": chunk["metadata"],
+            }
+
+            point = PointStruct(
+                id=point_id,
+                vector=current_embedding,
+                payload=payload,
+            )
+            points.append(point)
+
+        # Gửi dữ liệu lên Qdrant
+        self.client.upsert(
+            collection_name=self.collection_name,
+            points=points,
+        )
+
+        end_time = time.time()
+        print(
+            f"[INDEX] Hoàn thành index {len(chunks)} chunks vào collection {self.collection_name} trong {end_time - start_time:.2f}s"
+        )
+
+    async def search(self, query_vector, limit=5, user_id=None):
+        """Tìm kiếm vector tương tự (bất đồng bộ)"""
+        # Cập nhật collection_name nếu user_id được cung cấp và khác với hiện tại
+        if user_id and user_id != self.user_id:
+            self.collection_name = self.get_collection_name_for_user(user_id)
+
+        if not self.collection_name:
+            print(
+                "CẢNH BÁO: Không có collection_name để tìm kiếm. Cần thiết lập user_id hoặc collection_name."
+            )
+            return []
+
+        loop = asyncio.get_event_loop()
+        
+        try:
+            search_result = await loop.run_in_executor(
+                None,
+                lambda: self.client.search(
+                    collection_name=self.collection_name,
+                    query_vector=query_vector,
+                    limit=limit,
+                )
+            )
+
+            results = []
+            for result in search_result:
+                doc = {
+                    "text": result.payload.get("text", ""),
+                    "source": result.payload.get("source", "unknown"),
+                    "file_id": result.payload.get("file_id", ""),
+                    "metadata": result.payload.get("metadata", {}),
+                    "score": result.score,
+                }
+                results.append(doc)
+
+            print(f"Vector search tìm thấy {len(results)} kết quả trong collection {self.collection_name}")
+            return results
+
+        except Exception as e:
+            print(f"Lỗi khi tìm kiếm vector: {str(e)}")
+            return []
+
+    def search_sync(self, query_vector, limit=5, user_id=None):
+        """Tìm kiếm vector tương tự (đồng bộ)"""
+        # Cập nhật collection_name nếu user_id được cung cấp và khác với hiện tại
+        if user_id and user_id != self.user_id:
+            self.collection_name = self.get_collection_name_for_user(user_id)
+
+        if not self.collection_name:
+            print(
+                "CẢNH BÁO: Không có collection_name để tìm kiếm. Cần thiết lập user_id hoặc collection_name."
+            )
             return []
 
         try:
-            # Thực hiện tìm kiếm
             search_result = self.client.search(
                 collection_name=self.collection_name,
                 query_vector=query_vector,
                 limit=limit,
-                with_payload=True,
-                with_vectors=False,
             )
 
-            # Chuyển đổi kết quả thành định dạng chuẩn
             results = []
-            for point in search_result:
-                result = {
-                    "id": point.id,
-                    "score": point.score,
-                    "text": point.payload.get("text", ""),
-                    "metadata": point.payload.get("metadata", {}),
-                    "source": point.payload.get("source", "unknown"),
+            for result in search_result:
+                doc = {
+                    "text": result.payload.get("text", ""),
+                    "source": result.payload.get("source", "unknown"),
+                    "file_id": result.payload.get("file_id", ""),
+                    "metadata": result.payload.get("metadata", {}),
+                    "score": result.score,
                 }
+                results.append(doc)
 
-                # Thêm file_id vào kết quả nếu có
-                if "file_id" in point.payload:
-                    result["file_id"] = point.payload["file_id"]
-
-                # CẬP NHẬT: Chỉ thêm user_id nếu có trong payload
-                if "user_id" in point.payload:
-                    result["user_id"] = point.payload["user_id"]
-
-                results.append(result)
-
-            print(f"[SEARCH] Tìm thấy {len(results)} kết quả trong collection {self.collection_name}")
+            print(f"Vector search tìm thấy {len(results)} kết quả trong collection {self.collection_name}")
             return results
 
         except Exception as e:
-            print(f"[SEARCH] Lỗi khi tìm kiếm: {str(e)}")
+            print(f"Lỗi khi tìm kiếm vector: {str(e)}")
             return []
 
-    def search_with_filter(
+    async def search_with_filter(
         self, query_vector, sources=None, file_id=None, user_id=None, limit=5
     ):
-        """
-        Tìm kiếm với bộ lọc theo sources hoặc file_id
+        """Tìm kiếm vector có filter (bất đồng bộ)"""
+        # Cập nhật collection_name nếu user_id được cung cấp
+        if user_id and user_id != self.user_id:
+            self.collection_name = self.get_collection_name_for_user(user_id)
 
-        Args:
-            query_vector: Vector query
-            sources: Danh sách các nguồn cần lọc
-            file_id: Danh sách các file_id cần lọc
-            user_id: ID người dùng (tùy chọn, có thể None nếu dùng collection chung)
-            limit: Số lượng kết quả tối đa
+        if not self.collection_name:
+            print(
+                "CẢNH BÁO: Không có collection_name để tìm kiếm. Cần thiết lập user_id hoặc collection_name."
+            )
+            return []
 
-        Returns:
-            Danh sách kết quả tìm kiếm
-        """
-        # CẬP NHẬT: Cho phép user_id=None khi đã có collection_name
-        if user_id is not None:
-            # Cập nhật collection_name theo user_id nếu cần
-            if self.user_id != user_id or not self.collection_name:
-                self.collection_name = self.get_collection_name_for_user(user_id)
-        else:
-            # Trường hợp user_id=None, kiểm tra collection_name đã được thiết lập
-            if not self.collection_name:
-                raise ValueError(
-                    "collection_name phải được thiết lập khi user_id=None"
+        # Xây dựng filter
+        filter_conditions = []
+
+        if sources:
+            source_conditions = []
+            for source in sources:
+                source_conditions.append(
+                    models.FieldCondition(
+                        key="source", match=models.MatchValue(value=source)
+                    )
+                )
+            if len(source_conditions) == 1:
+                filter_conditions.append(source_conditions[0])
+            else:
+                filter_conditions.append(
+                    models.Filter(should=source_conditions)
                 )
 
-        print(f"[SEARCH] Tìm kiếm trong collection: {self.collection_name}")
-
-        # Tạo filter conditions
-        should_conditions = []
-
-        # Filter theo sources nếu có
-        if sources and len(sources) > 0:
-            print(f"[SEARCH] Filtering by sources: {sources}")
-            for source in sources:
-                should_conditions.extend([
-                    {"key": "source", "match": {"value": source}},
-                    {"key": "metadata.source", "match": {"value": source}},
-                ])
-
-        # Filter theo file_id nếu có
-        if file_id and len(file_id) > 0:
-            print(f"[SEARCH] Filtering by file_id: {file_id}")
+        if file_id:
+            file_id_conditions = []
             for fid in file_id:
-                should_conditions.append({"key": "file_id", "match": {"value": fid}})
+                file_id_conditions.append(
+                    models.FieldCondition(
+                        key="file_id", match=models.MatchValue(value=fid)
+                    )
+                )
+            if len(file_id_conditions) == 1:
+                filter_conditions.append(file_id_conditions[0])
+            else:
+                filter_conditions.append(
+                    models.Filter(should=file_id_conditions)
+                )
 
-        # CẬP NHẬT: Không filter theo user_id nếu user_id=None (dùng collection chung)
-        if user_id is not None:
-            should_conditions.append({"key": "user_id", "match": {"value": user_id}})
+        # Kết hợp các điều kiện filter
+        if len(filter_conditions) == 0:
+            query_filter = None
+        elif len(filter_conditions) == 1:
+            query_filter = models.Filter(must=[filter_conditions[0]])
+        else:
+            query_filter = models.Filter(must=filter_conditions)
 
-        # Nếu không có điều kiện filter nào, thực hiện tìm kiếm thông thường
-        if not should_conditions:
-            print(f"[SEARCH] Không có filter, tìm kiếm trên toàn collection")
-            return self.search(query_vector, limit=limit, user_id=user_id)
-
-        # Tạo filter object
-        search_filter = Filter(should=should_conditions)
-
+        loop = asyncio.get_event_loop()
+        
         try:
-            # Thực hiện tìm kiếm với filter
-            search_result = self.client.search(
-                collection_name=self.collection_name,
-                query_vector=query_vector,
-                query_filter=search_filter,
-                limit=limit,
-                with_payload=True,
-                with_vectors=False,
+            search_result = await loop.run_in_executor(
+                None,
+                lambda: self.client.search(
+                    collection_name=self.collection_name,
+                    query_vector=query_vector,
+                    query_filter=query_filter,
+                    limit=limit,
+                )
             )
 
-            # Chuyển đổi kết quả
             results = []
-            for point in search_result:
-                result = {
-                    "id": point.id,
-                    "score": point.score,
-                    "text": point.payload.get("text", ""),
-                    "metadata": point.payload.get("metadata", {}),
-                    "source": point.payload.get("source", "unknown"),
+            for result in search_result:
+                doc = {
+                    "text": result.payload.get("text", ""),
+                    "source": result.payload.get("source", "unknown"),
+                    "file_id": result.payload.get("file_id", ""),
+                    "metadata": result.payload.get("metadata", {}),
+                    "score": result.score,
                 }
+                results.append(doc)
 
-                # Thêm file_id vào kết quả nếu có
-                if "file_id" in point.payload:
-                    result["file_id"] = point.payload["file_id"]
-
-                # CẬP NHẬT: Chỉ thêm user_id nếu có trong payload
-                if "user_id" in point.payload:
-                    result["user_id"] = point.payload["user_id"]
-
-                results.append(result)
-
-            print(
-                f"[SEARCH] Tìm thấy {len(results)} kết quả với filter trong collection {self.collection_name}"
-            )
+            filter_desc = f"sources={sources}" if sources else f"file_id={file_id}" if file_id else "no filter"
+            print(f"Vector search với filter ({filter_desc}) tìm thấy {len(results)} kết quả")
             return results
 
         except Exception as e:
-            print(f"[SEARCH] Lỗi khi tìm kiếm với filter: {str(e)}")
+            print(f"Lỗi khi tìm kiếm vector với filter: {str(e)}")
+            return []
+
+    def search_with_filter_sync(
+        self, query_vector, sources=None, file_id=None, user_id=None, limit=5
+    ):
+        """Tìm kiếm vector có filter (đồng bộ)"""
+        # Cập nhật collection_name nếu user_id được cung cấp
+        if user_id and user_id != self.user_id:
+            self.collection_name = self.get_collection_name_for_user(user_id)
+
+        if not self.collection_name:
+            print(
+                "CẢNH BÁO: Không có collection_name để tìm kiếm. Cần thiết lập user_id hoặc collection_name."
+            )
+            return []
+
+        # Xây dựng filter
+        filter_conditions = []
+
+        if sources:
+            source_conditions = []
+            for source in sources:
+                source_conditions.append(
+                    models.FieldCondition(
+                        key="source", match=models.MatchValue(value=source)
+                    )
+                )
+            if len(source_conditions) == 1:
+                filter_conditions.append(source_conditions[0])
+            else:
+                filter_conditions.append(
+                    models.Filter(should=source_conditions)
+                )
+
+        if file_id:
+            file_id_conditions = []
+            for fid in file_id:
+                file_id_conditions.append(
+                    models.FieldCondition(
+                        key="file_id", match=models.MatchValue(value=fid)
+                    )
+                )
+            if len(file_id_conditions) == 1:
+                filter_conditions.append(file_id_conditions[0])
+            else:
+                filter_conditions.append(
+                    models.Filter(should=file_id_conditions)
+                )
+
+        # Kết hợp các điều kiện filter
+        if len(filter_conditions) == 0:
+            query_filter = None
+        elif len(filter_conditions) == 1:
+            query_filter = models.Filter(must=[filter_conditions[0]])
+        else:
+            query_filter = models.Filter(must=filter_conditions)
+
+        try:
+            search_result = self.client.search(
+                collection_name=self.collection_name,
+                query_vector=query_vector,
+                query_filter=query_filter,
+                limit=limit,
+            )
+
+            results = []
+            for result in search_result:
+                doc = {
+                    "text": result.payload.get("text", ""),
+                    "source": result.payload.get("source", "unknown"),
+                    "file_id": result.payload.get("file_id", ""),
+                    "metadata": result.payload.get("metadata", {}),
+                    "score": result.score,
+                }
+                results.append(doc)
+
+            filter_desc = f"sources={sources}" if sources else f"file_id={file_id}" if file_id else "no filter"
+            print(f"Vector search với filter ({filter_desc}) tìm thấy {len(results)} kết quả")
+            return results
+
+        except Exception as e:
+            print(f"Lỗi khi tìm kiếm vector với filter: {str(e)}")
             return []
 
     def get_all_documents(self, limit=1000, user_id=None):

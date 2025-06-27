@@ -39,32 +39,29 @@ export function AdminConversations() {
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+
   const [showMessageDialog, setShowMessageDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
 
+  const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState({ from: "", to: "" });
-  const [userFilter, setUserFilter] = useState("");
   const { toast } = useToast();
 
+  // Load dữ liệu ban đầu khi component mount
   useEffect(() => {
     fetchConversations();
     fetchStats();
-  }, [page, dateFilter, userFilter]);
+  }, []); // Chỉ chạy một lần khi component mount
 
   const fetchConversations = async () => {
     setLoading(true);
     try {
-      const params: any = { page, per_page: 20 };
-      if (userFilter) params.user_id = userFilter;
-      if (dateFilter.from) params.date_from = dateFilter.from;
-      if (dateFilter.to) params.date_to = dateFilter.to;
-
+      // Load tất cả conversations mà không filter ở backend
+      const params: any = { page: 1, per_page: 100 }; // Load nhiều conversations để filter ở frontend
+      
       const response = await adminAPI.fetchConversations(params);
       setConversations(response.conversations);
-      setTotalPages(response.total_pages);
     } catch (error) {
       toast({
         title: "Lỗi",
@@ -83,6 +80,30 @@ export function AdminConversations() {
     } catch (error) {
       console.error("Error fetching stats:", error);
     }
+  };
+
+  const handleClearFilter = () => {
+    setSearchTerm("");
+    setDateFilter({ from: "", to: "" });
+  };
+
+  // Hàm filter conversations ở frontend giống admin users
+  const getFilteredConversations = () => {
+    return conversations.filter(conv => {
+      // Filter theo search term (email hoặc first message)
+      const matchesSearch = !searchTerm || 
+        conv.user_email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        conv.first_message.toLowerCase().includes(searchTerm.toLowerCase());
+
+      // Filter theo date range
+      const matchesDateFrom = !dateFilter.from || 
+        (conv.last_updated && new Date(conv.last_updated) >= new Date(dateFilter.from));
+      
+      const matchesDateTo = !dateFilter.to || 
+        (conv.last_updated && new Date(conv.last_updated) <= new Date(dateFilter.to + " 23:59:59"));
+
+      return matchesSearch && matchesDateFrom && matchesDateTo;
+    });
   };
 
   const handleViewMessages = async (conversation: AdminConversation) => {
@@ -242,37 +263,44 @@ export function AdminConversations() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {/* Filters */}
-              <div className="flex gap-4 mb-4">
-                <div className="flex-1">
-                  <Label htmlFor="dateFrom">Từ ngày</Label>
-                  <Input
-                    id="dateFrom"
-                    type="date"
-                    value={dateFilter.from}
-                    onChange={(e) => setDateFilter({ ...dateFilter, from: e.target.value })}
-                  />
+              {/* Search and Filters */}
+              <div className="space-y-4 mb-4">
+                {/* Search bar giống admin users */}
+                <div className="flex items-center space-x-2">
+                  <div className="relative flex-1 max-w-sm">
+                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Tìm kiếm theo email hoặc tin nhắn..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-8"
+                    />
+                  </div>
+                  <Button variant="outline" onClick={handleClearFilter}>
+                    Xóa bộ lọc
+                  </Button>
                 </div>
-                <div className="flex-1">
-                  <Label htmlFor="dateTo">Đến ngày</Label>
-                  <Input
-                    id="dateTo"
-                    type="date"
-                    value={dateFilter.to}
-                    onChange={(e) => setDateFilter({ ...dateFilter, to: e.target.value })}
-                  />
-                </div>
-                <div className="flex-1">
-                  <Label htmlFor="userFilter">User ID</Label>
-                  <Input
-                    id="userFilter"
-                    placeholder="Lọc theo user ID"
-                    value={userFilter}
-                    onChange={(e) => setUserFilter(e.target.value)}
-                  />
-                </div>
-                <div className="flex items-end">
-                  <Button onClick={fetchConversations}>Lọc</Button>
+
+                {/* Date filters */}
+                <div className="flex gap-4">
+                  <div className="flex-1 max-w-xs">
+                    <Label htmlFor="dateFrom">Từ ngày</Label>
+                    <Input
+                      id="dateFrom"
+                      type="date"
+                      value={dateFilter.from}
+                      onChange={(e) => setDateFilter({ ...dateFilter, from: e.target.value })}
+                    />
+                  </div>
+                  <div className="flex-1 max-w-xs">
+                    <Label htmlFor="dateTo">Đến ngày</Label>
+                    <Input
+                      id="dateTo"
+                      type="date"
+                      value={dateFilter.to}
+                      onChange={(e) => setDateFilter({ ...dateFilter, to: e.target.value })}
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -309,7 +337,7 @@ export function AdminConversations() {
                       </tr>
                     </thead>
                     <tbody>
-                      {conversations.map((conv) => (
+                      {getFilteredConversations().map((conv) => (
                       <tr key={conv.conversation_id} className="border-b">
                         <td className="p-2 font-mono text-xs">
                           {conv.conversation_id.substring(0, 8)}...
@@ -348,23 +376,9 @@ export function AdminConversations() {
                 </div>
               )}
 
-              {/* Pagination */}
-              <div className="flex justify-between items-center mt-4">
-                <Button
-                  onClick={() => setPage(page - 1)}
-                  disabled={page === 1 || loading}
-                  variant="outline"
-                >
-                  Trang trước
-                </Button>
-                <span>Trang {page} / {totalPages}</span>
-                <Button
-                  onClick={() => setPage(page + 1)}
-                  disabled={page === totalPages || loading}
-                  variant="outline"
-                >
-                  Trang sau
-                </Button>
+              {/* Result count */}
+              <div className="mt-4 text-sm text-muted-foreground">
+                Hiển thị {getFilteredConversations().length} / {conversations.length} hội thoại
               </div>
             </CardContent>
           </Card>

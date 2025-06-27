@@ -1,5 +1,6 @@
 from sentence_transformers import SentenceTransformer
 import logging
+import asyncio
 
 # Cấu hình logging
 logging.basicConfig(
@@ -20,7 +21,7 @@ load_dotenv()
 
 
 class EmbeddingModel:
-    """Lớp quản lý các mô hình embedding"""
+    """Lớp quản lý các mô hình embedding với hỗ trợ async"""
 
     def __init__(self, model_name=None):
         """Khởi tạo mô hình embedding"""
@@ -30,11 +31,29 @@ class EmbeddingModel:
         )
         self.dimension = self.model.get_sentence_embedding_dimension()
 
-    def encode(self, texts, batch_size=32, show_progress=True):
-        """Tạo vector embedding cho văn bản"""
+    async def encode(self, texts, batch_size=32, show_progress=True):
+        """Tạo vector embedding cho văn bản bất đồng bộ"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, 
+            lambda: self.model.encode(
+                texts, batch_size=batch_size, show_progress_bar=show_progress
+            )
+        )
+
+    async def encode_batch(self, texts, batch_size=32, show_progress=True):
+        """Tạo vector embedding cho nhiều văn bản với batch processing bất đồng bộ"""
+        return await self.encode(texts, batch_size=batch_size, show_progress=show_progress)
+
+    def encode_sync(self, texts, batch_size=32, show_progress=True):
+        """Tạo vector embedding cho văn bản đồng bộ (để tương thích ngược)"""
         return self.model.encode(
             texts, batch_size=batch_size, show_progress_bar=show_progress
         )
+
+    def encode_batch_sync(self, texts, batch_size=32, show_progress=True):
+        """Tạo vector embedding cho nhiều văn bản với batch processing đồng bộ"""
+        return self.encode_sync(texts, batch_size=batch_size, show_progress=show_progress)
 
     def get_dimension(self):
         """Trả về kích thước vector của mô hình"""

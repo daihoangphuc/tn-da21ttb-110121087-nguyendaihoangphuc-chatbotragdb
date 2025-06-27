@@ -271,3 +271,56 @@ Hãy bắt đầu trả lời ngay với yêu cầu của người dùng.
             query=query.strip(), answer=answer.strip()
         )
         return prompt
+
+    def get_rag_prompt(self, query: str, context_text: str, conversation_history: List[Dict] = None) -> str:
+        """Generate RAG prompt with context"""
+        conversation_context = self._format_conversation_history(conversation_history) if conversation_history else ""
+        
+        prompt = self.templates["tutor_mode"].format(
+            query=query,
+            context=context_text,
+            conversation_context=conversation_context
+        )
+        
+        return prompt
+
+    def get_no_context_prompt(self, query: str) -> str:
+        """Generate prompt when no context is available"""
+        return f"""Bạn là một gia sư cơ sở dữ liệu thân thiện tên là DBR. Hãy trả lời câu hỏi sau dựa trên kiến thức của bạn:
+
+Câu hỏi: {query}
+
+Lưu ý: Tôi không tìm thấy thông tin cụ thể trong tài liệu về chủ đề này. Hãy cung cấp câu trả lời tổng quát dựa trên kiến thức chuyên môn của bạn."""
+
+    def get_sql_prompt(self, query: str, conversation_history: List[Dict] = None) -> str:
+        """Generate SQL-specific prompt"""
+        conversation_context = self._format_conversation_history(conversation_history) if conversation_history else ""
+        
+        return self.templates["sql_code_task_prompt"].format(
+            query=query,
+            conversation_context=conversation_context
+        )
+
+    def get_related_questions_prompt(self, query: str, answer: str) -> str:
+        """Generate prompt for related questions"""
+        return self.templates["related_questions"].format(
+            query=query,
+            answer=answer
+        )
+
+    def _format_conversation_history(self, conversation_history: List[Dict]) -> str:
+        """Format conversation history for prompts"""
+        if not conversation_history:
+            return ""
+        
+        formatted_history = []
+        for msg in conversation_history[-10:]:  # Limit to last 10 messages
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            
+            if role == "user":
+                formatted_history.append(f"Người dùng: {content}")
+            elif role == "assistant":
+                formatted_history.append(f"Trợ lý: {content}")
+        
+        return "\n".join(formatted_history)

@@ -8,7 +8,7 @@ import { Card, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Play, Download, Copy, Maximize2, Minimize2, Database, X, Loader2 } from "lucide-react"
+import { Play, Download, Copy, Maximize2, Minimize2, Database, X, Loader2, AlertTriangle } from "lucide-react"
 import CodeMirror from "@uiw/react-codemirror"
 import { sql } from "@codemirror/lang-sql"
 import { vscodeDark } from "@uiw/codemirror-theme-vscode"
@@ -57,27 +57,104 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
   const [sqlLoaded, setSqlLoaded] = useState(false)
   const [db, setDb] = useState<SQLJSDatabase | null>(null)
   const [initializing, setInitializing] = useState(true)
+  const [componentError, setComponentError] = useState<string | null>(null)
+  const [initAttempts, setInitAttempts] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // Component-level error handler
+  useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      if (event.message?.includes('sql-wasm') || event.message?.includes('SQL')) {
+        event.preventDefault();
+        setComponentError(event.message);
+        setIsExecuting(false);
+      }
+    };
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      if (event.reason?.message?.includes('sql-wasm') || event.reason?.message?.includes('SQL')) {
+        event.preventDefault();
+        setComponentError(event.reason.message);
+        setIsExecuting(false);
+      }
+    };
+
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
+  }, []);
 
   // Script load handling
   const handleSqlJsLoad = () => {
+    console.log("SQL.js script loaded");
     setSqlLoaded(true);
   };
   
+  // Check for SQL.js availability periodically
+  useEffect(() => {
+    if (!sqlLoaded && typeof window !== 'undefined') {
+      const checkSqlJs = () => {
+        if (window.initSqlJs) {
+          console.log("SQL.js detected via polling");
+          setSqlLoaded(true);
+          return true;
+        }
+        return false;
+      };
+
+      // Immediate check
+      if (checkSqlJs()) return;
+
+      // Poll every 500ms for up to 30 seconds
+      const pollInterval = setInterval(() => {
+        if (checkSqlJs()) {
+          clearInterval(pollInterval);
+        }
+      }, 500);
+
+      const timeoutId = setTimeout(() => {
+        clearInterval(pollInterval);
+        console.log("SQL.js loading timeout");
+      }, 30000);
+
+      return () => {
+        clearInterval(pollInterval);
+        clearTimeout(timeoutId);
+      };
+    }
+  }, [sqlLoaded]);
+
   // Initialize the database when SQL.js is loaded
   useEffect(() => {
     let mounted = true;
     
     const initializeDb = async () => {
-      if (!sqlLoaded) return;
+      // Check if SQL.js is available either from state or globally
+      const isSqlJsAvailable = sqlLoaded || (typeof window !== 'undefined' && window.initSqlJs);
+      
+      if (!isSqlJsAvailable) {
+        console.log("SQL.js not yet available, waiting...");
+        return;
+      }
       
       try {
+        console.log("Starting database initialization...");
         setInitializing(true);
+        setError(null);
+        setComponentError(null);
         
         const SQL = await initSqlJs();
         
-        if (!mounted) return;
+        if (!mounted) {
+          console.log("Component unmounted during initialization");
+          return;
+        }
         
+        console.log("Creating new database...");
         const database = new SQL.Database();
         
         // Sample data for users table
@@ -199,31 +276,64 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
             [customer.customer_id, customer.customer_name, customer.city, customer.country]);
         });
 
+        console.log("Database initialized successfully");
         setDb(database);
       } catch (err: any) {
         console.error("Database initialization error:", err);
-        setError(`Lỗi khi khởi tạo cơ sở dữ liệu: ${err.message}`);
+        if (mounted) {
+          setError(`Lỗi khi khởi tạo cơ sở dữ liệu: ${err.message}`);
+        }
       } finally {
         if (mounted) {
+          console.log("Setting initializing to false");
           setInitializing(false);
         }
       }
     };
 
+    // Run initialization immediately
     initializeDb();
+    
+    // If SQL.js is not loaded yet, try again when it becomes available
+    if (!sqlLoaded && typeof window !== 'undefined' && window.initSqlJs) {
+      console.log("SQL.js was already loaded, retrying initialization...");
+      setSqlLoaded(true);
+    }
+
+    // Timeout mechanism: if initialization takes too long, show retry option
+    const timeoutId = setTimeout(() => {
+      if (mounted && initializing && !db) {
+        console.log("Initialization timeout, offering retry...");
+        setInitAttempts(prev => prev + 1);
+        if (initAttempts < 2) {
+          console.log(`Retry attempt ${initAttempts + 1}`);
+          initializeDb();
+        } else {
+          setComponentError("Khởi tạo SQL Playground quá lâu. Vui lòng thử lại.");
+          setInitializing(false);
+        }
+      }
+    }, 10000); // 10 second timeout
     
     return () => {
       mounted = false;
-      // Clean up database if needed
+      clearTimeout(timeoutId);
+    };
+  }, [sqlLoaded]);
+
+  // Cleanup database when component unmounts
+  useEffect(() => {
+    return () => {
       if (db) {
         try {
+          console.log("Cleaning up database...");
           db.close();
         } catch (e) {
           console.error("Error closing database:", e);
         }
       }
     };
-  }, [sqlLoaded]);
+  }, [db]);
 
   // Mẫu dữ liệu kết quả
   const sampleResults = {
@@ -242,6 +352,7 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
   const handleExecuteQuery = () => {
     setIsExecuting(true);
     setError(null);
+    setResults(null); // Clear previous results
 
     if (!db) {
       setError("Cơ sở dữ liệu chưa được khởi tạo. Vui lòng đợi trong giây lát.");
@@ -256,62 +367,86 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
       return;
     }
 
-    try {
-      // Measure execution time
-      const startTime = performance.now();
-      
-      // Execute the SQL statement
-      const res = db.exec(query);
-      
-      const endTime = performance.now();
-      const executionTime = `${Math.round(endTime - startTime)}ms`;
+    // Wrap everything in setTimeout to ensure error is caught properly
+    setTimeout(() => {
+      try {
+        // Measure execution time
+        const startTime = performance.now();
+        
+        // Execute the SQL statement with additional error checking
+        let res: any;
+        try {
+          res = db.exec(query);
+        } catch (execError: any) {
+          throw new Error(execError.message || "Lỗi không xác định khi thực thi SQL");
+        }
+        
+        const endTime = performance.now();
+        const executionTime = `${Math.round(endTime - startTime)}ms`;
 
-      if (res.length === 0) {
-        // If no results (e.g., INSERT, UPDATE, DELETE)
-        setResults({
-          columns: [],
-          rows: [],
-          executionTime,
-          rowCount: 0,
-          message: 'Câu lệnh đã được thực thi thành công (không có kết quả trả về).'
-        });
-      } else {
-        // Process SELECT query results
-        const result = res[0]; // Get the first result (if multiple statements)
-        const columns = result.columns;
-        const values = result.values;
-
-        // Convert array values to object rows
-        const rows = values.map(row => {
-          const rowObj: any = {};
-          columns.forEach((col: string, index: number) => {
-            rowObj[col] = row[index];
+        if (res.length === 0) {
+          // If no results (e.g., INSERT, UPDATE, DELETE)
+          setResults({
+            columns: [],
+            rows: [],
+            executionTime,
+            rowCount: 0,
+            message: 'Câu lệnh đã được thực thi thành công (không có kết quả trả về).'
           });
-          return rowObj;
-        });
+        } else {
+          // Process SELECT query results
+          const result = res[0]; // Get the first result (if multiple statements)
+          const columns = result.columns;
+          const values = result.values;
 
-        setResults({
-          columns,
-          rows,
-          executionTime,
-          rowCount: rows.length
-        });
+          // Convert array values to object rows
+          const rows = values.map((row: any) => {
+            const rowObj: any = {};
+            columns.forEach((col: string, index: number) => {
+              rowObj[col] = row[index];
+            });
+            return rowObj;
+          });
+
+          setResults({
+            columns,
+            rows,
+            executionTime,
+            rowCount: rows.length
+          });
+        }
+      } catch (error: any) {
+        console.error("SQL Execution Error:", error);
+        
+        // Improved error handling
+        let errorMessage = "Lỗi SQL: ";
+        
+        if (error && error.message) {
+          errorMessage += error.message;
+          
+          // Add helpful suggestions based on error type
+          if (error.message.includes("no such table:")) {
+            errorMessage += "<br><br>💡 <strong>Gợi ý:</strong> Vui lòng kiểm tra lại tên bảng. Các bảng hiện có là:<br>";
+            errorMessage += "<code>users</code>, <code>products</code>, <code>orders</code>, <code>categories</code>, <code>employees</code>, <code>departments</code>, <code>projects</code>, <code>customers</code>";
+          } else if (error.message.includes("no such column:")) {
+            errorMessage += "<br><br>💡 <strong>Gợi ý:</strong> Vui lòng kiểm tra lại tên cột. Có thể bạn đã viết sai tên cột hoặc cột không tồn tại trong bảng.";
+          } else if (error.message.includes("syntax error")) {
+            errorMessage += "<br><br>💡 <strong>Gợi ý:</strong> Có lỗi cú pháp SQL. Vui lòng kiểm tra lại câu lệnh của bạn.";
+          }
+        } else {
+          errorMessage += "Lỗi không xác định";
+        }
+        
+        setError(errorMessage);
+      } finally {
+        setIsExecuting(false);
+        
+        // Chuyển sang tab kết quả sau khi thực thi truy vấn
+        if (activeTab === "query") {
+          setActiveTab("results");
+        }
       }
-    } catch (error: any) {
-      let errorMessage = `Lỗi SQL: ${error.message}`;
-      if (error.message.includes("no such table:")) {
-        errorMessage += "<br>Gợi ý: Vui lòng kiểm tra lại tên bảng. Các bảng hiện có là: <code>users</code>, <code>products</code>, <code>orders</code>, <code>categories</code>, <code>employees</code>, <code>departments</code>, <code>projects</code>, và <code>customers</code>.";
-      }
-      setError(errorMessage);
-      console.error("SQL Execution Error:", error);
-    } finally {
-      setIsExecuting(false);
-      
-      // Chuyển sang tab kết quả sau khi thực thi truy vấn
-      if (activeTab === "query") {
-        setActiveTab("results");
-      }
-    }
+    }, 0);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -371,11 +506,62 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
   )
 
   const renderResults = () => {
+    // Component-level error (e.g., uncaught exceptions)
+    if (componentError) {
+      return (
+        <div className="p-4 bg-destructive/10 border border-destructive/20 text-destructive rounded-md">
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0 mt-0.5">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div className="flex-1">
+              <div className="font-medium text-sm mb-1">Lỗi hệ thống</div>
+              <div className="text-sm mb-3">{componentError}</div>
+              <Button 
+                size="sm" 
+                variant="outline" 
+                onClick={() => {
+                  setComponentError(null);
+                  setError(null);
+                  setResults(null);
+                }}
+                className="text-destructive border-destructive hover:bg-destructive/10"
+              >
+                Thử lại
+              </Button>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
     if (initializing) {
       return (
-        <div className="flex items-center justify-center p-4 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin mr-2" />
-          <span>Đang khởi tạo cơ sở dữ liệu SQLite...</span>
+        <div className="flex flex-col items-center justify-center p-4 text-muted-foreground space-y-3">
+          <div className="flex items-center">
+            <Loader2 className="h-5 w-5 animate-spin mr-2" />
+            <span>Đang khởi tạo cơ sở dữ liệu SQLite...</span>
+          </div>
+          {initAttempts > 0 && (
+            <div className="text-sm text-center">
+              <p>Khởi tạo đang mất nhiều thời gian hơn bình thường...</p>
+              <Button 
+                size="sm" 
+                variant="outline" 
+                className="mt-2"
+                onClick={() => {
+                  setInitAttempts(0);
+                  setComponentError(null);
+                  setInitializing(true);
+                  // Force re-initialization
+                  setSqlLoaded(false);
+                  setTimeout(() => setSqlLoaded(true), 100);
+                }}
+              >
+                Thử lại
+              </Button>
+            </div>
+          )}
         </div>
       )
     }
@@ -391,8 +577,31 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
 
     if (error) {
       return (
-        <div className="p-4 bg-destructive/10 text-destructive rounded-md" 
-             dangerouslySetInnerHTML={{ __html: error }} />
+        <div className="p-4 bg-destructive/10 border border-destructive/20 text-destructive rounded-md">
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0 mt-0.5">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div className="flex-1">
+              <div className="font-medium text-sm mb-1">Có lỗi xảy ra khi thực thi truy vấn</div>
+              <div 
+                className="text-sm leading-relaxed mb-3 [&_code]:bg-destructive/20 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-xs [&_code]:font-mono [&_strong]:font-semibold"
+                dangerouslySetInnerHTML={{ __html: error }} 
+              />
+              <Button 
+                size="sm" 
+                variant="outline" 
+                onClick={() => {
+                  setError(null);
+                  setResults(null);
+                }}
+                className="text-destructive border-destructive hover:bg-destructive/10"
+              >
+                Đóng lỗi
+              </Button>
+            </div>
+          </div>
+        </div>
       )
     }
 
