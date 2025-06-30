@@ -1,4 +1,4 @@
-# Multi-stage build cho Frontend (Next.js)
+# Multi-stage build cho Frontend (Next.js) - Tối ưu cho CI/CD
 FROM node:20-alpine AS base
 
 # Install pnpm
@@ -6,77 +6,62 @@ ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable
 
-# Dependencies stage
+# Dependencies stage - QUAN TRỌNG: Chỉ copy package files trước
 FROM base AS deps
 WORKDIR /app
 
-# Copy package files
-COPY src/frontend/package.json ./
-# Make pnpm-lock.yaml optional in case it's missing or incompatible
-COPY src/frontend/pnpm-lock.yaml* ./
+# Copy ONLY package files để tận dụng Docker layer cache
+COPY src/frontend/package.json src/frontend/pnpm-lock.yaml* ./
 
-# Install dependencies with proper pnpm configuration and timeout
+# Cài dependencies với cache tối ưu - layer này chỉ rebuild khi package.json thay đổi
 RUN pnpm config set auto-install-peers true && \
     pnpm config set network-timeout 600000 && \
-    pnpm install --no-frozen-lockfile --shamefully-hoist || \
-    pnpm install --shamefully-hoist
+    pnpm config set store-dir /pnpm-store && \
+    pnpm install --frozen-lockfile --prefer-offline || \
+    pnpm install --no-frozen-lockfile
 
 # Build stage
 FROM base AS builder
 WORKDIR /app
 
-# First copy package files
-COPY src/frontend/package.json src/frontend/pnpm-lock.yaml* ./
-
-# Copy dependencies from deps stage
+# Copy dependencies từ stage trước
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/package.json ./package.json
 
-# Then copy the rest of the frontend code
+# Copy source code sau cùng (thay đổi thường xuyên nhất)
 COPY src/frontend/ .
 
-# Đối số để nhận file env từ CI/CD
+# Đối số để nhận file env và API URL từ CI/CD
 ARG ENV_FILE=.env.frontend
-# Đối số để nhận URL API trực tiếp
 ARG NEXT_PUBLIC_API_URL
 
 # Copy file env từ build context
 COPY ${ENV_FILE} ./.env.local
 
-# Đảm bảo biến môi trường được thiết lập trong quá trình build
+# Thiết lập biến môi trường cho build
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-
-# Debug info
-RUN echo "Building with NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}"
-
-# Build the application
-# Set environment variable directly instead of using cross-env
 ENV NEXT_PRIVATE_LOCAL_WEBPACK=true
 
-# Debug: Show pnpm and node versions
-RUN echo "Node version: $(node --version)" && echo "pnpm version: $(pnpm --version)"
+# Debug info (có thể bỏ trong production)
+RUN echo "Building with NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}"
 
-# Debug: List files to ensure they're copied correctly
-RUN ls -la && echo "Package.json exists: $(test -f package.json && echo 'yes' || echo 'no')"
-
-# Check if dependencies are installed
-RUN ls -la node_modules/ | head -10
-
-# Build the application
+# Build application
 RUN pnpm run build
 
-# Production stage
+# Production stage - nhỏ gọn cho deployment
 FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Install wget for health checks
+# Install wget cho health checks
 RUN apk add --no-cache wget
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+# Tạo user non-root cho security
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
 
-# Copy built application
+# Copy built application từ builder stage
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public

@@ -1,28 +1,33 @@
-# Dockerfile cho Backend (FastAPI)
+# Dockerfile cho Backend (FastAPI) - Tối ưu cho CI/CD
 FROM python:3.10-slim AS base
 
 # Thiết lập thư mục làm việc
 WORKDIR /app
 
-# Cài đặt các gói hệ thống cần thiết
+# Cài đặt các gói hệ thống cần thiết (layer này ít thay đổi)
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
-# Stage cho dependencies
+# Stage cho dependencies - QUAN TRỌNG: Copy requirements.txt TRƯỚC source code
 FROM base AS dependencies
 
-# Copy requirements và cài đặt dependencies
+# Copy ONLY requirements.txt để tận dụng Docker layer cache
 COPY src/requirements.txt .
-# Cài dependencies với timeout settings và parallel processing  
-RUN pip install --no-cache-dir --timeout 600 --retries 3 -r requirements.txt
 
-# Stage cho build
-FROM dependencies AS build
+# Cài dependencies - layer này chỉ rebuild khi requirements.txt thay đổi
+RUN pip install --no-cache-dir --timeout 600 --retries 3 \
+    --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir --timeout 600 --retries 3 \
+    -r requirements.txt
 
-# Copy source code - chú ý đường dẫn mới
+# Stage cuối - copy source code (thay đổi thường xuyên nhất)
+FROM dependencies AS final
+
+# Copy source code - layer này rebuild mỗi khi code thay đổi
 COPY src/backend/ ./backend/
 
 # Tạo thư mục data
@@ -44,5 +49,5 @@ ENV PYTHONUNBUFFERED=1
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Chạy ứng dụng - cập nhật đường dẫn module
+# Chạy ứng dụng
 CMD ["python", "-m", "uvicorn", "backend.api:app", "--host", "0.0.0.0", "--port", "8000"]

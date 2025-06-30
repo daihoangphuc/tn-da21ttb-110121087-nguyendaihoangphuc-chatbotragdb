@@ -1,15 +1,28 @@
-# Git
-.git
-.gitignore
-.github
+# Backend Docker ignore - Tối ưu cho CI/CD
 
-# Python
+# Exclude frontend files để giảm context size
+frontend/
+Dockerfile.frontend
+.dockerignore.frontend
+
+# Git và version control
+.git/
+.gitignore
+.github/
+
+# IDE và editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python cache và temp files
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
 build/
 develop-eggs/
 dist/
@@ -21,64 +34,64 @@ lib64/
 parts/
 sdist/
 var/
+wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 
-# Virtual Environment
+# Virtual environments
 venv/
 ENV/
 env/
+.venv/
 
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Docker
-.dockerignore
-Dockerfile*
-docker-compose.yml
-
-# Logs
-logs/
-*.log
-
-# Frontend files (not needed for backend)
-src/frontend/
-frontend/
-node_modules/
+# Testing
+.coverage
+.pytest_cache/
+.tox/
+htmlcov/
 
 # Documentation
 docs/
 *.md
-README.md
+README*
 
-# Environment files
-.env.example
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Environment files khác
 .env.local
+.env.development
+.env.test
 .env.production
 
-# Test files
-test_*
-*_test.py
-tests/
-__tests__/
-*.test.js
-*.spec.js
-
-# OS specific
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# Temporary files
+# Backup files
+*.bak
+*.backup
 *.tmp
-*.temp
-temp/
-tmp/
 
-# Root level files not needed
-.cursorignore
-.pytest_cache/
+# Docker files khác
+docker-compose*.yml
+docker-compose*.yaml
+
+# CI/CD files
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+
+# Package manager files
+package*.json
+pnpm-lock.yaml
+yarn.lock
+node_modules/

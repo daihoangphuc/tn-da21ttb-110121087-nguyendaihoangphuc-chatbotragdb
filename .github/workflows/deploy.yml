@@ -1,4 +1,4 @@
-name: Simple CI/CD Pipeline
+name: Optimized CI/CD Pipeline
 
 on:
   push:
@@ -10,17 +10,26 @@ env:
   REGISTRY: ${{ secrets.DOCKERHUB_USERNAME }}
 
 jobs:
-  build-and-deploy:
+  setup:
     runs-on: ubuntu-latest
+    outputs:
+      env: ${{ steps.env.outputs.env }}
+      tag: ${{ steps.env.outputs.tag }}
+      domain: ${{ steps.env.outputs.domain }}
+      api_url: ${{ steps.env.outputs.api_url }}
+      frontend_url: ${{ steps.env.outputs.frontend_url }}
+      sha_short: ${{ steps.env.outputs.sha_short }}
+      deps_changed: ${{ steps.changes.outputs.deps_changed }}
+      frontend_deps_changed: ${{ steps.changes.outputs.frontend_deps_changed }}
     steps:
-      # 1. Setup
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Set environment variables
         id: env
         run: |
-          # Đơn giản hóa logic environment
           case "${{ github.ref_name }}" in
             "main")
               echo "env=production" >> $GITHUB_OUTPUT
@@ -46,6 +55,30 @@ jobs:
           esac
           echo "sha_short=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
 
+      - name: Check dependency changes
+        id: changes
+        run: |
+          # Kiểm tra xem dependencies có thay đổi không để tối ưu cache
+          if git diff HEAD~1 HEAD --name-only | grep -q "src/requirements.txt"; then
+            echo "deps_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "deps_changed=false" >> $GITHUB_OUTPUT
+          fi
+          
+          if git diff HEAD~1 HEAD --name-only | grep -E "(src/frontend/package\.json|src/frontend/pnpm-lock\.yaml)"; then
+            echo "frontend_deps_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "frontend_deps_changed=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Build Backend và Frontend song song để tăng tốc
+  build-backend:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -55,12 +88,11 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 2. Build Backend
       - name: Create backend env
         run: |
           echo "${{ secrets.BACKEND_ENV }}" > .env.backend
-          echo "FRONTEND_URL=${{ steps.env.outputs.frontend_url }}" >> .env.backend
-          echo "CORS_ORIGINS=${{ steps.env.outputs.frontend_url }}" >> .env.backend
+          echo "FRONTEND_URL=${{ needs.setup.outputs.frontend_url }}" >> .env.backend
+          echo "CORS_ORIGINS=${{ needs.setup.outputs.frontend_url }}" >> .env.backend
 
       - name: Build and push backend
         uses: docker/build-push-action@v5
@@ -69,18 +101,47 @@ jobs:
           file: src/Dockerfile.backend
           push: true
           tags: |
-            ${{ env.REGISTRY }}/db-rag-backend:${{ steps.env.outputs.tag }}
-            ${{ env.REGISTRY }}/db-rag-backend:${{ steps.env.outputs.sha_short }}
+            ${{ env.REGISTRY }}/db-rag-backend:${{ needs.setup.outputs.tag }}
+            ${{ env.REGISTRY }}/db-rag-backend:${{ needs.setup.outputs.sha_short }}
           build-args: ENV_FILE=.env.backend
           platforms: linux/amd64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Tối ưu cache: Sử dụng cả registry cache và GitHub Actions cache
+          cache-from: |
+            type=registry,ref=${{ env.REGISTRY }}/db-rag-backend:cache
+            type=gha,scope=backend
+          cache-to: |
+            type=registry,ref=${{ env.REGISTRY }}/db-rag-backend:cache,mode=max
+            type=gha,mode=max,scope=backend
 
-      # 3. Build Frontend  
+  build-frontend:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Cache pnpm store để tăng tốc install dependencies
+      - name: Cache pnpm store
+        uses: actions/cache@v3
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('src/frontend/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
       - name: Create frontend env
         run: |
           echo "${{ secrets.FRONTEND_ENV }}" > .env.frontend
-          echo "NEXT_PUBLIC_API_URL=${{ steps.env.outputs.api_url }}" >> .env.frontend
+          echo "NEXT_PUBLIC_API_URL=${{ needs.setup.outputs.api_url }}" >> .env.frontend
 
       - name: Build and push frontend
         uses: docker/build-push-action@v5
@@ -89,38 +150,50 @@ jobs:
           file: src/Dockerfile.frontend
           push: true
           tags: |
-            ${{ env.REGISTRY }}/db-rag-frontend:${{ steps.env.outputs.tag }}
-            ${{ env.REGISTRY }}/db-rag-frontend:${{ steps.env.outputs.sha_short }}
+            ${{ env.REGISTRY }}/db-rag-frontend:${{ needs.setup.outputs.tag }}
+            ${{ env.REGISTRY }}/db-rag-frontend:${{ needs.setup.outputs.sha_short }}
           build-args: |
             ENV_FILE=.env.frontend
-            NEXT_PUBLIC_API_URL=${{ steps.env.outputs.api_url }}
+            NEXT_PUBLIC_API_URL=${{ needs.setup.outputs.api_url }}
           platforms: linux/amd64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Tối ưu cache cho frontend
+          cache-from: |
+            type=registry,ref=${{ env.REGISTRY }}/db-rag-frontend:cache
+            type=gha,scope=frontend
+          cache-to: |
+            type=registry,ref=${{ env.REGISTRY }}/db-rag-frontend:cache,mode=max
+            type=gha,mode=max,scope=frontend
 
-      # 4. Deploy
+  # Deploy sau khi cả backend và frontend build xong
+  deploy:
+    needs: [setup, build-backend, build-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Create deployment package
         run: |
-          # Create deployment env file
+          # Tạo deployment env file
           cat > .env << EOF
           ${{ secrets.BACKEND_ENV }}
           DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
-          TAG=${{ steps.env.outputs.tag }}
-          FRONTEND_URL=${{ steps.env.outputs.frontend_url }}
-          CORS_ORIGINS=${{ steps.env.outputs.frontend_url }}
-          NEXT_PUBLIC_API_URL=${{ steps.env.outputs.api_url }}
+          TAG=${{ needs.setup.outputs.tag }}
+          FRONTEND_URL=${{ needs.setup.outputs.frontend_url }}
+          CORS_ORIGINS=${{ needs.setup.outputs.frontend_url }}
+          NEXT_PUBLIC_API_URL=${{ needs.setup.outputs.api_url }}
           EOF
           
           # Copy docker-compose
           cp src/docker-compose.yml ./
           
-          # Create nginx configs only for production/staging
-          if [[ "${{ steps.env.outputs.env }}" != "development" ]]; then
+          # Tạo nginx configs cho production/staging
+          if [[ "${{ needs.setup.outputs.env }}" != "development" ]]; then
             # Backend nginx config
             cat > nginx-backend.conf << EOF
           server {
               listen 80;
-              server_name api.${{ steps.env.outputs.domain }};
+              server_name api.${{ needs.setup.outputs.domain }};
               location / {
                   return 301 https://\$host\$request_uri;
               }
@@ -128,10 +201,10 @@ jobs:
           
           server {
               listen 443 ssl;
-              server_name api.${{ steps.env.outputs.domain }};
+              server_name api.${{ needs.setup.outputs.domain }};
               
-              ssl_certificate /etc/letsencrypt/live/api.${{ steps.env.outputs.domain }}/fullchain.pem;
-              ssl_certificate_key /etc/letsencrypt/live/api.${{ steps.env.outputs.domain }}/privkey.pem;
+              ssl_certificate /etc/letsencrypt/live/api.${{ needs.setup.outputs.domain }}/fullchain.pem;
+              ssl_certificate_key /etc/letsencrypt/live/api.${{ needs.setup.outputs.domain }}/privkey.pem;
               
               location / {
                   proxy_pass http://localhost:8000;
@@ -147,7 +220,7 @@ jobs:
             cat > nginx-frontend.conf << EOF
           server {
               listen 80;
-              server_name chat.${{ steps.env.outputs.domain }};
+              server_name chat.${{ needs.setup.outputs.domain }};
               location / {
                   return 301 https://\$host\$request_uri;
               }
@@ -155,10 +228,10 @@ jobs:
           
           server {
               listen 443 ssl;
-              server_name chat.${{ steps.env.outputs.domain }};
+              server_name chat.${{ needs.setup.outputs.domain }};
               
-              ssl_certificate /etc/letsencrypt/live/chat.${{ steps.env.outputs.domain }}/fullchain.pem;
-              ssl_certificate_key /etc/letsencrypt/live/chat.${{ steps.env.outputs.domain }}/privkey.pem;
+              ssl_certificate /etc/letsencrypt/live/chat.${{ needs.setup.outputs.domain }}/fullchain.pem;
+              ssl_certificate_key /etc/letsencrypt/live/chat.${{ needs.setup.outputs.domain }}/privkey.pem;
               
               location / {
                   proxy_pass http://localhost:3000;
@@ -189,75 +262,88 @@ jobs:
           script: |
             cd ~/app
             
-            # Setup nginx and SSL for production/staging only
+            # Setup nginx và SSL cho production/staging
             if [[ -f nginx-backend.conf ]]; then
-              # Install nginx if not exists
+              # Install nginx nếu chưa có
               if ! command -v nginx &> /dev/null; then
                   sudo apt update && sudo apt install -y nginx
               fi
               
-              # Install certbot if not exists
+              # Install certbot nếu chưa có
               if ! command -v certbot &> /dev/null; then
                   sudo apt update && sudo apt install -y certbot python3-certbot-nginx
               fi
               
               # Configure nginx
-              sudo cp nginx-backend.conf /etc/nginx/sites-available/api.${{ steps.env.outputs.domain }}
-              sudo cp nginx-frontend.conf /etc/nginx/sites-available/chat.${{ steps.env.outputs.domain }}
-              sudo ln -sf /etc/nginx/sites-available/api.${{ steps.env.outputs.domain }} /etc/nginx/sites-enabled/
-              sudo ln -sf /etc/nginx/sites-available/chat.${{ steps.env.outputs.domain }} /etc/nginx/sites-enabled/
+              sudo cp nginx-backend.conf /etc/nginx/sites-available/api.${{ needs.setup.outputs.domain }}
+              sudo cp nginx-frontend.conf /etc/nginx/sites-available/chat.${{ needs.setup.outputs.domain }}
+              sudo ln -sf /etc/nginx/sites-available/api.${{ needs.setup.outputs.domain }} /etc/nginx/sites-enabled/
+              sudo ln -sf /etc/nginx/sites-available/chat.${{ needs.setup.outputs.domain }} /etc/nginx/sites-enabled/
               
               # Test nginx config
               sudo nginx -t
               
-              # Create SSL certificates if not exist
-              if [[ ! -d /etc/letsencrypt/live/api.${{ steps.env.outputs.domain }} ]]; then
-                  sudo certbot --nginx -d api.${{ steps.env.outputs.domain }} --non-interactive --agree-tos -m admin@${{ steps.env.outputs.domain }}
+              # Tạo SSL certificates nếu chưa có
+              if [[ ! -d /etc/letsencrypt/live/api.${{ needs.setup.outputs.domain }} ]]; then
+                  sudo certbot --nginx -d api.${{ needs.setup.outputs.domain }} --non-interactive --agree-tos -m admin@${{ needs.setup.outputs.domain }}
               fi
               
-              if [[ ! -d /etc/letsencrypt/live/chat.${{ steps.env.outputs.domain }} ]]; then
-                  sudo certbot --nginx -d chat.${{ steps.env.outputs.domain }} --non-interactive --agree-tos -m admin@${{ steps.env.outputs.domain }}
+              if [[ ! -d /etc/letsencrypt/live/chat.${{ needs.setup.outputs.domain }} ]]; then
+                  sudo certbot --nginx -d chat.${{ needs.setup.outputs.domain }} --non-interactive --agree-tos -m admin@${{ needs.setup.outputs.domain }}
               fi
               
               # Restart nginx
               sudo systemctl restart nginx
             fi
             
-            # Deploy application
+            # Deploy application với optimized strategy
             echo "🚀 Deploying application..."
+            
+            # Dừng services cũ
             docker compose down
             
-            # Clean old images
-            docker rmi $(docker images | grep "db-rag" | awk '{print $3}') -f 2>/dev/null || true
+            # Cleanup selective - chỉ xóa images cũ của project
+            docker images | grep -E "(db-rag-backend|db-rag-frontend)" | grep -v "${{ needs.setup.outputs.tag }}" | awk '{print $3}' | xargs -r docker rmi -f
             
-            # Pull and start new images
+            # Pull images mới và start
             docker compose pull
             docker compose up -d --remove-orphans
             
-            # Wait for services
+            # Wait for services với timeout
             echo "⏳ Waiting for services to start..."
-            sleep 20
+            timeout=60
+            while [ $timeout -gt 0 ]; do
+              if curl -f http://localhost:8000/health >/dev/null 2>&1 && curl -f http://localhost:3000 >/dev/null 2>&1; then
+                echo "✅ All services are healthy"
+                break
+              fi
+              sleep 2
+              timeout=$((timeout-2))
+            done
             
-            # Health check
-            echo "🔍 Checking service health..."
+            # Final health check
+            echo "🔍 Final health check..."
             if curl -f http://localhost:8000/health >/dev/null 2>&1; then
                 echo "✅ Backend is healthy"
             else
                 echo "❌ Backend health check failed"
+                exit 1
             fi
             
             if curl -f http://localhost:3000 >/dev/null 2>&1; then
                 echo "✅ Frontend is healthy"
             else
                 echo "❌ Frontend health check failed"
+                exit 1
             fi
             
-            # Cleanup
+            # Cleanup old images và system
             docker image prune -f
             docker system prune -f --filter "until=24h"
             
             echo "🎉 Deployment completed successfully!"
-            echo "📊 Environment: ${{ steps.env.outputs.env }}"
-            echo "🏷️  Tag: ${{ steps.env.outputs.tag }}"
-            echo "🌐 Frontend: ${{ steps.env.outputs.frontend_url }}"
-            echo "🔗 API: ${{ steps.env.outputs.api_url }}"
+            echo "📊 Environment: ${{ needs.setup.outputs.env }}"
+            echo "🏷️  Tag: ${{ needs.setup.outputs.tag }}"
+            echo "🌐 Frontend: ${{ needs.setup.outputs.frontend_url }}"
+            echo "🔗 API: ${{ needs.setup.outputs.api_url }}"
+            echo "🔄 Dependencies changed: Backend=${{ needs.setup.outputs.deps_changed }}, Frontend=${{ needs.setup.outputs.frontend_deps_changed }}"
