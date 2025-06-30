@@ -1,189 +1,126 @@
-name: CI/CD Pipeline
+name: Simple CI/CD Pipeline
 
 on:
   push:
-    branches:
-      - require_v2_async
+    branches: 
+      - main
+      - staging  
 
 env:
-  DOCKERHUB_REGISTRY: ${{ secrets.DOCKERHUB_USERNAME }}
+  REGISTRY: ${{ secrets.DOCKERHUB_USERNAME }}
 
 jobs:
-  # Job để set environment variables một lần duy nhất
-  setup:
+  build-and-deploy:
     runs-on: ubuntu-latest
-    outputs:
-      env: ${{ steps.vars.outputs.env }}
-      tag: ${{ steps.vars.outputs.tag }}
-      is_production: ${{ steps.vars.outputs.is_production }}
-      is_staging: ${{ steps.vars.outputs.is_staging }}
-      sha_short: ${{ steps.vars.outputs.sha_short }}
     steps:
-      - name: Set environment variables
-        id: vars
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "env=production" >> $GITHUB_OUTPUT
-            echo "tag=latest" >> $GITHUB_OUTPUT
-            echo "is_production=true" >> $GITHUB_OUTPUT
-            echo "is_staging=false" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
-            echo "env=staging" >> $GITHUB_OUTPUT
-            echo "tag=staging" >> $GITHUB_OUTPUT
-            echo "is_production=false" >> $GITHUB_OUTPUT
-            echo "is_staging=true" >> $GITHUB_OUTPUT
-          else
-            echo "env=development" >> $GITHUB_OUTPUT
-            echo "tag=dev" >> $GITHUB_OUTPUT
-            echo "is_production=false" >> $GITHUB_OUTPUT
-            echo "is_staging=false" >> $GITHUB_OUTPUT
-          fi
-          echo "sha_short=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
-
-  build-and-push:
-    needs: setup
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        service: [frontend, backend]
-    steps:
-      - name: Checkout code
+      # 1. Setup
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
+      - name: Set environment variables
+        id: env
+        run: |
+          # Đơn giản hóa logic environment
+          case "${{ github.ref_name }}" in
+            "main")
+              echo "env=production" >> $GITHUB_OUTPUT
+              echo "tag=latest" >> $GITHUB_OUTPUT
+              echo "domain=phucndh.me" >> $GITHUB_OUTPUT
+              echo "api_url=https://api.phucndh.me/api" >> $GITHUB_OUTPUT
+              echo "frontend_url=https://chat.phucndh.me" >> $GITHUB_OUTPUT
+              ;;
+            "staging")
+              echo "env=staging" >> $GITHUB_OUTPUT  
+              echo "tag=staging" >> $GITHUB_OUTPUT
+              echo "domain=staging.phucndh.me" >> $GITHUB_OUTPUT
+              echo "api_url=https://staging.api.phucndh.me/api" >> $GITHUB_OUTPUT
+              echo "frontend_url=https://staging.chat.phucndh.me" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "env=development" >> $GITHUB_OUTPUT
+              echo "tag=dev" >> $GITHUB_OUTPUT
+              echo "domain=${{ secrets.VPS_HOST }}" >> $GITHUB_OUTPUT
+              echo "api_url=http://${{ secrets.VPS_HOST }}:8000/api" >> $GITHUB_OUTPUT
+              echo "frontend_url=http://${{ secrets.VPS_HOST }}:3000" >> $GITHUB_OUTPUT
+              ;;
+          esac
+          echo "sha_short=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Cache Docker layers
-        if: matrix.service != 'frontend'
-        uses: actions/cache@v3
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ matrix.service }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-${{ matrix.service }}-
-
-      - name: Log in to Docker Hub
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Prepare backend env file
-        if: matrix.service == 'backend'
+      # 2. Build Backend
+      - name: Create backend env
         run: |
           echo "${{ secrets.BACKEND_ENV }}" > .env.backend
-          if [[ "${{ needs.setup.outputs.is_production }}" == "true" ]]; then
-            echo "FRONTEND_URL=https://chat.phucndh.me" >> .env.backend
-            echo "CORS_ORIGINS=https://chat.phucndh.me" >> .env.backend
-          elif [[ "${{ needs.setup.outputs.is_staging }}" == "true" ]]; then
-            echo "FRONTEND_URL=https://staging.chat.phucndh.me" >> .env.backend
-            echo "CORS_ORIGINS=https://staging.chat.phucndh.me" >> .env.backend
-          else
-            echo "FRONTEND_URL=http://${{ secrets.VPS_HOST }}:3000" >> .env.backend
-            echo "CORS_ORIGINS=http://${{ secrets.VPS_HOST }}:3000" >> .env.backend
-          fi
+          echo "FRONTEND_URL=${{ steps.env.outputs.frontend_url }}" >> .env.backend
+          echo "CORS_ORIGINS=${{ steps.env.outputs.frontend_url }}" >> .env.backend
 
-      - name: Prepare frontend env file
-        if: matrix.service == 'frontend'
-        run: |
-          echo "${{ secrets.FRONTEND_ENV }}" > .env.frontend
-          if [[ "${{ needs.setup.outputs.is_production }}" == "true" ]]; then
-            echo "NEXT_PUBLIC_API_URL=https://api.phucndh.me/api" >> .env.frontend
-          elif [[ "${{ needs.setup.outputs.is_staging }}" == "true" ]]; then
-            echo "NEXT_PUBLIC_API_URL=https://staging.api.phucndh.me/api" >> .env.frontend
-          else
-            echo "NEXT_PUBLIC_API_URL=http://${{ secrets.VPS_HOST }}:8000/api" >> .env.frontend
-          fi
-
-      - name: Build and push backend image
-        if: matrix.service == 'backend'
+      - name: Build and push backend
         uses: docker/build-push-action@v5
         with:
           context: .
           file: src/Dockerfile.backend
           push: true
           tags: |
-            ${{ env.DOCKERHUB_REGISTRY }}/db-rag-backend:${{ needs.setup.outputs.tag }}
-            ${{ env.DOCKERHUB_REGISTRY }}/db-rag-backend:${{ needs.setup.outputs.sha_short }}
-          build-args: |
-            ENV_FILE=.env.backend
+            ${{ env.REGISTRY }}/db-rag-backend:${{ steps.env.outputs.tag }}
+            ${{ env.REGISTRY }}/db-rag-backend:${{ steps.env.outputs.sha_short }}
+          build-args: ENV_FILE=.env.backend
           platforms: linux/amd64
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Set frontend build args
-        if: matrix.service == 'frontend'
-        id: frontend_args
+      # 3. Build Frontend  
+      - name: Create frontend env
         run: |
-          if [[ "${{ needs.setup.outputs.is_production }}" == "true" ]]; then
-            echo "api_url=https://api.phucndh.me/api" >> $GITHUB_OUTPUT
-          elif [[ "${{ needs.setup.outputs.is_staging }}" == "true" ]]; then
-            echo "api_url=https://staging.api.phucndh.me/api" >> $GITHUB_OUTPUT
-          else
-            echo "api_url=http://${{ secrets.VPS_HOST }}:8000/api" >> $GITHUB_OUTPUT
-          fi
+          echo "${{ secrets.FRONTEND_ENV }}" > .env.frontend
+          echo "NEXT_PUBLIC_API_URL=${{ steps.env.outputs.api_url }}" >> .env.frontend
 
-      - name: Build and push frontend image
-        if: matrix.service == 'frontend'
+      - name: Build and push frontend
         uses: docker/build-push-action@v5
         with:
           context: .
           file: src/Dockerfile.frontend
           push: true
           tags: |
-            ${{ env.DOCKERHUB_REGISTRY }}/db-rag-frontend:${{ needs.setup.outputs.tag }}
-            ${{ env.DOCKERHUB_REGISTRY }}/db-rag-frontend:${{ needs.setup.outputs.sha_short }}
+            ${{ env.REGISTRY }}/db-rag-frontend:${{ steps.env.outputs.tag }}
+            ${{ env.REGISTRY }}/db-rag-frontend:${{ steps.env.outputs.sha_short }}
           build-args: |
             ENV_FILE=.env.frontend
-            NEXT_PUBLIC_API_URL=${{ steps.frontend_args.outputs.api_url }}
+            NEXT_PUBLIC_API_URL=${{ steps.env.outputs.api_url }}
           platforms: linux/amd64
-          pull: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Move cache
-        if: matrix.service != 'frontend'
+      # 4. Deploy
+      - name: Create deployment package
         run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-
-  deploy:
-    needs: [setup, build-and-push]
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Create deployment files
-        run: |
-          # Tạo .env file cho deployment
-          echo "${{ secrets.BACKEND_ENV }}" > .env
-          echo "DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}" >> .env
-          echo "TAG=${{ needs.setup.outputs.tag }}" >> .env
+          # Create deployment env file
+          cat > .env << EOF
+          ${{ secrets.BACKEND_ENV }}
+          DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+          TAG=${{ steps.env.outputs.tag }}
+          FRONTEND_URL=${{ steps.env.outputs.frontend_url }}
+          CORS_ORIGINS=${{ steps.env.outputs.frontend_url }}
+          NEXT_PUBLIC_API_URL=${{ steps.env.outputs.api_url }}
+          EOF
           
-          # Set URLs based on environment
-          if [[ "${{ needs.setup.outputs.is_production }}" == "true" ]]; then
-            echo "FRONTEND_URL=https://chat.phucndh.me" >> .env
-            echo "CORS_ORIGINS=https://chat.phucndh.me" >> .env
-            echo "NEXT_PUBLIC_API_URL=https://api.phucndh.me/api" >> .env
-          elif [[ "${{ needs.setup.outputs.is_staging }}" == "true" ]]; then
-            echo "FRONTEND_URL=https://staging.chat.phucndh.me" >> .env
-            echo "CORS_ORIGINS=https://staging.chat.phucndh.me" >> .env
-            echo "NEXT_PUBLIC_API_URL=https://staging.api.phucndh.me/api" >> .env
-          else
-            echo "FRONTEND_URL=http://${{ secrets.VPS_HOST }}:3000" >> .env
-            echo "CORS_ORIGINS=http://${{ secrets.VPS_HOST }}:3000" >> .env
-            echo "NEXT_PUBLIC_API_URL=http://${{ secrets.VPS_HOST }}:8000/api" >> .env
-          fi
+          # Copy docker-compose
+          cp src/docker-compose.yml ./
           
-          # Copy docker-compose.yml từ src
-          cp src/docker-compose.yml ./docker-compose.yml
-          
-          # Tạo nginx config cho backend
-          cat > nginx-backend.conf << EOF
+          # Create nginx configs only for production/staging
+          if [[ "${{ steps.env.outputs.env }}" != "development" ]]; then
+            # Backend nginx config
+            cat > nginx-backend.conf << EOF
           server {
               listen 80;
-              server_name api.phucndh.me;
-              
+              server_name api.${{ steps.env.outputs.domain }};
               location / {
                   return 301 https://\$host\$request_uri;
               }
@@ -191,10 +128,10 @@ jobs:
           
           server {
               listen 443 ssl;
-              server_name api.phucndh.me;
+              server_name api.${{ steps.env.outputs.domain }};
               
-              ssl_certificate /etc/letsencrypt/live/api.phucndh.me/fullchain.pem;
-              ssl_certificate_key /etc/letsencrypt/live/api.phucndh.me/privkey.pem;
+              ssl_certificate /etc/letsencrypt/live/api.${{ steps.env.outputs.domain }}/fullchain.pem;
+              ssl_certificate_key /etc/letsencrypt/live/api.${{ steps.env.outputs.domain }}/privkey.pem;
               
               location / {
                   proxy_pass http://localhost:8000;
@@ -206,12 +143,11 @@ jobs:
           }
           EOF
           
-          # Tạo nginx config cho frontend
-          cat > nginx-frontend.conf << EOF
+            # Frontend nginx config
+            cat > nginx-frontend.conf << EOF
           server {
               listen 80;
-              server_name chat.phucndh.me;
-              
+              server_name chat.${{ steps.env.outputs.domain }};
               location / {
                   return 301 https://\$host\$request_uri;
               }
@@ -219,10 +155,10 @@ jobs:
           
           server {
               listen 443 ssl;
-              server_name chat.phucndh.me;
+              server_name chat.${{ steps.env.outputs.domain }};
               
-              ssl_certificate /etc/letsencrypt/live/chat.phucndh.me/fullchain.pem;
-              ssl_certificate_key /etc/letsencrypt/live/chat.phucndh.me/privkey.pem;
+              ssl_certificate /etc/letsencrypt/live/chat.${{ steps.env.outputs.domain }}/fullchain.pem;
+              ssl_certificate_key /etc/letsencrypt/live/chat.${{ steps.env.outputs.domain }}/privkey.pem;
               
               location / {
                   proxy_pass http://localhost:3000;
@@ -233,17 +169,18 @@ jobs:
               }
           }
           EOF
+          fi
 
-      - name: Copy files to VPS
+      - name: Deploy to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: "docker-compose.yml,.env,nginx-backend.conf,nginx-frontend.conf"
+          source: "docker-compose.yml,.env,nginx-*.conf"
           target: "~/app"
 
-      - name: Deploy on VPS via SSH
+      - name: Run deployment on VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -252,52 +189,75 @@ jobs:
           script: |
             cd ~/app
             
-            # Cài đặt và cấu hình Nginx
-            if ! command -v nginx &> /dev/null; then
-                sudo apt update && sudo apt install -y nginx
+            # Setup nginx and SSL for production/staging only
+            if [[ -f nginx-backend.conf ]]; then
+              # Install nginx if not exists
+              if ! command -v nginx &> /dev/null; then
+                  sudo apt update && sudo apt install -y nginx
+              fi
+              
+              # Install certbot if not exists
+              if ! command -v certbot &> /dev/null; then
+                  sudo apt update && sudo apt install -y certbot python3-certbot-nginx
+              fi
+              
+              # Configure nginx
+              sudo cp nginx-backend.conf /etc/nginx/sites-available/api.${{ steps.env.outputs.domain }}
+              sudo cp nginx-frontend.conf /etc/nginx/sites-available/chat.${{ steps.env.outputs.domain }}
+              sudo ln -sf /etc/nginx/sites-available/api.${{ steps.env.outputs.domain }} /etc/nginx/sites-enabled/
+              sudo ln -sf /etc/nginx/sites-available/chat.${{ steps.env.outputs.domain }} /etc/nginx/sites-enabled/
+              
+              # Test nginx config
+              sudo nginx -t
+              
+              # Create SSL certificates if not exist
+              if [[ ! -d /etc/letsencrypt/live/api.${{ steps.env.outputs.domain }} ]]; then
+                  sudo certbot --nginx -d api.${{ steps.env.outputs.domain }} --non-interactive --agree-tos -m admin@${{ steps.env.outputs.domain }}
+              fi
+              
+              if [[ ! -d /etc/letsencrypt/live/chat.${{ steps.env.outputs.domain }} ]]; then
+                  sudo certbot --nginx -d chat.${{ steps.env.outputs.domain }} --non-interactive --agree-tos -m admin@${{ steps.env.outputs.domain }}
+              fi
+              
+              # Restart nginx
+              sudo systemctl restart nginx
             fi
-            
-            # Cài đặt Certbot
-            if ! command -v certbot &> /dev/null; then
-                sudo apt update && sudo apt install -y certbot python3-certbot-nginx
-            fi
-            
-            # Cấu hình Nginx
-            sudo cp nginx-backend.conf /etc/nginx/sites-available/api.phucndh.me
-            sudo cp nginx-frontend.conf /etc/nginx/sites-available/chat.phucndh.me
-            
-            # Tạo symbolic links
-            sudo ln -sf /etc/nginx/sites-available/api.phucndh.me /etc/nginx/sites-enabled/
-            sudo ln -sf /etc/nginx/sites-available/chat.phucndh.me /etc/nginx/sites-enabled/
-            
-            # Test nginx config
-            sudo nginx -t
-            
-            # Tạo SSL certificates nếu chưa có
-            if [ ! -d /etc/letsencrypt/live/api.phucndh.me ]; then
-                sudo certbot --nginx -d api.phucndh.me --non-interactive --agree-tos -m admin@phucndh.me
-            fi
-            
-            if [ ! -d /etc/letsencrypt/live/chat.phucndh.me ]; then
-                sudo certbot --nginx -d chat.phucndh.me --non-interactive --agree-tos -m admin@phucndh.me
-            fi
-            
-            # Restart nginx
-            sudo systemctl restart nginx
             
             # Deploy application
+            echo "🚀 Deploying application..."
             docker compose down
-            docker rmi $(docker images | grep "db-rag-frontend" | awk '{print $3}') -f || true
+            
+            # Clean old images
+            docker rmi $(docker images | grep "db-rag" | awk '{print $3}') -f 2>/dev/null || true
+            
+            # Pull and start new images
             docker compose pull
             docker compose up -d --remove-orphans
             
-            # Wait for services to start
-            echo "Waiting for services to start..."
-            sleep 15
+            # Wait for services
+            echo "⏳ Waiting for services to start..."
+            sleep 20
             
-            # Cleanup old images
+            # Health check
+            echo "🔍 Checking service health..."
+            if curl -f http://localhost:8000/health >/dev/null 2>&1; then
+                echo "✅ Backend is healthy"
+            else
+                echo "❌ Backend health check failed"
+            fi
+            
+            if curl -f http://localhost:3000 >/dev/null 2>&1; then
+                echo "✅ Frontend is healthy"
+            else
+                echo "❌ Frontend health check failed"
+            fi
+            
+            # Cleanup
             docker image prune -f
-            docker images | grep "<none>" | awk '{print $3}' | xargs -r docker rmi -f
             docker system prune -f --filter "until=24h"
             
-            echo "✅ Deployment completed successfully!"
+            echo "🎉 Deployment completed successfully!"
+            echo "📊 Environment: ${{ steps.env.outputs.env }}"
+            echo "🏷️  Tag: ${{ steps.env.outputs.tag }}"
+            echo "🌐 Frontend: ${{ steps.env.outputs.frontend_url }}"
+            echo "🔗 API: ${{ steps.env.outputs.api_url }}"

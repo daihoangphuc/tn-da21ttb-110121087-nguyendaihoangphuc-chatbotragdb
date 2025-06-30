@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  # Backend service
+  # Backend service - FastAPI với RAG
   backend:
-    image: ${DOCKERHUB_USERNAME}/db-rag-backend:${TAG:-latest}
+    image: ${DOCKERHUB_USERNAME:-your-username}/db-rag-backend:${TAG:-latest}
     ports:
       - "8000:8000"
     environment:
@@ -30,9 +30,9 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Frontend service
+  # Frontend service - Next.js
   frontend:
-    image: ${DOCKERHUB_USERNAME}/db-rag-frontend:${TAG:-latest}
+    image: ${DOCKERHUB_USERNAME:-your-username}/db-rag-frontend:${TAG:-latest}
     ports:
       - "3000:3000"
     environment:
@@ -59,7 +59,9 @@ services:
 networks:
   app-network:
     driver: bridge
+    name: db-rag-network
 
 volumes:
   backend_data:
     driver: local
+    name: db-rag-backend-data
