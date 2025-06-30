@@ -25,6 +25,7 @@ from backend.vector_store import VectorStore
 from backend.document_processor import DocumentProcessor
 from backend.prompt_manager import PromptManager
 from backend.search import SearchManager
+from backend.suggestion_manager import SuggestionManager
 # from backend.query_processor import QueryProcessor
 # from backend.query_router import QueryRouter
 from backend.query_handler import QueryHandler
@@ -163,6 +164,10 @@ class AdvancedDatabaseRAG:
                 # Hợp nhất QueryProcessor và QueryRouter thành QueryHandler
         self.query_handler = QueryHandler()
         print("Đã khởi tạo QueryHandler để xử lý và phân loại câu hỏi")
+
+        # Khởi tạo SuggestionManager cho việc tạo câu hỏi liên quan
+        self.suggestion_manager = SuggestionManager(llm=self.llm)
+        print("Đã khởi tạo SuggestionManager để tạo câu hỏi gợi ý")
 
         # Tính toán và lưu các giá trị khác nếu cần
         self.enable_fact_checking = (
@@ -901,6 +906,27 @@ class AdvancedDatabaseRAG:
         """Lấy thông tin về collection"""
         return self.vector_store.get_collection_info()
 
+    async def generate_related_questions(self, query: str, answer: str) -> List[str]:
+        """Tạo danh sách các câu hỏi gợi ý liên quan sử dụng SuggestionManager"""
+        try:
+            # Tạo conversation context từ Q&A hiện tại
+            conversation_context = f"Người dùng: {query}\n\nTrợ lý: {answer}"
+            
+            # Sử dụng SuggestionManager thay vì template
+            suggestions = await self.suggestion_manager.generate_question_suggestions(
+                conversation_context, num_suggestions=3
+            )
+            return suggestions[:3]  # Đảm bảo chỉ trả về 3 câu hỏi
+            
+        except Exception as e:
+            print(f"Lỗi khi tạo câu hỏi liên quan: {str(e)}")
+            # Trả về câu hỏi mặc định
+            return [
+                "Bạn muốn tìm hiểu thêm điều gì về chủ đề này?",
+                "Bạn có thắc mắc nào khác liên quan đến nội dung này không?",
+                "Bạn có muốn biết thêm thông tin về ứng dụng thực tế không?",
+            ]
+
     # def _generate_answer(self, query, relevant_docs, **kwargs):
     #     """Phương thức nội bộ để tạo câu trả lời"""
     #     # Tạo context từ các tài liệu liên quan
@@ -913,24 +939,3 @@ class AdvancedDatabaseRAG:
     #     response = self.llm.invoke(prompt)
     #     return response.content
 
-# Thay đổi method generate_related_questions (Line 915):
-async def generate_related_questions(self, query: str, answer: str) -> List[str]:
-    """Tạo danh sách các câu hỏi gợi ý liên quan sử dụng SuggestionManager"""
-    try:
-        # Tạo conversation context từ Q&A hiện tại
-        conversation_context = f"Người dùng: {query}\n\nTrợ lý: {answer}"
-        
-        # Sử dụng SuggestionManager thay vì template
-        suggestions = await self.suggestion_manager.generate_question_suggestions(
-            conversation_context, num_suggestions=3
-        )
-        return suggestions[:3]  # Đảm bảo chỉ trả về 3 câu hỏi
-        
-    except Exception as e:
-        print(f"Lỗi khi tạo câu hỏi liên quan: {str(e)}")
-        # Trả về câu hỏi mặc định
-        return [
-            "Bạn muốn tìm hiểu thêm điều gì về chủ đề này?",
-            "Bạn có thắc mắc nào khác liên quan đến nội dung này không?",
-            "Bạn có muốn biết thêm thông tin về ứng dụng thực tế không?",
-        ]
