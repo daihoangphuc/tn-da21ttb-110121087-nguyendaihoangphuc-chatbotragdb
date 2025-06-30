@@ -1,5 +1,9 @@
 import re
 import logging
+from typing import List, Dict, Optional, Union, Any
+from enum import Enum
+import os
+
 
 # Cấu hình logging
 logging.basicConfig(format="[Prompt Manager] %(message)s", level=logging.INFO)
@@ -13,8 +17,14 @@ def print(*args, **kwargs):
 
 
 logger = logging.getLogger(__name__)
-from typing import List, Dict
-import os
+
+
+class TemplateType(Enum):
+    """Enum định nghĩa các loại template có sẵn"""
+    TUTOR_MODE = "tutor_mode"
+    # RELATED_QUESTIONS = "related_questions"
+    SQL_CODE_TASK = "sql_code_task_prompt"
+    REALTIME_QUESTION = "realtime_question"
 
 
 class PromptManager:
@@ -22,8 +32,22 @@ class PromptManager:
 
     def __init__(self):
         """Khởi tạo quản lý prompt"""
-        self.templates = {
-            "tutor_mode": """Bạn là một gia Chatbot sư cơ sở dữ liệu thân thiện tên là DBR, và tôi là học viên. Vai trò của bạn là hướng dẫn tôi học từng bước một!
+        self.templates = self._initialize_templates()
+        self.default_template = TemplateType.TUTOR_MODE.value
+        self._validate_templates()
+
+    def _initialize_templates(self) -> Dict[str, str]:
+        """Khởi tạo và trả về dictionary chứa tất cả templates"""
+        return {
+            TemplateType.TUTOR_MODE.value: self._get_tutor_mode_template(),
+            # TemplateType.RELATED_QUESTIONS.value: self._get_related_questions_template(),
+            TemplateType.SQL_CODE_TASK.value: self._get_sql_code_task_template(),
+            TemplateType.REALTIME_QUESTION.value: self._get_realtime_question_template()
+        }
+
+    def _get_tutor_mode_template(self) -> str:
+        """Template cho chế độ gia sư"""
+        return """Bạn là một gia Chatbot sư cơ sở dữ liệu thân thiện tên là DBR, và tôi là học viên. Vai trò của bạn là hướng dẫn tôi học từng bước một!
 Ngữ cảnh:
 {context}
 {conversation_context}
@@ -43,6 +67,7 @@ NGUYÊN TẮC KHI TRẢ LỜI:
 - ĐỐI VỚI NHỮNG GÌ ĐƯỢC ĐỀ CẬP TRONG NGỮ CẢNH THÌ KHI TRẢ LỜI PHẢI CHÍNH XÁC NHƯ VẬY.
 - CÓ THỂ TỰ ĐIỀU CHỈNH NHỮNG TRƯỜNG HỢP NHƯ CHỮ KHÔNG DẪU, SAI CHÍNH TẢ, ...
 - Các từ khóa chuyên ngành về lĩnh vực CSDL thì giữ nguyên tiếng anh trong nguồn, không được dịch ra tiếng việt. (Ví dụ: từ khóa "CHECK" được lấy ra từ tài liệu thì khi trả lời không được trả lời là "kiểm tra" mà phải giữ nguyên là "CHECK").
+- TRÁNH TÓM TẮT CHUNG CHUNG. Thay vào đó, hãy trích xuất và giải thích trực tiếp các chi tiết liên quan từ ngữ cảnh.
 - CHỈ SỬ DỤNG THÔNG TIN ĐƯỢC CUNG CẤP TRONG NGỮ CẢNH. 
 - TUYỆT ĐỐI KHÔNG ĐƯỢC THÊM THÔNG TIN TỪ KIẾN THỨC BÊN NGOÀI.
 
@@ -63,49 +88,61 @@ NGUYÊN TẮC LUÔN PHẢI TUÂN THỦ ĐỊNH DẠNG MARKDOWN CHO PHẢN HỒI 
 - Sử dụng danh sách với `-` hoặc `1.`
 
 
-LƯU Ý ĐẶC BIỆT QUAN TRỌNG KHI TẠO BẢNG MARKDOWN:
-- Khi người dùng yêu cầu so sánh hoặc trình bày dữ liệu dạng bảng, hãy sử dụng định dạng Markdown chuẩn.
-- TUYỆT ĐỐI KHÔNG SỬ DỤNG KHOẢNG TRẮNG THỪA ĐỂ CĂN CHỈNH CÁC CỘT TRONG BẢNG. Việc căn chỉnh sẽ do phía client xử lý.
-- GIỮ CHO MỖI DÒNG CỦA BẢNG (bao gồm cả dòng tiêu đề và dòng phân cách `|---|---|`) CÀNG GỌN CÀNG TỐT.
-- KHÔNG ĐƯỢC THÊM BẤT KỲ KHOẢNG TRẮNG DƯ THỪA NÀO GIỮA CÁC KÝ TỰ `|` TRONG CÙNG MỘT DÒNG.
-- ĐẶC BIỆT QUAN TRỌNG: SAU KÝ TỰ `|` CUỐI CÙNG CỦA MỖI DÒNG TRONG BẢNG (KỂ CẢ DÒNG TIÊU ĐỀ `|Header1|Hdr2|` VÀ DÒNG PHÂN CÁCH `|---|---|`), PHẢI XUỐNG DÒNG NGAY LẬP TỨC (`\\n`). TUYỆT ĐỐI KHÔNG ĐƯỢC PHÉP CÓ BẤT KỲ KHOẢNG TRẮNG NÀO SAU DẤU `|` CUỐI CÙNG VÀ TRƯỚC KHI XUỐNG DÒNG.
-- Ví dụ định dạng bảng TUYỆT ĐỐI ĐÚNG (không có khoảng trắng thừa, xuống dòng ngay sau dấu | cuối cùng):
-  |Header1|Hdr2|Header3|
-  |---|---|---|
-  |Cell1|Cell2|Cell3|
-  |AnotherCell|AC2|AC3|
-- Ví dụ định dạng bảng SAI (CÓ KHOẢNG TRẮNG THỪA ĐỂ CĂN CHỈNH HOẶC CÓ KHOẢNG TRẮNG SAU DẤU `|` CUỐI CÙNG - TUYỆT ĐỐI TRÁNH):
-  `| Header1     | Hdr2  | Header 3      |` <-- SAI: Khoảng trắng thừa để căn chỉnh
-  `|---|---|---| ` <-- SAI: Khoảng trắng thừa sau dấu `|` cuối cùng
-  `| Cell1       | Cell2 | Cell3         |`
-  `| AnotherCell | AC2   | AC3           |`
-- NẾU BẢNG CÓ NHIỀU HƠN 4 CỘT, hãy chuyển sang dạng liệt kê chi tiết cho từng mục thay vì cố gắng tạo bảng rộng.
-- Sau khi tạo bảng (nếu có), hãy tóm tắt ngắn gọn (1-2 câu) những điểm chính từ bảng đó nếu phù hợp.""",
-            "related_questions": """Bạn là một trợ lý thông minh chuyên tạo câu hỏi để khuyến khích người dùng tiếp tục tìm hiểu về chủ đề.
+QUY TẮC TẠO BẢNG MARKDOWN (KHI CẦN THIẾT):
+- Nếu yêu cầu trình bày dữ liệu so sánh hoặc bảng, BẮT BUỘC sử dụng định dạng Markdown sau.
+- Định dạng chuẩn:
+  |Header1|Header2|
+  |---|---|
+  |Dòng1Cột1|Dòng1Cột2|
+  |Dòng2Cột1|Dòng2Cột2|
+- YÊU CẦU QUAN TRỌNG:
+  1. Mỗi dòng (header, phân cách, dữ liệu) phải bắt đầu bằng `|` và kết thúc bằng `|` theo sau NGAY LẬP TỨC bởi ký tự xuống dòng (`\\n`).
+  2. KHÔNG dùng khoảng trắng để căn chỉnh cột. Giữ nội dung ô ngắn gọn.
+- Nếu bảng có trên 4 cột, dùng danh sách chi tiết thay thế.
+- Sau bảng (nếu có), tóm tắt ngắn gọn điểm chính (1-2 câu)."""
 
-Câu hỏi vừa được trả lời: {query}
+#     def _get_related_questions_template(self) -> str:
+#         """Template cho câu hỏi liên quan"""
+#         return """Bạn là một trợ lý thông minh chuyên tạo câu hỏi để khuyến khích người dùng tiếp tục tìm hiểu về chủ đề.
 
-Câu trả lời tương ứng: {answer}
+# Câu hỏi vừa được trả lời: {query}
 
-Dựa trên ngữ cảnh này, hãy tạo CHÍNH XÁC 3 câu hỏi liên quan mà người dùng có thể muốn biết tiếp theo. Những câu hỏi này nên:
-1. Mở rộng kiến thức từ câu trả lời (đi sâu hơn hoặc liên kết với khái niệm khác)
-2. Khám phá các trường hợp sử dụng thực tế hoặc ứng dụng cụ thể
-3. Giúp hiểu rõ hơn về các khái niệm liên quan hoặc phương pháp thay thế
+# Câu trả lời tương ứng: {answer}
 
-Format câu trả lời của bạn như sau:
-1. [Câu hỏi 1]
-2. [Câu hỏi 2]
-3. [Câu hỏi 3]
+# NGUYÊN TẮC QUAN TRỌNG:
+# - CHỈ tạo câu hỏi dựa trên nội dung đã được trả lời trong {answer}
+# - KHÔNG được thêm thông tin từ kiến thức bên ngoài
+# - Câu hỏi phải liên quan trực tiếp đến những gì đã được đề cập trong câu trả lời
 
-- NẾU CÂU HỎI NGƯỜI DÙNG ĐẶT RA KHÔNG LIÊN QUAN ĐẾN LĨNH VỰC CƠ SỞ DỮ LIỆU THÌ HÃY ĐƯA RA 3 CÂU HỎI TRÊN SAO CHO HƯỚNG NGƯỜI DÙNG ĐẾN VIỆC HỎI CÁC CÂU HỎI LIÊN QUAN ĐẾN LĨNH VỰC CƠ SỞ DỮ LIỆU.
-QUAN TRỌNG:
-+ Chỉ trả về 3 câu hỏi theo đúng format trên, KHÔNG có nội dung giới thiệu hoặc kết luận. Mỗi câu hỏi phải là câu hoàn chỉnh kết thúc bằng dấu hỏi.
-+ Câu hỏi gợi ý không cần quá dài, ngắn gọn dễ hiểu, hiệu quả là được.
-""",
-            "sql_code_task_prompt": """Bạn là một chuyên gia SQL tên là DBR. Dựa trên yêu cầu sau đây, hãy cung cấp phản hồi SQL phù hợp.
+# Dựa trên ngữ cảnh này, hãy tạo CHÍNH XÁC 3 câu hỏi liên quan mà người dùng có thể muốn biết tiếp theo. Những câu hỏi này nên:
+# 1. Mở rộng kiến thức từ câu trả lời (đi sâu hơn về những điểm đã được đề cập)
+# 2. Khám phá các khía cạnh khác của chủ đề đã được trả lời
+# 3. Giúp hiểu rõ hơn về các khái niệm đã được giải thích trong câu trả lời
+
+# Format câu trả lời của bạn như sau:
+# 1. [Câu hỏi 1]
+# 2. [Câu hỏi 2]
+# 3. [Câu hỏi 3]
+
+# - NẾU CÂU HỎI NGƯỜI DÙNG ĐẶT RA KHÔNG LIÊN QUAN ĐẾN LĨNH VỰC CƠ SỞ DỮ LIỆU THÌ HÃY ĐƯA RA 3 CÂU HỎI TRÊN SAO CHO HƯỚNG NGƯỜI DÙNG ĐẾN VIỆC HỎI CÁC CÂU HỎI LIÊN QUAN ĐẾN LĨNH VỰC CƠ SỞ DỮ LIỆU.
+# QUAN TRỌNG:
+# + Chỉ trả về 3 câu hỏi theo đúng format trên, KHÔNG có nội dung giới thiệu hoặc kết luận. Mỗi câu hỏi phải là câu hoàn chỉnh kết thúc bằng dấu hỏi.
+# + Câu hỏi gợi ý không cần quá dài, ngắn gọn dễ hiểu, hiệu quả là được.
+# """
+
+    def _get_sql_code_task_template(self) -> str:
+        """Template cho SQL code tasks"""
+        return """Bạn là một chuyên gia SQL tên là DBR. Dựa trên yêu cầu sau đây, hãy cung cấp phản hồi SQL phù hợp.
 Yêu cầu: "{query}"
 
 {conversation_context}
+
+NGUYÊN TẮC CHỐNG ẢO GIÁC (QUAN TRỌNG):
+- CHỈ sử dụng thông tin SQL cơ bản và chuẩn được công nhận rộng rãi
+- KHÔNG thêm thông tin về cấu trúc database cụ thể nếu không được cung cấp
+- Nếu yêu cầu không đủ thông tin để tạo SQL chính xác, hãy nói rõ những thông tin cần bổ sung
+- Sử dụng tên bảng và cột generic (ví dụ: table_name, column_name) nếu không được chỉ định cụ thể
+- Khi đưa ra ví dụ, luôn ghi chú rằng đây là ví dụ minh họa và cần điều chỉnh theo cấu trúc thực tế
 
 HƯỚNG DẪN CHI TIẾT:
 1.  **Xác định Yêu Cầu**:
@@ -144,8 +181,14 @@ HƯỚNG DẪN CHI TIẾT:
     *   Nếu câu hỏi phức tạp, hãy chia nhỏ câu trả lời thành các phần dễ theo dõi.
 
 4.  **Phạm Vi Kiến Thức**:
-    *   Tập trung vào các hệ quản trị cơ sở dữ liệu SQL phổ biến (ví dụ: PostgreSQL, MySQL, SQL Server, Oracle) nếu không có thông tin cụ thể nào khác được cung cấp.
-    *   Nếu câu hỏi liên quan đến một phương ngữ SQL cụ thể, hãy cố gắng tuân theo cú pháp của phương ngữ đó.
+    *   Sử dụng cú pháp SQL chuẩn ANSI khi có thể
+    *   Chỉ đề cập đến các hệ quản trị cụ thể (PostgreSQL, MySQL, SQL Server, Oracle) khi được yêu cầu rõ ràng
+    *   Nếu không rõ hệ quản trị, sử dụng cú pháp SQL chung nhất
+
+5.  **Xử Lý Thông Tin Thiếu**:
+    *   Nếu thiếu thông tin về cấu trúc bảng, hãy yêu cầu người dùng cung cấp
+    *   Đưa ra giả định hợp lý và nói rõ đây là giả định
+    *   Ví dụ: "Giả sử bảng 'users' có cột 'id', 'name', 'email'..."
 
 NGUYÊN TẮC LUÔN PHẢI TUÂN THỦ ĐỊNH DẠNG MARKDOWN CHO PHẢN HỒI TỪ LLM (QUAN TRỌNG KHI STREAMING):
 - Sử dụng ## cho tiêu đề chính, ### cho tiêu đề phụ.
@@ -155,8 +198,57 @@ NGUYÊN TẮC LUÔN PHẢI TUÂN THỦ ĐỊNH DẠNG MARKDOWN CHO PHẢN HỒI 
 
 Hãy bắt đầu trả lời ngay với yêu cầu của người dùng.
 """
+
+    def _get_realtime_question_template(self) -> str:
+        """Template cho câu hỏi thời gian thực"""
+        return """Bạn là một gia sư cơ sở dữ liệu thân thiện tên là DBR. Bạn đang trả lời câu hỏi dựa trên kết quả tìm kiếm thời gian thực từ Google.
+
+Câu hỏi: {query}
+{conversation_context}
+
+Kết quả tìm kiếm từ Google:
+{search_results}
+
+NGUYÊN TẮC QUAN TRỌNG KHI TRẢ LỜI:
+- ĐỐI VỚI CÂU HỎI ĐẦU TIÊN CỦA TÔI THÌ TRẢ LỜI TRỰC TIẾP CHO TÔI. KHÔNG ĐƯỢC HỎI LÒNG VÒNG.
+- CHỈ SỬ DỤNG THÔNG TIN ĐƯỢC CUNG CẤP TRONG KẾT QUẢ TÌM KIẾM.
+- TUYỆT ĐỐI KHÔNG ĐƯỢC THÊM THÔNG TIN TỪ KIẾN THỨC BÊN NGOÀI.
+- Các từ khóa chuyên ngành về lĩnh vực CSDL thì giữ nguyên tiếng anh trong nguồn, không được dịch ra tiếng việt.
+- TRÁNH TÓM TẮT CHUNG CHUNG. Thay vào đó, hãy trích xuất và giải thích trực tiếp các chi tiết liên quan từ kết quả tìm kiếm.
+
+NGUYÊN TẮC TRÍCH DẪN NGUỒN (BẮT BUỘC):
+- Khi thông tin đến từ Google Search, LUÔN PHẢI bao gồm URL nguồn đầy đủ ở cuối câu trả lời.
+- Định dạng: Cuối câu trả lời thêm danh sách nguồn: "## Nguồn tham khảo\\n- [URL1]\\n- [URL2]"
+- KHÔNG ĐƯỢC BỎ QUA URL nguồn trong bất kỳ trường hợp nào.
+- Nếu có nhiều nguồn từ Google Search, liệt kê từng URL riêng biệt.
+
+NGUYÊN TẮC ĐỊNH DẠNG MARKDOWN:
+- Sử dụng ## cho tiêu đề chính, ### cho tiêu đề phụ.
+- Sử dụng **văn bản** để làm nổi bật, *văn bản* cho in nghiêng.
+- Sử dụng ```sql ... ``` cho khối mã SQL nếu có.
+- Sử dụng danh sách với `-` hoặc `1.`
+
+NGUYÊN TẮC XỬ LÝ KHI THIẾU THÔNG TIN:
+- Nếu không tìm thấy thông tin đầy đủ để trả lời câu hỏi trong kết quả tìm kiếm, hãy trả lời: "Tôi không thể trả lời đầy đủ câu hỏi này dựa trên kết quả tìm kiếm hiện có. Thông tin về [chủ đề] không được tìm thấy rõ ràng trong các nguồn tìm kiếm."
+- Nếu chỉ tìm thấy một phần thông tin, hãy chỉ trả lời phần đó và nói rõ: "Tôi chỉ tìm thấy thông tin giới hạn về chủ đề này trong kết quả tìm kiếm."
+
+Hãy trả lời câu hỏi dựa trên kết quả tìm kiếm trên và NHẤT ĐỊNH phải có phần "## Nguồn tham khảo" ở cuối với tất cả URL."""
+
+    def _validate_templates(self) -> None:
+        """Validate tất cả templates có các placeholder cần thiết"""
+        required_placeholders = {
+            TemplateType.TUTOR_MODE.value: ['{context}', '{query}', '{conversation_context}'],
+            # TemplateType.RELATED_QUESTIONS.value: ['{query}', '{answer}'],
+            TemplateType.SQL_CODE_TASK.value: ['{query}', '{conversation_context}'],
+            TemplateType.REALTIME_QUESTION.value: ['{query}', '{conversation_context}', '{search_results}']
         }
-        self.default_template = "tutor_mode"
+        
+        for template_name, placeholders in required_placeholders.items():
+            template_content = self.templates.get(template_name, "")
+            missing_placeholders = [p for p in placeholders if p not in template_content]
+            
+            if missing_placeholders:
+                logger.warning(f"Template '{template_name}' thiếu placeholder: {missing_placeholders}")
 
     def classify_question(self, query: str) -> str:
         """Phân loại câu hỏi - luôn trả về template mặc định (tutor_mode)"""
@@ -165,142 +257,87 @@ Hãy bắt đầu trả lời ngay với yêu cầu của người dùng.
     def _create_context_str(self, context: List[Dict]) -> str:
         """Phương thức phụ trợ để tạo chuỗi ngữ cảnh từ danh sách tài liệu"""
         if not context:
-            return ""  # Trả về chuỗi rỗng nếu không có context
+            return ""
 
         context_entries = []
         for i, doc in enumerate(context):
-            # Ưu tiên sử dụng metadata đầy đủ nếu được truyền vào
-            if "metadata" in doc and isinstance(doc["metadata"], dict):
-                metadata = doc["metadata"]
-            else:
-                metadata = doc.get("metadata", {})
-            
-            # Kiểm tra nếu là nguồn web search
-            source_type = metadata.get("source_type", "")
-            urls = metadata.get("urls", [])
-            
-            if source_type == "web_search" and urls:
-                # Đây là nguồn từ web search
-                content = doc.get("text") or doc.get("content") or ""
-                if not content.strip():
-                    continue
-                
-                # Format URLs cho web search
-                urls_text = "\n".join([f"- {url}" for url in urls])
-                
-                context_entry = (
-                    f"[Web Search Result {i+1}]\n"
-                    f"Source: Google Search\n"
-                    f"Source URLs:\n{urls_text}\n"
-                    f"Content: {content.strip()}\n"
-                    f"Citation: Khi sử dụng thông tin này, PHẢI bao gồm URL nguồn trong phần 'Nguồn tham khảo' ở cuối câu trả lời."
-                )
-            else:
-                # Nguồn từ RAG thông thường
-                source = metadata.get("source", "unknown_source")
-                
-                # Lấy tên file thay vì đường dẫn đầy đủ
-                source_filename = os.path.basename(source) if os.path.sep in source else source
-                
-                # Ưu tiên sử dụng page_label nếu có, nếu không thì dùng page
-                page = metadata.get("page_label", metadata.get("page", "N/A"))
-                section = metadata.get("chunk_type", metadata.get("position", "N/A"))
-
-                # Tạo trích dẫn nguồn rõ ràng hơn
-                source_citation = f"trang {page} của file {source_filename}" if page != "N/A" else f"file {source_filename}"
-
-                content = doc.get("text") or doc.get("content") or ""
-                if not content.strip():
-                    continue
-
-                context_entry = (
-                    f"[Document {i+1}]\n"
-                    f"Source: {source_filename}\n"
-                    f"Citation: {source_citation}\n"
-                    f"Page/Position: {page}\n"
-                    f"Section: {section}\n"
-                    f"Content: {content.strip()}"
-                )
-            context_entries.append(context_entry)
+            try:
+                context_entry = self._format_single_context(doc, i + 1)
+                if context_entry.strip():
+                    context_entries.append(context_entry)
+            except Exception as e:
+                logger.error(f"Lỗi khi xử lý document {i+1}: {str(e)}")
+                continue
 
         return "\n\n".join(context_entries)
 
-    def _prepare_conversation_context(self, conversation_history: str) -> str:
-        """Chuẩn bị chuỗi ngữ cảnh hội thoại, đảm bảo không có khoảng trắng thừa."""
-        if conversation_history and conversation_history.strip():
-            return f"NGỮ CẢNH CUỘC HỘI THOẠI:\n{conversation_history.strip()}\n"
-        return ""  # Trả về chuỗi rỗng nếu không có lịch sử hoặc lịch sử chỉ toàn khoảng trắng
-
-    def create_prompt(
-        self, query: str, context: List[Dict], question_type: str = None
-    ) -> str:
-        """Tạo prompt với template tutor_mode, không có lịch sử hội thoại."""
-        context_str = self._create_context_str(context)
-        # Đảm bảo conversation_context là chuỗi rỗng sạch sẽ
-        conversation_context_str = self._prepare_conversation_context("")
-
-        prompt = self.templates[self.default_template].format(
-            context=context_str.strip(),  # Strip context_str để đảm bảo
-            query=query.strip(),  # Strip query
-            conversation_context=conversation_context_str.strip(),  # Strip conversation_context
-        )
-        return prompt
-
-    def create_prompt_with_history(
-        self,
-        query: str,
-        context: List[Dict],
-        question_type: str = None,
-        conversation_history: str = "",
-    ) -> str:
-        """Tạo prompt với lịch sử hội thoại và template tutor_mode."""
-        context_str = self._create_context_str(context)
-        conversation_context_str = self._prepare_conversation_context(
-            conversation_history
-        )
-
-        prompt = self.templates[self.default_template].format(
-            context=context_str.strip(),
-            query=query.strip(),
-            conversation_context=conversation_context_str.strip(),
-        )
-        return prompt
-
-    def create_related_questions_prompt(self, query: str, answer: str) -> str:
-        """Tạo prompt để gợi ý 3 câu hỏi liên quan."""
-        prompt = self.templates["related_questions"].format(
-            query=query.strip(), answer=answer.strip()
-        )
-        return prompt
-
-    def get_rag_prompt(self, query: str, context_text: str, conversation_history: List[Dict] = None) -> str:
-        """Generate RAG prompt with context"""
-        conversation_context = self._format_conversation_history(conversation_history) if conversation_history else ""
+    def _format_single_context(self, doc: Dict, doc_index: int) -> str:
+        """Format một document thành context string"""
+        # Ưu tiên sử dụng metadata đầy đủ nếu được truyền vào
+        metadata = doc.get("metadata", {}) if isinstance(doc.get("metadata"), dict) else {}
         
-        prompt = self.templates["tutor_mode"].format(
-            query=query,
-            context=context_text,
-            conversation_context=conversation_context
-        )
+        # Kiểm tra nếu là nguồn web search
+        source_type = metadata.get("source_type", "")
+        urls = metadata.get("urls", [])
         
-        return prompt
+        if source_type == "web_search" and urls:
+            return self._format_web_search_context(doc, doc_index, urls)
+        else:
+            return self._format_rag_context(doc, doc_index, metadata)
 
-    def get_no_context_prompt(self, query: str) -> str:
-        """Generate prompt when no context is available"""
-        return f"""Bạn là một gia sư cơ sở dữ liệu thân thiện tên là DBR. Hãy trả lời câu hỏi sau dựa trên kiến thức của bạn:
-
-Câu hỏi: {query}
-
-Lưu ý: Tôi không tìm thấy thông tin cụ thể trong tài liệu về chủ đề này. Hãy cung cấp câu trả lời tổng quát dựa trên kiến thức chuyên môn của bạn."""
-
-    def get_sql_prompt(self, query: str, conversation_history: List[Dict] = None) -> str:
-        """Generate SQL-specific prompt"""
-        conversation_context = self._format_conversation_history(conversation_history) if conversation_history else ""
+    def _format_web_search_context(self, doc: Dict, doc_index: int, urls: List[str]) -> str:
+        """Format web search context"""
+        content = doc.get("text") or doc.get("content") or ""
+        if not content.strip():
+            return ""
         
-        return self.templates["sql_code_task_prompt"].format(
-            query=query,
-            conversation_context=conversation_context
+        urls_text = "\n".join([f"- {url}" for url in urls])
+        
+        return (
+            f"[Web Search Result {doc_index}]\n"
+            f"Source: Google Search\n"
+            f"Source URLs:\n{urls_text}\n"
+            f"Content: {content.strip()}\n"
+            f"Citation: Khi sử dụng thông tin này, PHẢI bao gồm URL nguồn trong phần 'Nguồn tham khảo' ở cuối câu trả lời."
         )
+
+    def _format_rag_context(self, doc: Dict, doc_index: int, metadata: Dict) -> str:
+        """Format RAG context"""
+        content = doc.get("text") or doc.get("content") or ""
+        if not content.strip():
+            return ""
+
+        source = metadata.get("source", "unknown_source")
+        source_filename = os.path.basename(source) if os.path.sep in source else source
+        
+        # Ưu tiên sử dụng page_label nếu có, nếu không thì dùng page
+        page = metadata.get("page_label", metadata.get("page", "N/A"))
+        section = metadata.get("chunk_type", metadata.get("position", "N/A"))
+
+        # Tạo trích dẫn nguồn rõ ràng hơn
+        source_citation = f"trang {page} của file {source_filename}" if page != "N/A" else f"file {source_filename}"
+
+        return (
+            f"[Document {doc_index}]\n"
+            f"Source: {source_filename}\n"
+            f"Citation: {source_citation}\n"
+            f"Page/Position: {page}\n"
+            f"Section: {section}\n"
+            f"Content: {content.strip()}"
+        )
+
+    def _prepare_conversation_context(self, conversation_history: Union[str, List[Dict], None]) -> str:
+        """Chuẩn bị chuỗi ngữ cảnh hội thoại từ nhiều format khác nhau"""
+        if not conversation_history:
+            return ""
+        
+        if isinstance(conversation_history, str):
+            return f"NGỮ CẢNH CUỘC HỘI THOẠI:\n{conversation_history.strip()}\n" if conversation_history.strip() else ""
+        elif isinstance(conversation_history, list):
+            formatted_history = self._format_conversation_history(conversation_history)
+            return f"NGỮ CẢNH CUỘC HỘI THOẠI:\n{formatted_history}\n" if formatted_history else ""
+        
+        return ""
 
     def _format_conversation_history(self, conversation_history: List[Dict]) -> str:
         """Format conversation history for prompts"""
@@ -318,3 +355,241 @@ Lưu ý: Tôi không tìm thấy thông tin cụ thể trong tài liệu về ch
                 formatted_history.append(f"Trợ lý: {content}")
         
         return "\n".join(formatted_history)
+
+    def _get_template_safely(self, template_type: str) -> str:
+        """Lấy template một cách an toàn với fallback"""
+        template = self.templates.get(template_type)
+        if not template:
+            logger.warning(f"Template '{template_type}' không tồn tại, sử dụng template mặc định")
+            template = self.templates.get(self.default_template, "")
+        return template
+
+    def create_prompt(
+        self, 
+        query: str, 
+        context: List[Dict], 
+        question_type: Optional[str] = None
+    ) -> str:
+        """Tạo prompt với template tutor_mode, không có lịch sử hội thoại."""
+        try:
+            context_str = self._create_context_str(context)
+            conversation_context_str = self._prepare_conversation_context("")
+
+            template = self._get_template_safely(self.default_template)
+            
+            prompt = template.format(
+                context=context_str.strip(),
+                query=query.strip(),
+                conversation_context=conversation_context_str.strip(),
+            )
+            return prompt
+        except Exception as e:
+            logger.error(f"Lỗi khi tạo prompt: {str(e)}")
+            # Fallback prompt với quy tắc chống ảo giác
+            return f"""Có lỗi xảy ra khi tạo prompt. Tôi không thể trả lời câu hỏi "{query}" do thiếu thông tin ngữ cảnh cần thiết. Vui lòng thử lại hoặc cung cấp thêm thông tin."""
+
+    def create_prompt_with_history(
+        self,
+        query: str,
+        context: List[Dict],
+        question_type: Optional[str] = None,
+        conversation_history: Union[str, List[Dict], None] = None,
+    ) -> str:
+        """Tạo prompt với lịch sử hội thoại và template tutor_mode."""
+        try:
+            context_str = self._create_context_str(context)
+            conversation_context_str = self._prepare_conversation_context(conversation_history)
+
+            template = self._get_template_safely(self.default_template)
+            
+            prompt = template.format(
+                context=context_str.strip(),
+                query=query.strip(),
+                conversation_context=conversation_context_str.strip(),
+            )
+            return prompt
+        except Exception as e:
+            logger.error(f"Lỗi khi tạo prompt với lịch sử: {str(e)}")
+            # Fallback prompt với quy tắc chống ảo giác
+            return f"""Có lỗi xảy ra khi tạo prompt. Tôi không thể trả lời câu hỏi "{query}" do thiếu thông tin ngữ cảnh cần thiết. Vui lòng thử lại hoặc cung cấp thêm thông tin."""
+
+    # def create_related_questions_prompt(self, query: str, answer: str) -> str:
+    #     """Tạo prompt để gợi ý 3 câu hỏi liên quan."""
+    #     try:
+    #         template = self._get_template_safely(TemplateType.RELATED_QUESTIONS.value)
+    #         prompt = template.format(
+    #             query=query.strip(), 
+    #             answer=answer.strip()
+    #         )
+    #         return prompt
+    #     except Exception as e:
+    #         logger.error(f"Lỗi khi tạo related questions prompt: {str(e)}")
+    #         return f"Hãy gợi ý 3 câu hỏi liên quan đến: {query}"
+
+    def get_rag_prompt(self, query: str, context_text: str, conversation_history: Optional[List[Dict]] = None) -> str:
+        """Generate RAG prompt with context"""
+        conversation_context = self._prepare_conversation_context(conversation_history)
+        
+        template = self._get_template_safely(self.default_template)
+        
+        prompt = template.format(
+            query=query,
+            context=context_text,
+            conversation_context=conversation_context
+        )
+        
+        return prompt
+
+    def get_no_context_prompt(self, query: str) -> str:
+        """Generate prompt when no context is available"""
+        return f"""Bạn là một gia sư cơ sở dữ liệu thân thiện tên là DBR.
+
+Câu hỏi: {query}
+
+QUAN TRỌNG: Tôi không tìm thấy thông tin cụ thể trong tài liệu được cung cấp về chủ đề này. 
+
+Do đó, tôi không thể trả lời câu hỏi này dựa trên nguồn tài liệu hiện có. Vui lòng:
+- Thử đặt câu hỏi khác với từ khóa cụ thể hơn
+- Kiểm tra xem câu hỏi có liên quan đến nội dung trong tài liệu không
+- Hoặc cung cấp thêm tài liệu liên quan đến chủ đề này
+
+Tôi chỉ có thể trả lời các câu hỏi dựa trên thông tin có trong tài liệu được cung cấp."""
+
+    def get_sql_prompt(self, query: str, conversation_history: Optional[List[Dict]] = None) -> str:
+        """Generate SQL-specific prompt"""
+        conversation_context = self._prepare_conversation_context(conversation_history)
+        
+        template = self._get_template_safely(TemplateType.SQL_CODE_TASK.value)
+        
+        return template.format(
+            query=query,
+            conversation_context=conversation_context
+        )
+
+    def get_realtime_question_prompt(self, query: str, search_results: str, conversation_history: Optional[List[Dict]] = None) -> str:
+        """Generate realtime question prompt"""
+        conversation_context = self._prepare_conversation_context(conversation_history)
+        
+        template = self._get_template_safely(TemplateType.REALTIME_QUESTION.value)
+        
+        return template.format(
+            query=query,
+            search_results=search_results,
+            conversation_context=conversation_context
+        )
+
+    def add_custom_template(self, template_name: str, template_content: str) -> bool:
+        """Thêm template tùy chỉnh"""
+        try:
+            self.templates[template_name] = template_content
+            logger.info(f"Đã thêm template tùy chỉnh: {template_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Lỗi khi thêm template tùy chỉnh: {str(e)}")
+            return False
+
+    def remove_template(self, template_name: str) -> bool:
+        """Xóa template (không cho phép xóa template mặc định)"""
+        if template_name == self.default_template:
+            logger.warning(f"Không thể xóa template mặc định: {template_name}")
+            return False
+        
+        if template_name in self.templates:
+            try:
+                del self.templates[template_name]
+                logger.info(f"Đã xóa template: {template_name}")
+                return True
+            except Exception as e:
+                logger.error(f"Lỗi khi xóa template: {str(e)}")
+                return False
+        else:
+            logger.warning(f"Template không tồn tại: {template_name}")
+            return False
+
+    def list_templates(self) -> List[str]:
+        """Liệt kê tất cả template có sẵn"""
+        return list(self.templates.keys())
+
+    def get_template_info(self, template_name: str) -> Dict[str, Any]:
+        """Lấy thông tin chi tiết về template"""
+        if template_name not in self.templates:
+            return {"exists": False, "error": f"Template '{template_name}' không tồn tại"}
+        
+        template_content = self.templates[template_name]
+        placeholders = re.findall(r'\{(\w+)\}', template_content)
+        
+        return {
+            "exists": True,
+            "name": template_name,
+            "placeholders": list(set(placeholders)),
+            "content_length": len(template_content),
+            "is_default": template_name == self.default_template
+        }
+
+    def validate_template_format(self, template_content: str, required_placeholders: List[str]) -> Dict[str, Any]:
+        """Validate template format và kiểm tra placeholder"""
+        found_placeholders = re.findall(r'\{(\w+)\}', template_content)
+        missing_placeholders = [p for p in required_placeholders if f"{{{p}}}" not in template_content]
+        extra_placeholders = [p for p in found_placeholders if p not in required_placeholders]
+        
+        return {
+            "is_valid": len(missing_placeholders) == 0,
+            "missing_placeholders": missing_placeholders,
+            "extra_placeholders": list(set(extra_placeholders)),
+            "found_placeholders": list(set(found_placeholders))
+        }
+
+    def create_prompt_from_template(
+        self, 
+        template_name: str, 
+        **kwargs
+    ) -> str:
+        """Tạo prompt từ template bất kỳ với các tham số động"""
+        try:
+            template = self._get_template_safely(template_name)
+            
+            # Tìm tất cả placeholder trong template
+            placeholders = re.findall(r'\{(\w+)\}', template)
+            
+            # Chuẩn bị các giá trị cho placeholder
+            format_values = {}
+            for placeholder in set(placeholders):
+                if placeholder in kwargs:
+                    value = kwargs[placeholder]
+                    # Xử lý đặc biệt cho một số placeholder
+                    if placeholder == 'context' and isinstance(value, list):
+                        format_values[placeholder] = self._create_context_str(value)
+                    elif placeholder == 'conversation_context' and value:
+                        format_values[placeholder] = self._prepare_conversation_context(value)
+                    else:
+                        format_values[placeholder] = str(value).strip() if value else ""
+                else:
+                    format_values[placeholder] = ""
+                    logger.warning(f"Placeholder '{placeholder}' không được cung cấp, sử dụng giá trị rỗng")
+            
+            return template.format(**format_values)
+            
+        except Exception as e:
+            logger.error(f"Lỗi khi tạo prompt từ template '{template_name}': {str(e)}")
+            # Fallback với quy tắc chống ảo giác
+            query = kwargs.get('query', 'Câu hỏi không xác định')
+            return f"""Có lỗi xảy ra khi tạo prompt từ template '{template_name}'. Tôi không thể trả lời câu hỏi "{query}" do thiếu thông tin ngữ cảnh cần thiết. Vui lòng thử lại hoặc cung cấp thêm thông tin."""
+
+    def get_statistics(self) -> Dict[str, Any]:
+        """Lấy thống kê về các template"""
+        total_templates = len(self.templates)
+        template_stats = {}
+        
+        for name, content in self.templates.items():
+            placeholders = re.findall(r'\{(\w+)\}', content)
+            template_stats[name] = {
+                "content_length": len(content),
+                "placeholders": list(set(placeholders)),
+                "placeholder_count": len(set(placeholders))
+            }
+        
+        return {
+            "total_templates": total_templates,
+            "default_template": self.default_template,
+            "template_details": template_stats
+        }

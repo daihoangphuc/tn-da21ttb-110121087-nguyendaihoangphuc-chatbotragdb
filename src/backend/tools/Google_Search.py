@@ -273,15 +273,15 @@ Hãy trả lời dựa trên thông tin trên và NHẤT ĐỊNH phải có ph�
             logger.error(f"❌ Lỗi validate LLM response: {str(e)}")
             return "Lỗi xử lý phản hồi từ AI."
     
-    def search_with_sources(self, query: str) -> Tuple[str, List[str]]:
+    def search_raw_results(self, query: str) -> Tuple[str, List[str]]:
         """
-        Tìm kiếm với sources và caching
+        Tìm kiếm và trả về kết quả thô (không qua LLM processing)
         
         Args:
             query: Câu hỏi cần tìm kiếm
             
         Returns:
-            Tuple[str, List[str]]: (answer, source_urls)
+            Tuple[str, List[str]]: (raw_search_content, source_urls)
         """
         try:
             # Validate query
@@ -321,8 +321,39 @@ Hãy trả lời dựa trên thông tin trên và NHẤT ĐỊNH phải có ph�
                 logger.warning(no_result_msg)
                 return no_result_msg, []
             
-            # Tạo prompt và gọi LLM
-            prompt = self._create_optimized_prompt(query, content)
+            # Trả về kết quả thô (không qua LLM processing)
+            # Cache kết quả thô
+            self.cache.set(query, content, urls)
+            
+            total_time = time.time() - start_time
+            logger.info(f"✅ Raw search hoàn thành trong {total_time:.2f}s với {len(urls)} nguồn")
+            
+            return content, urls
+            
+        except Exception as e:
+            error_msg = f"❌ Lỗi tìm kiếm: {str(e)}"
+            logger.error(error_msg)
+            return error_msg, []
+
+    def search_with_sources(self, query: str) -> Tuple[str, List[str]]:
+        """
+        Tìm kiếm với sources và LLM processing (để backward compatibility)
+        
+        Args:
+            query: Câu hỏi cần tìm kiếm
+            
+        Returns:
+            Tuple[str, List[str]]: (processed_answer, source_urls)
+        """
+        try:
+            # Lấy kết quả thô
+            raw_content, urls = self.search_raw_results(query)
+            
+            if not raw_content or raw_content.startswith("🔍 Không tìm thấy"):
+                return raw_content, urls
+            
+            # Xử lý với LLM nếu cần
+            prompt = self._create_optimized_prompt(query, raw_content)
             
             logger.info("🤖 Đang xử lý với LLM...")
             llm_start = time.time()
@@ -332,22 +363,15 @@ Hãy trả lời dựa trên thông tin trên và NHẤT ĐỊNH phải có ph�
                 llm_time = time.time() - llm_start
                 logger.info(f"🧠 LLM processing completed in {llm_time:.2f}s")
                 
+                # Validate và clean response
+                final_response = self._validate_llm_response(llm_response)
+                return final_response, urls
+                
             except Exception as llm_error:
                 logger.error(f"❌ LLM error: {str(llm_error)}")
                 fallback_msg = f"Lỗi xử lý AI, nhưng đã tìm thấy {len(urls)} nguồn liên quan."
                 return fallback_msg, urls
-            
-            # Validate và clean response
-            final_response = self._validate_llm_response(llm_response)
-            
-            # Cache kết quả
-            self.cache.set(query, final_response, urls)
-            
-            total_time = time.time() - start_time
-            logger.info(f"✅ Search hoàn thành trong {total_time:.2f}s với {len(urls)} nguồn")
-            
-            return final_response, urls
-            
+                
         except Exception as e:
             error_msg = f"❌ Lỗi tìm kiếm: {str(e)}"
             logger.error(error_msg)
@@ -393,6 +417,11 @@ def run_query_with_sources(query: str) -> Tuple[Any, List[str]]:
     logger.warning("⚠️ Đang sử dụng legacy function. Khuyến nghị dùng OptimizedGoogleSearch class")
     search = get_search_instance()
     return search.search_with_sources(query)
+
+def get_raw_search_results(query: str) -> Tuple[str, List[str]]:
+    """Function to get raw search results without LLM processing"""
+    search = get_search_instance()
+    return search.search_raw_results(query)
 
 # Main execution
 if __name__ == "__main__":

@@ -761,7 +761,7 @@ async def upload_document(
         documents = None
         try:
             document_processor = rag_system.document_processor
-            documents = await document_processor.load_document_with_category(file_path, category)
+            documents = document_processor.load_document_with_category(file_path, category)
             
             # Lấy đường dẫn file sau khi chuyển đổi (nếu có)
             converted_file_path = document_processor.get_converted_path(file_path)
@@ -801,7 +801,7 @@ async def upload_document(
             }
 
         # Sử dụng phương pháp chunking thông thường
-        processed_chunks = await rag_system.document_processor.chunk_documents([documents])
+        processed_chunks = rag_system.document_processor.process_documents(documents)
 
         # Index lên vector store KHÔNG DÙNG USER_ID
         if processed_chunks:
@@ -986,42 +986,9 @@ async def get_uploaded_files(current_user=Depends(get_current_user)):
                     )
                 )
         else:
-            # Fallback: Nếu không có dữ liệu trong database, đọc từ filesystem
-            print(f"[FILES] Không tìm thấy dữ liệu trong database, đọc từ filesystem")
-            # Đọc từ thư mục dữ liệu chung
-            upload_dir = os.getenv("UPLOAD_DIR", "backend/data")
-
-            # Kiểm tra thư mục có tồn tại không
-            if os.path.exists(upload_dir):
-                # Duyệt qua các file trong thư mục data chung
-                for filename in os.listdir(upload_dir):
-                    file_path = os.path.join(upload_dir, filename)
-
-                    # Bỏ qua các thư mục
-                    if os.path.isdir(file_path):
-                        continue
-
-                    # Lấy thông tin file
-                    file_stats = os.stat(file_path)
-                    extension = os.path.splitext(filename)[1].lower()
-
-                    # Lấy thời gian tạo file
-                    created_time = datetime.fromtimestamp(
-                        file_stats.st_ctime
-                    ).isoformat()
-
-                    # Thêm vào danh sách
-                    files.append(
-                        FileInfo(
-                            filename=filename,
-                            path=file_path,
-                            size=file_stats.st_size,
-                            upload_date=created_time,
-                            extension=extension,
-                            category=None,
-                            id=None,
-                        )
-                    )
+            # Không có dữ liệu trong database, trả về danh sách rỗng thay vì đọc từ filesystem
+            print(f"[FILES] Không tìm thấy dữ liệu trong database, trả về danh sách rỗng")
+            files = []
 
         # Sắp xếp theo thời gian tạo mới nhất
         files.sort(key=lambda x: x.upload_date, reverse=True)

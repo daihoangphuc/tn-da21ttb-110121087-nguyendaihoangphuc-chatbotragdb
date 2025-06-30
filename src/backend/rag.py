@@ -39,7 +39,7 @@ import uuid
 import json
 
 # Import Google_Search
-from backend.tools.Google_Search import run_query_with_sources as google_agent_search
+from backend.tools.Google_Search import run_query_with_sources as google_agent_search, get_raw_search_results
 
 # Load biến môi trường từ .env
 load_dotenv()
@@ -352,7 +352,7 @@ class AdvancedDatabaseRAG:
     async def semantic_search_async(
         self,
         query: str,
-        k: int = 15,
+        k: int = 20,
         sources: List[str] = None,
         file_id: List[str] = None,
     ) -> List[Dict]:
@@ -394,7 +394,7 @@ class AdvancedDatabaseRAG:
     def semantic_search(
         self,
         query: str,
-        k: int = 15,
+        k: int = 20,
         sources: List[str] = None,
         file_id: List[str] = None,
     ) -> List[Dict]:
@@ -444,7 +444,7 @@ class AdvancedDatabaseRAG:
     async def query_with_sources_streaming(
         self,
         query: str,
-        k: int = 15,
+        k: int = 20,
         sources: List[str] = None,
         file_id: List[str] = None,
         conversation_history: str = None,
@@ -580,30 +580,15 @@ class AdvancedDatabaseRAG:
                 "type": "start",
                 "data": {
                     "query_type": query_type,
-                    "search_type": "google_agent_search",
+                    "search_type": "google_raw_search",
                     "file_id": file_id,
                 },
             }
 
-            # Sử dụng Google Search để tìm kiếm
+            # Sử dụng Google Search để tìm kiếm (kết quả thô)
             try:
-                gas_summary, gas_urls = google_agent_search(query_to_use)
-                
-                # Tạo document từ kết quả Google Search
-                gas_content = gas_summary.content if hasattr(gas_summary, 'content') else str(gas_summary)
-                
-                # Tạo một danh sách retrieved chỉ chứa kết quả từ Google Search
-                retrieved = [{
-                    "text": gas_content,
-                    "metadata": {
-                        "source": "Google Search",
-                        "page": "Web Result",
-                        "source_type": "web_search",
-                        "urls": gas_urls
-                    },
-                    "score": 1.0,
-                    "rerank_score": 1.0
-                }]
+                # Lấy kết quả thô từ Google Search
+                raw_search_content, gas_urls = get_raw_search_results(query_to_use)
                 
                 # Chuẩn bị danh sách nguồn từ Google Search
                 gas_sources_list = []
@@ -630,9 +615,11 @@ class AdvancedDatabaseRAG:
                     },
                 }
 
-                # Chuẩn bị prompt cho LLM với kết quả từ Google Search
-                prompt = self.prompt_manager.create_prompt_with_history(
-                    query_to_use, retrieved, conversation_history=conversation_history
+                # Sử dụng template REALTIME_QUESTION để tạo prompt
+                prompt = self.prompt_manager.get_realtime_question_prompt(
+                    query=query_to_use,
+                    search_results=raw_search_content,
+                    conversation_history=conversation_history
                 )
 
                 # Gọi LLM để trả lời dưới dạng stream
@@ -672,10 +659,10 @@ class AdvancedDatabaseRAG:
                 },
             }
             return
-
+        RETRIEVAL_K = int(os.getenv("RETRIEVAL_K", "50"))
         # Thực hiện semantic search
         search_results = await self.semantic_search_async(
-            query_to_use, k=k, sources=sources, file_id=file_id
+            query_to_use, k=RETRIEVAL_K, sources=sources, file_id=file_id
         )
         
         # Fallback mechanism cho streaming
@@ -687,8 +674,7 @@ class AdvancedDatabaseRAG:
             try:
                 # Khởi tạo sources_list trước khi sử dụng
                 sources_list = []
-                fallback_summary, fallback_urls = google_agent_search(query_to_use)
-                fallback_content = fallback_summary.content if hasattr(fallback_summary, 'content') else str(fallback_summary)
+                fallback_content, fallback_urls = get_raw_search_results(query_to_use)
                 
                 if fallback_content and fallback_content != "Không tìm thấy thông tin liên quan đến truy vấn này.":
                     gas_fallback_used = True
@@ -764,11 +750,14 @@ class AdvancedDatabaseRAG:
                 },
             }
             return
-        
+        RERANK_TOP_N = int(os.getenv("RERANK_TOP_N", "15"))
+        results_to_rerank = search_results[:RERANK_TOP_N]
+        print(f"Lấy về {len(search_results)} kết quả, sẽ rerank top {len(results_to_rerank)}.")
+
         # Rerank kết quả nếu có nhiều hơn 1 kết quả
-        if len(search_results) > 1:
+        if len(search_results) > 0:
             reranked_results = await self.rerank_results_async(
-                query_to_use, search_results
+                query_to_use, results_to_rerank
             )
             # Lấy số lượng kết quả đã rerank
             total_reranked = len(reranked_results)
@@ -778,7 +767,7 @@ class AdvancedDatabaseRAG:
 
         # Chuẩn bị context từ các kết quả đã rerank
         context_docs = []
-        for i, result in enumerate(reranked_results[:15]):  
+        for i, result in enumerate(reranked_results[:20]):  
             # Chuẩn bị metadata
             metadata = result.get("metadata", {})
             source = metadata.get("source", "unknown")
@@ -924,33 +913,24 @@ class AdvancedDatabaseRAG:
     #     response = self.llm.invoke(prompt)
     #     return response.content
 
-    async def generate_related_questions(self, query: str, answer: str) -> List[str]:
-        """Tạo danh sách các câu hỏi gợi ý liên quan"""
-        try:
-            # Tạo prompt cho việc gợi ý câu hỏi
-            prompt = self.prompt_manager.create_related_questions_prompt(query, answer)
-
-            # Gọi LLM để tạo câu hỏi gợi ý
-            response = await self.llm.invoke(prompt)
-
-            # Xử lý kết quả để trích xuất các câu hỏi
-            response_text = response.content.strip()
-
-            # Tìm các câu hỏi theo định dạng "1. [câu hỏi]"
-            related_questions = []
-
-            # Sử dụng regex để trích xuất câu hỏi
-            pattern = r"\d+\.\s*(.*?\?)"
-            matches = re.findall(pattern, response_text)
-
-            # Lấy tối đa 3 câu hỏi
-            return matches[:3]
-
-        except Exception as e:
-            print(f"Lỗi khi tạo câu hỏi liên quan: {str(e)}")
-            # Trả về một số câu hỏi mặc định nếu có lỗi
-            return [
-                "Bạn muốn tìm hiểu thêm điều gì về chủ đề này?",
-                "Bạn có thắc mắc nào khác liên quan đến nội dung này không?",
-                "Bạn có muốn biết thêm thông tin về ứng dụng thực tế của kiến thức này không?",
-            ]
+# Thay đổi method generate_related_questions (Line 915):
+async def generate_related_questions(self, query: str, answer: str) -> List[str]:
+    """Tạo danh sách các câu hỏi gợi ý liên quan sử dụng SuggestionManager"""
+    try:
+        # Tạo conversation context từ Q&A hiện tại
+        conversation_context = f"Người dùng: {query}\n\nTrợ lý: {answer}"
+        
+        # Sử dụng SuggestionManager thay vì template
+        suggestions = await self.suggestion_manager.generate_question_suggestions(
+            conversation_context, num_suggestions=3
+        )
+        return suggestions[:3]  # Đảm bảo chỉ trả về 3 câu hỏi
+        
+    except Exception as e:
+        print(f"Lỗi khi tạo câu hỏi liên quan: {str(e)}")
+        # Trả về câu hỏi mặc định
+        return [
+            "Bạn muốn tìm hiểu thêm điều gì về chủ đề này?",
+            "Bạn có thắc mắc nào khác liên quan đến nội dung này không?",
+            "Bạn có muốn biết thêm thông tin về ứng dụng thực tế không?",
+        ]

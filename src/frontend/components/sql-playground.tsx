@@ -683,7 +683,7 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
         <Database className="h-10 w-10 text-muted-foreground/50" />
         <p>Chưa có kết quả. Hãy thực thi truy vấn.</p>
         <p className="text-xs text-muted-foreground/70">
-          Các bảng có sẵn: users, products, orders, categories, employees, departments, projects, customers
+          Các bảng có sẵn: users, products, orders, categories, employees, departments, projects, customers (Hãy select trước để có thể biết cấu trúc và thực hiện các truy vấn)
         </p>
       </div>
     )

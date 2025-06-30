@@ -17,26 +17,51 @@ interface HydrationSafeProps {
  */
 export function HydrationSafe({ children, fallback, className }: HydrationSafeProps) {
   const [isClient, setIsClient] = useState(false);
+  const [hasMounted, setHasMounted] = useState(false);
 
   useEffect(() => {
-    // Chỉ set isClient = true sau khi component đã mount hoàn toàn
-    setIsClient(true);
+    // Đảm bảo component đã mount hoàn toàn
+    setHasMounted(true);
+    
+    // Delay một chút để đảm bảo browser extensions đã chạy xong
+    const timer = setTimeout(() => {
+      setIsClient(true);
+    }, 10);
+    
+    return () => clearTimeout(timer);
   }, []);
 
-  // Trong lúc đang hydrate (server-side hoặc client chưa ready)
-  if (!isClient) {
-    return fallback ? (
-      <div className={className} suppressHydrationWarning>
-        {fallback}
-      </div>
-    ) : (
-      <div className={className} suppressHydrationWarning />
+  // Trong lúc đang hydrate - render fallback hoặc placeholder
+  if (!hasMounted || !isClient) {
+    if (fallback) {
+      return (
+        <div 
+          className={className} 
+          suppressHydrationWarning={true}
+          style={{ suppressHydrationWarning: true } as any}
+        >
+          {fallback}
+        </div>
+      );
+    }
+    
+    // Nếu không có fallback, render empty div để tránh layout shift
+    return (
+      <div 
+        className={className} 
+        suppressHydrationWarning={true}
+        style={{ suppressHydrationWarning: true } as any}
+      />
     );
   }
 
-  // Sau khi hydration hoàn tất, render children thật
+  // Sau khi hydration hoàn tất và stable, render children thật
   return (
-    <div className={className} suppressHydrationWarning>
+    <div 
+      className={className} 
+      suppressHydrationWarning={true}
+      style={{ suppressHydrationWarning: true } as any}
+    >
       {children}
     </div>
   );

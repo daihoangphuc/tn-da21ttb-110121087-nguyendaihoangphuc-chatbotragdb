@@ -1,6 +1,6 @@
 # Hệ thống RAG cho Cơ sở dữ liệu
 
-Hệ thống tìm kiếm và trả lời câu hỏi sử dụng Retrieval-Augmented Generation (RAG) cho cơ sở dữ liệu.
+Hệ thống chatbot hỗ trợ môn học cơ sở dữ liệu sử dụng Retrieval-Augmented Generation (RAG).
 
 ## Cấu trúc dự án
 
@@ -186,7 +186,6 @@ FRONTEND_ENV=your-frontend-environment-variables
 
 Sau khi chạy backend, truy cập:
 - API Docs: http://localhost:8000/docs
-- Alternative Docs: http://localhost:8000/redoc
 
 ## Các lệnh Docker hữu ích
 

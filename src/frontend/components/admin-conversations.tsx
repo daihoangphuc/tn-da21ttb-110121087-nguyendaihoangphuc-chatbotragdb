@@ -25,11 +25,12 @@ import {
   Users,
   BarChart3,
   Bot,
-  UserIcon
+  UserIcon,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { format } from "date-fns";
-import { vi } from "date-fns/locale";
+import { formatVietnameseDate } from "@/lib/utils";
 
 export function AdminConversations() {
   const [conversations, setConversations] = useState<AdminConversation[]>([]);
@@ -48,20 +49,55 @@ export function AdminConversations() {
   const [dateFilter, setDateFilter] = useState({ from: "", to: "" });
   const { toast } = useToast();
 
-  // Load dữ liệu ban đầu khi component mount
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [perPage] = useState(20); // Giảm xuống 20 items per page để load nhanh hơn
+  
+  // Debounce search term để tránh gọi API quá nhiều
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
+
+  // Load dữ liệu khi component mount hoặc khi search/filter/page thay đổi
   useEffect(() => {
     fetchConversations();
+  }, [currentPage, debouncedSearchTerm, dateFilter]);
+
+  // Load stats một lần khi component mount
+  useEffect(() => {
     fetchStats();
-  }, []); // Chỉ chạy một lần khi component mount
+  }, []);
 
   const fetchConversations = async () => {
     setLoading(true);
     try {
-      // Load tất cả conversations mà không filter ở backend
-      const params: any = { page: 1, per_page: 100 }; // Load nhiều conversations để filter ở frontend
+      // Sử dụng server-side filtering và pagination
+      const params: any = { 
+        page: currentPage, 
+        per_page: perPage 
+      };
+      
+      // Thêm search term nếu có
+      if (debouncedSearchTerm.trim()) {
+        if (debouncedSearchTerm.includes('@')) {
+          params.user_email = debouncedSearchTerm; // Exact email match
+        } else {
+          params.search_message = debouncedSearchTerm; // Search in messages
+        }
+      }
+      
+      // Thêm date filter nếu có
+      if (dateFilter.from) {
+        params.date_from = dateFilter.from;
+      }
+      if (dateFilter.to) {
+        params.date_to = dateFilter.to;
+      }
       
       const response = await adminAPI.fetchConversations(params);
       setConversations(response.conversations);
+      setTotalPages(response.total_pages);
+      setTotalCount(response.total_count);
     } catch (error) {
       toast({
         title: "Lỗi",
@@ -85,25 +121,7 @@ export function AdminConversations() {
   const handleClearFilter = () => {
     setSearchTerm("");
     setDateFilter({ from: "", to: "" });
-  };
-
-  // Hàm filter conversations ở frontend giống admin users
-  const getFilteredConversations = () => {
-    return conversations.filter(conv => {
-      // Filter theo search term (email hoặc first message)
-      const matchesSearch = !searchTerm || 
-        conv.user_email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        conv.first_message.toLowerCase().includes(searchTerm.toLowerCase());
-
-      // Filter theo date range
-      const matchesDateFrom = !dateFilter.from || 
-        (conv.last_updated && new Date(conv.last_updated) >= new Date(dateFilter.from));
-      
-      const matchesDateTo = !dateFilter.to || 
-        (conv.last_updated && new Date(conv.last_updated) <= new Date(dateFilter.to + " 23:59:59"));
-
-      return matchesSearch && matchesDateFrom && matchesDateTo;
-    });
+    setCurrentPage(1); // Reset về trang đầu khi clear filter
   };
 
   const handleViewMessages = async (conversation: AdminConversation) => {
@@ -156,7 +174,13 @@ export function AdminConversations() {
       });
       setShowDeleteDialog(false);
       setConversationToDelete(null);
-      fetchConversations();
+      
+      // Nếu trang hiện tại chỉ có 1 item và không phải trang đầu, quay về trang trước
+      if (conversations.length === 1 && currentPage > 1) {
+        setCurrentPage(currentPage - 1);
+      } else {
+        fetchConversations();
+      }
       fetchStats();
     } catch (error) {
       toast({
@@ -169,16 +193,17 @@ export function AdminConversations() {
     }
   };
 
-
-
   const formatDate = (dateString: string) => {
-    if (!dateString) return "N/A";
-    try {
-      return format(new Date(dateString), "dd/MM/yyyy HH:mm", { locale: vi });
-    } catch {
-      return dateString;
-    }
+    return formatVietnameseDate(dateString);
   };
+
+  // Debounce search term để tránh gọi API quá nhiều
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   return (
     <div className="space-y-6 relative">
@@ -337,7 +362,7 @@ export function AdminConversations() {
                       </tr>
                     </thead>
                     <tbody>
-                      {getFilteredConversations().map((conv) => (
+                      {conversations.map((conv) => (
                       <tr key={conv.conversation_id} className="border-b">
                         <td className="p-2 font-mono text-xs">
                           {conv.conversation_id.substring(0, 8)}...
@@ -376,9 +401,67 @@ export function AdminConversations() {
                 </div>
               )}
 
-              {/* Result count */}
-              <div className="mt-4 text-sm text-muted-foreground">
-                Hiển thị {getFilteredConversations().length} / {conversations.length} hội thoại
+              {/* Pagination và Result count */}
+              <div className="mt-4 flex items-center justify-between">
+                <div className="text-sm text-muted-foreground">
+                  Hiển thị {conversations.length} / {totalCount} hội thoại
+                  {totalCount > 0 && (
+                    <span> - Trang {currentPage} / {totalPages}</span>
+                  )}
+                </div>
+                
+                {/* Pagination Controls */}
+                {totalPages > 1 && (
+                  <div className="flex items-center space-x-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                      disabled={currentPage === 1 || loading}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                      Trước
+                    </Button>
+                    
+                    <div className="flex items-center space-x-1">
+                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                        let pageNum;
+                        if (totalPages <= 5) {
+                          pageNum = i + 1;
+                        } else if (currentPage <= 3) {
+                          pageNum = i + 1;
+                        } else if (currentPage >= totalPages - 2) {
+                          pageNum = totalPages - 4 + i;
+                        } else {
+                          pageNum = currentPage - 2 + i;
+                        }
+                        
+                        return (
+                          <Button
+                            key={pageNum}
+                            variant={currentPage === pageNum ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setCurrentPage(pageNum)}
+                            disabled={loading}
+                            className="w-8 h-8 p-0"
+                          >
+                            {pageNum}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                    
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                      disabled={currentPage === totalPages || loading}
+                    >
+                      Sau
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

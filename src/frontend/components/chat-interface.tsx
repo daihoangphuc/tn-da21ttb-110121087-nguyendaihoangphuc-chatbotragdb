@@ -89,6 +89,7 @@ interface ChatInterfaceProps {
 }
 
 export function ChatInterface({ initialMessages = [], conversationId = null, selectedFileIds = [] }: ChatInterfaceProps) {
+  console.log('ChatInterface component mounted/rendered', { conversationId });
   const [messages, setMessages] = useState<Message[]>(
     initialMessages.length > 0
       ? initialMessages
@@ -147,11 +148,45 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
   
   // Thêm state quản lý câu hỏi liên quan
   const [relatedQuestions, setRelatedQuestions] = useState<RelatedQuestion[]>([]);
+  
+  // Thêm ref để tránh gọi API suggestions 2 lần do React Strict Mode
+  const suggestionsLoadedRef = useRef(false);
+  
+  // Global flag để tránh multiple calls từ multiple instances
+  const SUGGESTIONS_CACHE_KEY = 'suggestions_loaded_session';
+  const SUGGESTIONS_DATA_KEY = 'suggestions_data_cache';
 
   // TỐI ỦU HÓA: Load suggestions một lần khi component mount
   useEffect(() => {
+    // Kiểm tra cache trong sessionStorage
+    const cachedLoaded = typeof window !== 'undefined' ? sessionStorage.getItem(SUGGESTIONS_CACHE_KEY) : null;
+    const cachedData = typeof window !== 'undefined' ? sessionStorage.getItem(SUGGESTIONS_DATA_KEY) : null;
+    
+    // Nếu đã có cache và vẫn còn valid (trong 5 phút)
+    if (cachedLoaded && cachedData) {
+      try {
+        const cacheTime = parseInt(cachedLoaded);
+        const now = Date.now();
+        if (now - cacheTime < 300000) { // 5 phút
+          console.log('Using cached suggestions data');
+          const parsedData = JSON.parse(cachedData);
+          setRelatedQuestions(parsedData);
+          return;
+        }
+      } catch (e) {
+        console.error('Error parsing cached suggestions:', e);
+      }
+    }
+    
+    // Tránh gọi API 2 lần do React Strict Mode
+    if (suggestionsLoadedRef.current) {
+      console.log('Suggestions already loaded in this component instance, skipping...');
+      return;
+    }
+    
     const loadSuggestions = async () => {
       try {
+        console.log('Loading suggestions - one time only for conversationId:', conversationId);
         const data = await fetchApi('/suggestions?num_suggestions=3', { method: 'GET' });
         if (data.suggestions && Array.isArray(data.suggestions)) {
           const newRelatedQuestions = data.suggestions.map((question: string, index: number) => ({
@@ -160,15 +195,29 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
             query: question
           }));
           setRelatedQuestions(newRelatedQuestions);
+          
+          // Cache the data
+          if (typeof window !== 'undefined') {
+            sessionStorage.setItem(SUGGESTIONS_CACHE_KEY, Date.now().toString());
+            sessionStorage.setItem(SUGGESTIONS_DATA_KEY, JSON.stringify(newRelatedQuestions));
+          }
         }
       } catch (error) {
         console.error('Lỗi khi cập nhật câu hỏi gợi ý:', error);
         setRelatedQuestions([]);
+      } finally {
+        // Đánh dấu đã load suggestions
+        suggestionsLoadedRef.current = true;
       }
     };
 
     // Load suggestions ngay khi component mount
     loadSuggestions();
+    
+    // Cleanup function
+    return () => {
+      console.log('ChatInterface cleanup for conversationId:', conversationId);
+    };
   }, []); // Chạy một lần duy nhất khi mount
 
   // TỐI ỦU HÓA: Thêm debounce cho việc update suggestions sau này (nếu cần)
@@ -779,7 +828,7 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
             <div className="max-w-3xl mx-auto">
               <div className="relative">
                 <Textarea
-                  placeholder="Nhập câu hỏi của bạn về cơ sở dữ liệu... (hệ thống sẽ tự tìm kiếm trên tất cả tài liệu)"
+                  placeholder="Nhập câu hỏi của bạn..."
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}

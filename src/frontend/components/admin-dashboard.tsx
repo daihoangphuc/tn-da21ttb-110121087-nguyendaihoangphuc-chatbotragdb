@@ -34,6 +34,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { AdminUser, CreateUserData, UpdateUserData, BanUserData } from "./admin-types";
 import { adminAPI } from "./admin-api";
+import { formatVietnameseDate } from "@/lib/utils";
 
 export function AdminDashboard() {
   const { user, logout } = useAuth();
@@ -217,12 +218,12 @@ export function AdminDashboard() {
   // Helper functions
   const formatDate = (dateString?: string) => {
     if (!dateString) return "Chưa có";
-    return new Date(dateString).toLocaleString("vi-VN");
+    return formatVietnameseDate(dateString);
   };
 
   const getRoleBadge = (role?: string) => {
     if (role === "admin") {
-      return <Badge variant="destructive" className="flex items-center gap-1"><Crown className="w-3 h-3" /> Admin</Badge>;
+      return <Badge variant="default" className="flex items-center gap-1"><Crown className="w-3 h-3" /> Admin</Badge>;
     }
     return <Badge variant="secondary" className="flex items-center gap-1"><GraduationCap className="w-3 h-3" /> Student</Badge>;
   };

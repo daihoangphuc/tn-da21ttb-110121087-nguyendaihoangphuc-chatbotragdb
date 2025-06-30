@@ -24,6 +24,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { fetchApi } from "@/lib/api";
+import { formatVietnameseDate } from "@/lib/utils";
 
 // Types for File Management
 interface FileInfo {
@@ -263,7 +264,7 @@ export function AdminFilesManager() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString("vi-VN");
+    return formatVietnameseDate(dateString);
   };
 
   const getFileIcon = (extension: string) => {

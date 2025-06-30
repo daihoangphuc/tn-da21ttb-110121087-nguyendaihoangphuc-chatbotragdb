@@ -78,6 +78,11 @@ export async function fetchApi(
       throw new Error(errorMessage);
     }
     
+    // Xử lý response 204 No Content (thành công nhưng không có nội dung)
+    if (response.status === 204) {
+      return null; // hoặc {} tùy theo yêu cầu
+    }
+    
     // Parse JSON nếu response có nội dung
     const contentType = response.headers.get('content-type');
     if (contentType && contentType.includes('application/json')) {

@@ -24,7 +24,7 @@ dist/
 # Cache & coverage
 .eslintcache
 coverage/
-.next/            # nếu bạn build NextJS docs
+.next/           
 out/
 *.tsbuildinfo
 .next/
@@ -63,6 +63,7 @@ tmp/
 *.temp
 *.cache
 *.pid
+test/
 
 .env.frontend
 .env.backend

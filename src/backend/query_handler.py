@@ -145,9 +145,10 @@ class QueryHandler:
            • **`question_from_document`**: Câu hỏi về kiến thức CSDL cơ bản/lý thuyết
              - Khái niệm, định nghĩa, nguyên lý
              - So sánh công nghệ (SQL vs NoSQL) 
-             - Cú pháp, cấu trúc lệnh
+             - Cú pháp, cấu trúc lệnh SQL (ý nghĩa, mục đích, quy tắc)
              - Thiết kế CSDL, mô hình dữ liệu
-             - Ví dụ: "CSDL là gì?", "Khóa chính và khóa ngoại khác nhau như thế nào?"
+             - Giải thích lý thuyết về lệnh SQL (không có code cụ thể)
+             - Ví dụ: "CSDL là gì?", "Khóa chính và khóa ngoại khác nhau như thế nào?", "Cú pháp lệnh SELECT là gì?"
 
            • **`realtime_question`**: Câu hỏi về xu hướng/tin tức/thông tin cập nhật mới
              - Có từ khóa thời gian: "hiện tại", "mới nhất", "2024", "gần đây", "hiện nay"
@@ -156,14 +157,23 @@ class QueryHandler:
              - Ví dụ: "Xu hướng CSDL hiện tại", "PostgreSQL 16 có gì mới?", "CSDL nào phổ biến nhất hiện nay?"
              
              **CHÚ Ý**: Phân biệt với câu hỏi cơ bản:
-             - "Các loại CSDL hiện nay" = question_from_document (hỏi phân loại cơ bản)
+             - "Các loại CSDL" = question_from_document (hỏi phân loại cơ bản)
              - "CSDL nào đang thịnh hành hiện nay" = realtime_question (hỏi xu hướng)
 
-           • **`sql_code_task`**: Yêu cầu trực tiếp về code SQL
-             - Viết/tạo câu lệnh SQL
-             - Giải thích/phân tích code SQL có sẵn
-             - Debug/tối ưu hóa SQL
-             - Ví dụ: "Viết SQL tạo bảng User", "Giải thích query này: SELECT..."
+        **QUAN TRỌNG - PHÂN BIỆT question_from_document vs sql_code_task:**
+        - "Cú pháp lệnh SELECT là gì?" = question_from_document (hỏi lý thuyết)
+        - "Viết lệnh SELECT lấy dữ liệu" = sql_code_task (yêu cầu code)
+        - "Các mệnh đề của SELECT" = question_from_document (hỏi kiến thức)  
+        - "SELECT * FROM table WHERE..." = sql_code_task (có code cụ thể)
+
+           • **`sql_code_task`**: Yêu cầu trực tiếp về code SQL CỤ THỂ
+             - Viết/tạo câu lệnh SQL hoàn chỉnh
+             - Giải thích/phân tích code SQL CÓ SẴN (có đoạn code cụ thể)
+             - Debug/tối ưu hóa SQL với code thực tế
+             - Tạo ví dụ code SQL minh họa
+             - **GIẢI BÀI TẬP CSDL** (dạng chuẩn, phụ thuộc hàm, thiết kế ER...)
+             - **PHÂN TÍCH TỪNG BƯỚC** các bài toán CSDL cụ thể
+             - Ví dụ: "Viết SQL tạo bảng User", "Giải bài tập xác định dạng chuẩn", "Tìm khóa chính cho lược đồ này"
 
            • **`other_question`**: Không liên quan đến CSDL
              - CHỈ dùng khi hoàn toàn không liên quan sau khi mở rộng
@@ -182,6 +192,24 @@ class QueryHandler:
           "expanded_query": "Khái niệm hệ quản trị CSDL (Cơ sở dữ liệu) là gì?",
           "query_type": "question_from_document",
           "corrections_made": ["cdld → CSDL"]
+        }}
+        ```
+
+        Input: "Cú pháp lệnh SELECT là gì?"
+        ```json
+        {{
+          "expanded_query": "Cú pháp và chức năng của lệnh SELECT trong SQL là gì?",
+          "query_type": "question_from_document",
+          "corrections_made": []
+        }}
+        ```
+
+        Input: "Viết lệnh SELECT lấy tất cả user"
+        ```json
+        {{
+          "expanded_query": "Viết câu lệnh SQL SELECT để lấy tất cả thông tin người dùng",
+          "query_type": "sql_code_task",
+          "corrections_made": []
         }}
         ```
 
@@ -369,7 +397,7 @@ class QueryHandler:
         """
         return default_response
 
-    def test_preprocessing(self, test_queries: list = None) -> None:
+    def test_preprocessing(self, test_queries=None) -> None:
         """
         Test phương thức tiền xử lý với một số câu hỏi mẫu
         
@@ -394,3 +422,80 @@ class QueryHandler:
             print(f"Original:  {query}")
             print(f"Processed: {processed}")
             print("-" * 30)
+
+    def test_classification(self, test_queries=None) -> float:
+        """
+        Test phương thức phân loại với các câu hỏi mẫu để kiểm tra độ chính xác
+        
+        Args:
+            test_queries: Danh sách tuple (query, expected_type), nếu None sẽ dùng mẫu có sẵn
+        """
+        if test_queries is None:
+            test_queries = [
+                # question_from_document
+                ("CSDL là gì?", "question_from_document"),
+                ("Cú pháp lệnh SELECT là gì?", "question_from_document"),
+                ("Khóa chính và khóa ngoại khác nhau như thế nào?", "question_from_document"),
+                ("Các mệnh đề thường dùng với SELECT", "question_from_document"),
+                ("Mô hình quan hệ có ưu nhược điểm gì?", "question_from_document"),
+                
+                # sql_code_task
+                ("Viết lệnh SELECT lấy tất cả user", "sql_code_task"),
+                ("Tạo bảng sinh viên với SQL", "sql_code_task"),
+                ("Giải thích query này: SELECT * FROM users WHERE age > 18", "sql_code_task"),
+                ("Tối ưu hóa câu lệnh SQL này", "sql_code_task"),
+                
+                # realtime_question
+                ("Xu hướng CSDL hiện tại là gì?", "realtime_question"),
+                ("PostgreSQL 16 có gì mới?", "realtime_question"),
+                ("CSDL nào phổ biến nhất 2024?", "realtime_question"),
+                ("Công nghệ database nào đang hot hiện nay?", "realtime_question"),
+                
+                # other_question
+                ("Thời tiết hôm nay thế nào?", "other_question"),
+                ("Cách nấu phở", "other_question"),
+                ("Kết quả bóng đá", "other_question"),
+            ]
+            
+        print("🧪 Testing query classification:")
+        print("=" * 80)
+        
+        correct_predictions = 0
+        total_predictions = len(test_queries)
+        
+        for query, expected_type in test_queries:
+            try:
+                expanded_query, predicted_type = self.expand_and_classify_query_sync(query, "")
+                
+                is_correct = predicted_type == expected_type
+                if is_correct:
+                    correct_predictions += 1
+                    status = "✅ ĐÚNG"
+                else:
+                    status = "❌ SAI"
+                
+                print(f"{status} | Query: {query}")
+                print(f"      | Expected: {expected_type}")
+                print(f"      | Predicted: {predicted_type}")
+                print(f"      | Expanded: {expanded_query}")
+                print("-" * 60)
+                
+            except Exception as e:
+                print(f"❌ LỖI | Query: {query}")
+                print(f"      | Error: {e}")
+                print("-" * 60)
+        
+        accuracy = (correct_predictions / total_predictions) * 100
+        print(f"\n📊 KẾT QUẢ TỔNG KẾT:")
+        print(f"   Độ chính xác: {correct_predictions}/{total_predictions} ({accuracy:.1f}%)")
+        
+        if accuracy >= 90:
+            print("   🎉 Excellent! Classification working very well")
+        elif accuracy >= 75:
+            print("   👍 Good! Some edge cases need improvement")
+        elif accuracy >= 60:
+            print("   ⚠️  Fair! Significant improvements needed")
+        else:
+            print("   🚨 Poor! Major issues with classification")
+        
+        return accuracy

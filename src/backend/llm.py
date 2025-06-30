@@ -72,6 +72,7 @@ class GeminiLLM:
             google_api_key=self.api_key,
             temperature=float(os.getenv("LLM_TEMPERATURE", "0")),
             top_p=float(os.getenv("LLM_TOP_P", "0.85")),
+            top_k=int(os.getenv("LLM_TOP_K", "40")),
         )
 
     def _try_next_api_key(self) -> bool:

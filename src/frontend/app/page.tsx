@@ -6,6 +6,11 @@ import { MainLayout } from "@/components/main-layout";
 import { useAuth } from "@/hooks/useAuth";
 import { HydrationSafe } from "@/components/ui/hydration-safe";
 
+// Component spinner đơn giản để tránh hydration issues
+const LoadingSpinner = () => (
+  <div className="w-10 h-10 border-t-2 border-b-2 border-primary rounded-full animate-spin" />
+);
+
 function HomeContent() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -27,11 +32,9 @@ function HomeContent() {
     return (
       <HydrationSafe 
         className="flex items-center justify-center h-screen"
-        fallback={
-          <div className="w-10 h-10 border-t-2 border-b-2 border-primary rounded-full animate-spin"></div>
-        }
+        fallback={<LoadingSpinner />}
       >
-        <div className="w-10 h-10 border-t-2 border-b-2 border-primary rounded-full animate-spin"></div>
+        <LoadingSpinner />
       </HydrationSafe>
     );
   }
@@ -45,11 +48,9 @@ function HomeContent() {
     return (
       <HydrationSafe 
         className="flex items-center justify-center h-screen"
-        fallback={
-          <div className="w-10 h-10 border-t-2 border-b-2 border-primary rounded-full animate-spin"></div>
-        }
+        fallback={<LoadingSpinner />}
       >
-        <div className="w-10 h-10 border-t-2 border-b-2 border-primary rounded-full animate-spin"></div>
+        <LoadingSpinner />
       </HydrationSafe>
     );
   }
@@ -65,7 +66,7 @@ export default function Home() {
   return (
     <Suspense fallback={
       <div className="flex items-center justify-center h-screen">
-        <div className="w-10 h-10 border-t-2 border-b-2 border-primary rounded-full animate-spin"></div>
+        <LoadingSpinner />
       </div>
     }>
       <HomeContent />

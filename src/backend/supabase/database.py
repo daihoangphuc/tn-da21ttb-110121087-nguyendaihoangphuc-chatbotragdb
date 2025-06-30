@@ -52,138 +52,138 @@ class SupabaseDatabase:
 
     # Conversation History Management
 
-    def create_conversation_history_table(self):
-        """Create the conversations and messages tables if they don't exist"""
-        print("Đang cố gắng tạo bảng conversations và messages...")
-        try:
-            # Phương pháp 1: Sử dụng SQL trực tiếp qua REST API
-            direct_sql = """
-            -- Bảng lưu phiên làm việc chính
-            CREATE TABLE IF NOT EXISTS public.conversations (
-              conversation_id    TEXT        PRIMARY KEY,                  -- Khóa chính duy nhất cho mỗi session
-              user_id       UUID        NOT NULL,                     -- ID người dùng (IdentityUser.Id)
-              last_updated  TIMESTAMP   NOT NULL DEFAULT now()        -- Thời gian cập nhật cuối cùng
-            );
+    # def create_conversation_history_table(self):
+    #     """Create the conversations and messages tables if they don't exist"""
+    #     print("Đang cố gắng tạo bảng conversations và messages...")
+    #     try:
+    #         # Phương pháp 1: Sử dụng SQL trực tiếp qua REST API
+    #         direct_sql = """
+    #         -- Bảng lưu phiên làm việc chính
+    #         CREATE TABLE IF NOT EXISTS public.conversations (
+    #           conversation_id    TEXT        PRIMARY KEY,                  -- Khóa chính duy nhất cho mỗi session
+    #           user_id       UUID        NOT NULL,                     -- ID người dùng (IdentityUser.Id)
+    #           last_updated  TIMESTAMP   NOT NULL DEFAULT now()        -- Thời gian cập nhật cuối cùng
+    #         );
 
-            -- Bảng lưu chi tiết các tin nhắn cho mỗi phiên
-            CREATE TABLE IF NOT EXISTS public.messages (
-              message_id    BIGSERIAL   PRIMARY KEY,                  -- Khóa tự tăng
-              conversation_id    TEXT        NOT NULL,                     -- Khóa ngoại liên kết về conversations.conversation_id
-              sequence      INT         NOT NULL,                     -- Thứ tự tin nhắn trong phiên
-              role          TEXT        NOT NULL CHECK (role IN ('user','assistant')), 
-                                                            -- Vai trò: user hoặc assistant
-              content       TEXT        NOT NULL,                     -- Nội dung tin nhắn
-              metadata      JSONB,                                    -- Metadata bổ sung
-              created_at    TIMESTAMP   NOT NULL DEFAULT now(),       -- Thời gian tạo
-              CONSTRAINT fk_messages_conversations
-                FOREIGN KEY (conversation_id)
-                REFERENCES public.conversations(conversation_id)
-                ON DELETE CASCADE
-            );
+    #         -- Bảng lưu chi tiết các tin nhắn cho mỗi phiên
+    #         CREATE TABLE IF NOT EXISTS public.messages (
+    #           message_id    BIGSERIAL   PRIMARY KEY,                  -- Khóa tự tăng
+    #           conversation_id    TEXT        NOT NULL,                     -- Khóa ngoại liên kết về conversations.conversation_id
+    #           sequence      INT         NOT NULL,                     -- Thứ tự tin nhắn trong phiên
+    #           role          TEXT        NOT NULL CHECK (role IN ('user','assistant')), 
+    #                                                         -- Vai trò: user hoặc assistant
+    #           content       TEXT        NOT NULL,                     -- Nội dung tin nhắn
+    #           metadata      JSONB,                                    -- Metadata bổ sung
+    #           created_at    TIMESTAMP   NOT NULL DEFAULT now(),       -- Thời gian tạo
+    #           CONSTRAINT fk_messages_conversations
+    #             FOREIGN KEY (conversation_id)
+    #             REFERENCES public.conversations(conversation_id)
+    #             ON DELETE CASCADE
+    #         );
 
-            -- Tạo index để truy vấn nhanh các tin nhắn theo session và thứ tự
-            CREATE INDEX IF NOT EXISTS idx_messages_conversation_seq
-              ON public.messages(conversation_id, sequence);
-            """
+    #         -- Tạo index để truy vấn nhanh các tin nhắn theo session và thứ tự
+    #         CREATE INDEX IF NOT EXISTS idx_messages_conversation_seq
+    #           ON public.messages(conversation_id, sequence);
+    #         """
 
-            print("Thực thi SQL trực tiếp để tạo bảng...")
-            # Phương pháp 1: Dùng SQL trực tiếp với run_sql thay vì exec_sql
-            result = self.client.postgrest.rpc(
-                "run_sql", {"sql": direct_sql}
-            ).execute()
-            # print(f"Kết quả tạo bảng: {result}")
-            return result
+    #         print("Thực thi SQL trực tiếp để tạo bảng...")
+    #         # Phương pháp 1: Dùng SQL trực tiếp với run_sql thay vì exec_sql
+    #         result = self.client.postgrest.rpc(
+    #             "run_sql", {"sql": direct_sql}
+    #         ).execute()
+    #         # print(f"Kết quả tạo bảng: {result}")
+    #         return result
 
-        except Exception as e:
-            print(f"Lỗi khi tạo bảng qua SQL trực tiếp: {str(e)}")
-            import traceback
+    #     except Exception as e:
+    #         print(f"Lỗi khi tạo bảng qua SQL trực tiếp: {str(e)}")
+    #         import traceback
 
-            print(f"Chi tiết: {traceback.format_exc()}")
+    #         print(f"Chi tiết: {traceback.format_exc()}")
 
-            # Phương pháp 2: Thử tạo từng bảng riêng biệt
-            try:
-                print("Thử phương pháp tạo từng bảng riêng biệt...")
+    #         # Phương pháp 2: Thử tạo từng bảng riêng biệt
+    #         try:
+    #             print("Thử phương pháp tạo từng bảng riêng biệt...")
                 
-                # Tạo bảng conversations
-                conversations_sql = """
-                CREATE TABLE IF NOT EXISTS public.conversations (
-                  conversation_id    TEXT        PRIMARY KEY,
-                  user_id       UUID        NOT NULL,
-                  last_updated  TIMESTAMP   NOT NULL DEFAULT now()
-                );
-                """
-                self.client.postgrest.rpc("run_sql", {"sql": conversations_sql}).execute()
-                print("Đã tạo bảng conversations")
+    #             # Tạo bảng conversations
+    #             conversations_sql = """
+    #             CREATE TABLE IF NOT EXISTS public.conversations (
+    #               conversation_id    TEXT        PRIMARY KEY,
+    #               user_id       UUID        NOT NULL,
+    #               last_updated  TIMESTAMP   NOT NULL DEFAULT now()
+    #             );
+    #             """
+    #             self.client.postgrest.rpc("run_sql", {"sql": conversations_sql}).execute()
+    #             print("Đã tạo bảng conversations")
                 
-                # Tạo bảng messages
-                messages_sql = """
-                CREATE TABLE IF NOT EXISTS public.messages (
-                  message_id    BIGSERIAL   PRIMARY KEY,
-                  conversation_id    TEXT        NOT NULL,
-                  sequence      INT         NOT NULL,
-                  role          TEXT        NOT NULL CHECK (role IN ('user','assistant')),
-                  content       TEXT        NOT NULL,
-                  metadata      JSONB,
-                  created_at    TIMESTAMP   NOT NULL DEFAULT now(),
-                  CONSTRAINT fk_messages_conversations
-                    FOREIGN KEY (conversation_id)
-                    REFERENCES public.conversations(conversation_id)
-                    ON DELETE CASCADE
-                );
-                """
-                self.client.postgrest.rpc("run_sql", {"sql": messages_sql}).execute()
-                print("Đã tạo bảng messages")
+    #             # Tạo bảng messages
+    #             messages_sql = """
+    #             CREATE TABLE IF NOT EXISTS public.messages (
+    #               message_id    BIGSERIAL   PRIMARY KEY,
+    #               conversation_id    TEXT        NOT NULL,
+    #               sequence      INT         NOT NULL,
+    #               role          TEXT        NOT NULL CHECK (role IN ('user','assistant')),
+    #               content       TEXT        NOT NULL,
+    #               metadata      JSONB,
+    #               created_at    TIMESTAMP   NOT NULL DEFAULT now(),
+    #               CONSTRAINT fk_messages_conversations
+    #                 FOREIGN KEY (conversation_id)
+    #                 REFERENCES public.conversations(conversation_id)
+    #                 ON DELETE CASCADE
+    #             );
+    #             """
+    #             self.client.postgrest.rpc("run_sql", {"sql": messages_sql}).execute()
+    #             print("Đã tạo bảng messages")
                 
-                # Tạo index
-                index_sql = """
-                CREATE INDEX IF NOT EXISTS idx_messages_conversation_seq
-                  ON public.messages(conversation_id, sequence);
-                """
-                self.client.postgrest.rpc("run_sql", {"sql": index_sql}).execute()
-                print("Đã tạo index cho bảng messages")
+    #             # Tạo index
+    #             index_sql = """
+    #             CREATE INDEX IF NOT EXISTS idx_messages_conversation_seq
+    #               ON public.messages(conversation_id, sequence);
+    #             """
+    #             self.client.postgrest.rpc("run_sql", {"sql": index_sql}).execute()
+    #             print("Đã tạo index cho bảng messages")
                 
-                return {"success": True, "message": "Đã tạo bảng conversations và messages"}
+    #             return {"success": True, "message": "Đã tạo bảng conversations và messages"}
                 
-            except Exception as e2:
-                print(f"Lỗi khi tạo từng bảng riêng biệt: {str(e2)}")
+    #         except Exception as e2:
+    #             print(f"Lỗi khi tạo từng bảng riêng biệt: {str(e2)}")
 
-                # Phương pháp 3: Thử insert để xem bảng đã tồn tại chưa
-                try:
-                    print("Thử phương pháp insert để tạo bảng...")
-                    # Tạo một session trước
-                    import uuid
+    #             # Phương pháp 3: Thử insert để xem bảng đã tồn tại chưa
+    #             try:
+    #                 print("Thử phương pháp insert để tạo bảng...")
+    #                 # Tạo một session trước
+    #                 import uuid
 
-                    conversation_id = f"test_session_init_{uuid.uuid4().hex[:8]}"
-                    session_data = {
-                        "conversation_id": conversation_id,
-                        "user_id": uuid.uuid4(),
-                        "last_updated": format_vietnam_time_for_db(),
-                    }
-                    session_result = (
-                        self.client.table("conversations").insert(session_data).execute()
-                    )
+    #                 conversation_id = f"test_session_init_{uuid.uuid4().hex[:8]}"
+    #                 session_data = {
+    #                     "conversation_id": conversation_id,
+    #                     "user_id": uuid.uuid4(),
+    #                     "last_updated": format_vietnam_time_for_db(),
+    #                 }
+    #                 session_result = (
+    #                     self.client.table("conversations").insert(session_data).execute()
+    #                 )
 
-                    # Sau đó tạo một message
-                    if hasattr(session_result, "data") and session_result.data:
-                        message_data = {
-                            "conversation_id": conversation_id,
-                            "sequence": 1,
-                            "role": "assistant",
-                            "content": "Khởi tạo bảng dữ liệu",
-                        }
-                        message_result = (
-                            self.client.table("messages").insert(message_data).execute()
-                        )
-                        print(
-                            f"Đã tạo bản ghi test thành công: {message_result.data if hasattr(message_result, 'data') else 'No data'}"
-                        )
+    #                 # Sau đó tạo một message
+    #                 if hasattr(session_result, "data") and session_result.data:
+    #                     message_data = {
+    #                         "conversation_id": conversation_id,
+    #                         "sequence": 1,
+    #                         "role": "assistant",
+    #                         "content": "Khởi tạo bảng dữ liệu",
+    #                     }
+    #                     message_result = (
+    #                         self.client.table("messages").insert(message_data).execute()
+    #                     )
+    #                     print(
+    #                         f"Đã tạo bản ghi test thành công: {message_result.data if hasattr(message_result, 'data') else 'No data'}"
+    #                     )
 
-                    return session_result
-                except Exception as e3:
-                    print(f"Tất cả các phương pháp tạo bảng thất bại: {str(e3)}")
-                    raise Exception(
-                        "Không thể tạo bảng conversations và messages bằng bất kỳ phương pháp nào"
-                    )
+    #                 return session_result
+    #             except Exception as e3:
+    #                 print(f"Tất cả các phương pháp tạo bảng thất bại: {str(e3)}")
+    #                 raise Exception(
+    #                     "Không thể tạo bảng conversations và messages bằng bất kỳ phương pháp nào"
+    #                 )
 
     def save_conversation_message(
         self,

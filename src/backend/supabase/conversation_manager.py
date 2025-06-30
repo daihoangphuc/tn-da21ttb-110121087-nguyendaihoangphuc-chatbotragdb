@@ -50,8 +50,8 @@ class SupabaseConversationManager:
             # Khởi tạo đối tượng Database để sử dụng các phương thức hỗ trợ
             self.db = SupabaseDatabase(self.supabase_client)
 
-            # Tạo bảng sessions và messages nếu chưa tồn tại
-            self.db.create_conversation_history_table()
+            # # Tạo bảng sessions và messages nếu chưa tồn tại
+            # self.db.create_conversation_history_table()
 
             print(
                 "Khởi tạo SupabaseConversationManager thành công để lưu trữ hội thoại qua Supabase"
