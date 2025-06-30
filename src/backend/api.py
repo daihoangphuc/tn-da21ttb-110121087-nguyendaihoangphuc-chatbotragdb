@@ -3870,6 +3870,7 @@ async def admin_get_files_stats(
             file_types = {}
             file_categories = {}
             total_size = 0
+            upload_trend = {}  # Thêm trend upload theo ngày
             
             for file in db_files:
                 # Xử lý extension
@@ -3885,6 +3886,18 @@ async def admin_get_files_stats(
                 # Tính tổng dung lượng
                 file_size = metadata.get("file_size", 0)
                 total_size += file_size
+                
+                # Thống kê upload trend
+                upload_time = file.get("upload_time")
+                if upload_time:
+                    try:
+                        parsed_time = parse_and_format_vietnam_time(upload_time)
+                        if parsed_time:
+                            upload_date = datetime.fromisoformat(parsed_time).date().isoformat()
+                            upload_trend[upload_date] = upload_trend.get(upload_date, 0) + 1
+                    except Exception as e:
+                        print(f"Lỗi khi parse upload_time '{upload_time}': {e}")
+                        pass
             
             # Thống kê theo thời gian upload
             today = datetime.now()
@@ -3917,7 +3930,9 @@ async def admin_get_files_stats(
                 "file_types": file_types,
                 "file_categories": file_categories,
                 "last_7_days": last_7_days,
-                "last_30_days": last_30_days
+                "last_30_days": last_30_days,
+                "upload_trend": upload_trend,
+                "avg_file_size": total_size / len(db_files) if len(db_files) > 0 else 0
             }
             
         except Exception as e:
@@ -3932,6 +3947,116 @@ async def admin_get_files_stats(
         raise HTTPException(
             status_code=500,
             detail=f"Lỗi không xác định: {str(e)}"
+        )
+
+@app.get(f"{PREFIX}/admin/system/stats")
+async def admin_get_system_stats(
+    admin_user=Depends(require_admin_role)
+):
+    """
+    [ADMIN] Lấy thống kê tổng quan hệ thống
+    """
+    try:
+        service_client = get_service_supabase_client()
+        
+        # Thống kê users
+        users_result = service_client.auth.admin.list_users()
+        total_users = len(users_result.users) if hasattr(users_result, 'users') else 0
+        
+        # Thống kê người dùng mới theo ngày (7 ngày gần nhất)
+        now = datetime.now()
+        user_growth = {}
+        banned_users = 0
+        active_users = 0
+        week_ago = now - timedelta(days=7)
+        
+        if hasattr(users_result, 'users'):
+            for user in users_result.users:
+                # Đếm banned users
+                if calculate_banned_until(user):
+                    banned_users += 1
+                
+                # Đếm active users (đăng nhập trong 7 ngày qua)
+                if hasattr(user, 'last_sign_in_at') and user.last_sign_in_at:
+                    try:
+                        last_signin = datetime.fromisoformat(str(user.last_sign_in_at).replace('Z', '+00:00'))
+                        if last_signin > week_ago:
+                            active_users += 1
+                    except:
+                        pass
+                
+                # Thống kê user growth
+                if hasattr(user, 'created_at') and user.created_at:
+                    try:
+                        created_date = datetime.fromisoformat(str(user.created_at).replace('Z', '+00:00')).date().isoformat()
+                        user_growth[created_date] = user_growth.get(created_date, 0) + 1
+                    except:
+                        pass
+        
+        # Thống kê conversations
+        conv_result = service_client.table("conversations").select("*", count="exact").execute()
+        total_conversations = conv_result.count if hasattr(conv_result, 'count') else 0
+        
+        # Thống kê messages
+        msg_result = service_client.table("messages").select("*", count="exact").execute()
+        total_messages = msg_result.count if hasattr(msg_result, 'count') else 0
+        
+        # Thống kê files
+        try:
+            from backend.supabase.files_manager import FilesManager
+            from backend.supabase.client import SupabaseClient
+            
+            supabase_client_with_service_role = SupabaseClient(use_service_key=True)
+            client = supabase_client_with_service_role.get_client()
+            files_manager = FilesManager(client)
+            
+            db_files = files_manager.get_all_files(include_deleted=False)
+            total_files = len(db_files)
+            total_storage = sum(file.get("metadata", {}).get("file_size", 0) for file in db_files)
+        except:
+            total_files = 0
+            total_storage = 0
+        
+        # Tính engagement rate
+        engagement_rate = 0
+        if total_users > 0:
+            engagement_rate = round((active_users / total_users) * 100, 2)
+        
+        # Tính average messages per conversation
+        avg_msg_per_conv = 0
+        if total_conversations > 0:
+            avg_msg_per_conv = round(total_messages / total_conversations, 2)
+        
+        return {
+            "overview": {
+                "total_users": total_users,
+                "total_conversations": total_conversations,
+                "total_messages": total_messages,
+                "total_files": total_files,
+                "total_storage": total_storage
+            },
+            "user_metrics": {
+                "active_users": active_users,
+                "banned_users": banned_users,
+                "engagement_rate": engagement_rate,
+                "user_growth": user_growth
+            },
+            "activity_metrics": {
+                "avg_messages_per_conversation": avg_msg_per_conv,
+                "conversations_per_user": round(total_conversations / total_users, 2) if total_users > 0 else 0,
+                "messages_per_user": round(total_messages / total_users, 2) if total_users > 0 else 0
+            },
+            "storage_metrics": {
+                "avg_file_size": round(total_storage / total_files, 2) if total_files > 0 else 0,
+                "files_per_user": round(total_files / total_users, 2) if total_users > 0 else 0
+            }
+        }
+        
+    except Exception as e:
+        print(f"Lỗi khi lấy system stats: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Lỗi khi lấy system stats: {str(e)}"
         )
 
 @app.get(f"{PREFIX}/admin/conversations/stats", response_model=AdminConversationStatsResponse)

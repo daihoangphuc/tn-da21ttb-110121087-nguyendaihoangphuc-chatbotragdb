@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { adminAPI } from "./admin-api";
 import {
@@ -32,8 +33,9 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  AreaChart,
-  Area,
+  ComposedChart,
+  RadialBarChart,
+  RadialBar,
 } from "recharts";
 import {
   Users,
@@ -44,6 +46,14 @@ import {
   TrendingUp,
   FileIcon,
   FolderOpen,
+  Activity,
+  Database,
+  Clock,
+  User,
+  Shield,
+  AlertTriangle,
+  Zap,
+  Star,
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { vi } from "date-fns/locale";
@@ -58,7 +68,10 @@ declare global {
       file_categories: Record<string, number>;
       last_7_days: number;
       last_30_days: number;
+      upload_trend: Record<string, number>;
+      avg_file_size: number;
     };
+    systemStats?: any;
   }
 }
 
@@ -79,6 +92,8 @@ interface DashboardStats {
     recentUploads: Array<{ date: string; count: number }>;
     last7Days: number;
     last30Days: number;
+    uploadTrend: Record<string, number>;
+    avgFileSize: number;
   };
   conversations: {
     total: number;
@@ -87,6 +102,12 @@ interface DashboardStats {
     byDate: Array<{ date: string; count: number }>;
     messagesByRole: { user: number; assistant: number };
     topUsers: Array<{ email: string; count: number }>;
+  };
+  system?: {
+    overview: any;
+    user_metrics: any;
+    activity_metrics: any;
+    storage_metrics: any;
   };
 }
 
@@ -97,7 +118,16 @@ const COLORS = {
   danger: "#ef4444",
   purple: "#8b5cf6",
   pink: "#ec4899",
+  indigo: "#6366f1",
+  teal: "#14b8a6",
+  orange: "#f97316",
+  emerald: "#059669",
 };
+
+const CHART_COLORS = [
+  "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", 
+  "#ec4899", "#6366f1", "#14b8a6", "#f97316", "#059669"
+];
 
 export function AdminDashboardStats() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -121,41 +151,27 @@ export function AdminDashboardStats() {
       };
 
       try {
-        usersData = await adminAPI.fetchUsers(1, 100);
-      } catch (error: any) {
-        console.error("Error fetching users:", error);
-        if (error.message?.includes('403') || error.message?.includes('Forbidden') || 
-            error.message?.includes('Chỉ admin mới có quyền truy cập')) {
-          setError('Bạn không có quyền truy cập trang quản trị. Vui lòng liên hệ quản trị viên để được cấp quyền admin.');
-          return;
-        }
-      }
-
-      try {
-        const [files, filesStats] = await Promise.all([
+        // Fetch dữ liệu song song
+        const [users, files, filesStatsData, convStats] = await Promise.all([
+          adminAPI.fetchUsers(1, 100),
           adminAPI.getFiles(),
           adminAPI.getFilesStats(),
+          adminAPI.getConversationStats(parseInt(timeRange)),
         ]);
-        filesData = files;
-        if (filesStats) {
-          filesData.total_files = filesStats.total_files;
-          window.filesStats = filesStats;
-        }
-      } catch (error: any) {
-        console.error("Error fetching files:", error);
-        if (error.message?.includes('403') || error.message?.includes('Forbidden')) {
-          setError('Bạn không có quyền truy cập trang quản trị. Vui lòng liên hệ quản trị viên để được cấp quyền admin.');
-          return;
-        }
-      }
 
-      try {
-        conversationStats = await adminAPI.getConversationStats(
-          parseInt(timeRange)
-        );
+        usersData = users;
+        filesData = files;
+        conversationStats = convStats;
+
+        if (filesStatsData) {
+          filesData.total_files = filesStatsData.total_files;
+          window.filesStats = filesStatsData;
+        }
+
       } catch (error: any) {
-        console.error("Error fetching conversation stats:", error);
-        if (error.message?.includes('403') || error.message?.includes('Forbidden')) {
+        console.error("Error fetching dashboard data:", error);
+        if (error.message?.includes('403') || error.message?.includes('Forbidden') || 
+            error.message?.includes('Chỉ admin mới có quyền truy cập')) {
           setError('Bạn không có quyền truy cập trang quản trị. Vui lòng liên hệ quản trị viên để được cấp quyền admin.');
           return;
         }
@@ -203,11 +219,15 @@ export function AdminDashboardStats() {
       let filesByType: Record<string, number> = {};
       let filesByCategory: Record<string, number> = {};
       let totalSize = 0;
+      let uploadTrend: Record<string, number> = {};
+      let avgFileSize = 0;
 
       if (window.filesStats) {
         filesByType = window.filesStats.file_types;
         filesByCategory = window.filesStats.file_categories;
         totalSize = window.filesStats.total_size;
+        uploadTrend = window.filesStats.upload_trend || {};
+        avgFileSize = window.filesStats.avg_file_size || 0;
       } else {
         filesByType = filesData.files.reduce((acc: any, file: any) => {
           const ext = file.extension.toLowerCase().replace(".", "");
@@ -233,7 +253,9 @@ export function AdminDashboardStats() {
         const dateStr = format(date, "yyyy-MM-dd");
 
         let count = 0;
-        if (filesData.files.length > 0) {
+        if (uploadTrend[dateStr]) {
+          count = uploadTrend[dateStr];
+        } else if (filesData.files.length > 0) {
           count = filesData.files.filter((f: any) => {
             if (!f.upload_date) return false;
             const uploadDate = format(parseISO(f.upload_date), "yyyy-MM-dd");
@@ -268,6 +290,8 @@ export function AdminDashboardStats() {
           recentUploads,
           last7Days: recentFilesInfo.last7Days,
           last30Days: recentFilesInfo.last30Days,
+          uploadTrend,
+          avgFileSize,
         },
         conversations: {
           total: conversationStats.total_conversations,
@@ -396,20 +420,45 @@ export function AdminDashboardStats() {
   // Prepare data for charts
   const fileTypeData = Object.entries(stats.files.byType)
     .sort(([, a], [, b]) => b - a)
-    .slice(0, 5)
-    .map(([type, count]) => ({
+    .slice(0, 6)
+    .map(([type, count], index) => ({
       name: type.toUpperCase(),
       value: count,
+      fill: CHART_COLORS[index % CHART_COLORS.length],
     }));
+
+  const fileCategoryData = Object.entries(stats.files.byCategory)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 5)
+    .map(([category, count], index) => ({
+      name: category,
+      value: count,
+      fill: CHART_COLORS[index % CHART_COLORS.length],
+    }));
+
+  const userRoleData = [
+    { name: "Student", value: stats.users.byRole.student, fill: COLORS.primary },
+    { name: "Admin", value: stats.users.byRole.admin, fill: COLORS.warning },
+  ];
+
+  // Combined data for activity chart
+  const activityData = stats.conversations.byDate.map((conv, index) => ({
+    date: conv.date,
+    conversations: conv.count,
+    users: stats.users.recentSignups[index]?.count || 0,
+    files: stats.files.recentUploads[index]?.count || 0,
+  }));
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Thống kê tổng quan hệ thống</h1>
-          <p className="text-muted-foreground text-sm">
-            Dữ liệu thống kê trong {timeRange} ngày qua
+          <h1 className="text-3xl font-bold text-gray-900">
+            Dashboard Quản Trị Hệ Thống
+          </h1>
+          <p className="text-muted-foreground">
+            Thống kê tổng quan và phân tích dữ liệu trong {timeRange} ngày qua
           </p>
         </div>
         <Select value={timeRange} onValueChange={setTimeRange}>
@@ -427,92 +476,232 @@ export function AdminDashboardStats() {
 
       {/* Main Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
+        <Card className="border-blue-200">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
+            <CardTitle className="text-sm font-medium text-blue-700">
               Tổng người dùng
             </CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
+            <Users className="h-5 w-5 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatNumber(stats.users.total)}</div>
-            <p className="text-xs text-muted-foreground">
-              {stats.users.active} người dùng hoạt động
-            </p>
+            <div className="text-2xl font-bold text-blue-800">{formatNumber(stats.users.total)}</div>
+            <div className="flex items-center gap-2 mt-1">
+              <Badge variant="secondary" className="text-xs">
+                <Activity className="w-3 h-3 mr-1" />
+                {stats.users.active} hoạt động
+              </Badge>
+              {stats.users.banned > 0 && (
+                <Badge variant="destructive" className="text-xs">
+                  <AlertTriangle className="w-3 h-3 mr-1" />
+                  {stats.users.banned} bị cấm
+                </Badge>
+              )}
+            </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-green-200">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Tổng tài liệu
+            <CardTitle className="text-sm font-medium text-green-700">
+              Tài liệu hệ thống
             </CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
+            <FileText className="h-5 w-5 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatNumber(stats.files.total)}</div>
-            <p className="text-xs text-muted-foreground">
-              Dung lượng: {formatBytes(stats.files.totalSize)}
-            </p>
+            <div className="text-2xl font-bold text-green-800">{formatNumber(stats.files.total)}</div>
+            <div className="flex items-center gap-2 mt-1">
+              <Badge variant="outline" className="text-xs border-green-300 text-green-700">
+                <Database className="w-3 h-3 mr-1" />
+                {formatBytes(stats.files.totalSize)}
+              </Badge>
+              {/* <Badge variant="secondary" className="text-xs">
+                <Clock className="w-3 h-3 mr-1" />
+                {stats.files.last7Days} tuần này
+              </Badge> */}
+            </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-purple-200">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Tổng hội thoại
+            <CardTitle className="text-sm font-medium text-purple-700">
+              Hội thoại
             </CardTitle>
-            <MessageSquare className="h-4 w-4 text-muted-foreground" />
+            <MessageSquare className="h-5 w-5 text-purple-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatNumber(stats.conversations.total)}</div>
-            <p className="text-xs text-muted-foreground">
-              Trung bình {stats.conversations.avgMessagesPerConv} tin nhắn/hội thoại
-            </p>
+            <div className="text-2xl font-bold text-purple-800">{formatNumber(stats.conversations.total)}</div>
+            <div className="flex items-center gap-2 mt-1">
+              <Badge variant="outline" className="text-xs border-purple-300 text-purple-700">
+                <Zap className="w-3 h-3 mr-1" />
+                TB {stats.conversations.avgMessagesPerConv} tin nhắn
+              </Badge>
+            </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-orange-200">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Tổng tin nhắn
+            <CardTitle className="text-sm font-medium text-orange-700">
+              Tin nhắn tổng
             </CardTitle>
-            <MessageCircle className="h-4 w-4 text-muted-foreground" />
+            <MessageCircle className="h-5 w-5 text-orange-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatNumber(stats.conversations.totalMessages)}</div>
-            <p className="text-xs text-muted-foreground">
-              Người dùng: {formatNumber(stats.conversations.messagesByRole.user)} | 
-              AI: {formatNumber(stats.conversations.messagesByRole.assistant)}
-            </p>
+            <div className="text-2xl font-bold text-orange-800">{formatNumber(stats.conversations.totalMessages)}</div>
+            <div className="flex items-center gap-2 mt-1">
+              {/* <Badge variant="outline" className="text-xs border-orange-300 text-orange-700">
+                <User className="w-3 h-3 mr-1" />
+                {formatNumber(stats.conversations.messagesByRole.user)}
+              </Badge>
+              <Badge variant="secondary" className="text-xs">
+                <Star className="w-3 h-3 mr-1" />
+                {formatNumber(stats.conversations.messagesByRole.assistant)} AI
+              </Badge> */}
+            </div>
           </CardContent>
         </Card>
       </div>
 
       {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* File Statistics */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-2 gap-4">
+        {/* Activity Overview */}
+        <Card className="lg:col-span-2 xl:col-span-3">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-blue-600" />
+              Tổng quan hoạt động hệ thống
+            </CardTitle>
+            <CardDescription>
+              Thống kê hoạt động theo thời gian (hội thoại, người dùng mới, files upload)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={350}>
+              <ComposedChart data={activityData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis 
+                  dataKey="date" 
+                  tickFormatter={formatDate}
+                  tick={{ fontSize: 12 }}
+                />
+                <YAxis tick={{ fontSize: 12 }} />
+                <Tooltip content={<CustomTooltip />} />
+                <Legend />
+                <Bar dataKey="conversations" fill={COLORS.primary} name="Hội thoại" radius={[2, 2, 0, 0]} />
+                <Line 
+                  type="monotone" 
+                  dataKey="users" 
+                  stroke={COLORS.warning} 
+                  strokeWidth={3}
+                  name="Người dùng mới"
+                  dot={{ fill: COLORS.warning, strokeWidth: 2, r: 4 }}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="files" 
+                  stroke={COLORS.secondary} 
+                  strokeWidth={3}
+                  name="Files upload"
+                  dot={{ fill: COLORS.secondary, strokeWidth: 2, r: 4 }}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* User Role Distribution */}
         <Card>
           <CardHeader>
-            <CardTitle>Thống kê tài liệu</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5 text-purple-600" />
+              Phân bố vai trò
+            </CardTitle>
             <CardDescription>
-              Phân loại tài liệu theo định dạng
+              Tỷ lệ admin và student trong hệ thống
             </CardDescription>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={fileTypeData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="name" 
-                  tick={{ fontSize: 12 }}
-                />
-                <YAxis 
-                  tick={{ fontSize: 12 }}
+              <RadialBarChart data={userRoleData} innerRadius="30%" outerRadius="90%">
+                <RadialBar 
+                  dataKey="value" 
+                  cornerRadius={10} 
+                  label={{ position: 'insideStart', fill: '#fff', fontSize: 12 }}
                 />
                 <Tooltip 
-                  formatter={(value: any) => [formatNumber(value), "Số lượng"]}
-                  labelStyle={{ color: '#000' }}
+                  formatter={(value: number) => [formatNumber(value), "Người dùng"]}
+                  contentStyle={{ 
+                    backgroundColor: 'hsl(var(--background))', 
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '6px'
+                  }}
+                />
+                <Legend />
+              </RadialBarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* File Type Distribution */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileIcon className="h-5 w-5 text-green-600" />
+              Phân loại file
+            </CardTitle>
+            <CardDescription>
+              Thống kê theo định dạng file
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={fileTypeData}
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={100}
+                  fill="#8884d8"
+                  dataKey="value"
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  labelLine={false}
+                >
+                  {fileTypeData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.fill} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value: number) => [formatNumber(value), "Files"]} />
+              </PieChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* File Categories */}
+        {/* <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FolderOpen className="h-5 w-5 text-indigo-600" />
+              Danh mục tài liệu
+            </CardTitle>
+            <CardDescription>
+              Phân loại theo chủ đề
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={fileCategoryData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis 
+                  dataKey="name" 
+                  tick={{ fontSize: 10 }}
+                  angle={-45}
+                  textAnchor="end"
+                  height={80}
+                />
+                <YAxis tick={{ fontSize: 12 }} />
+                <Tooltip 
+                  formatter={(value: number) => [formatNumber(value), "Files"]}
                   contentStyle={{ 
                     backgroundColor: 'hsl(var(--background))', 
                     border: '1px solid hsl(var(--border))',
@@ -521,71 +710,41 @@ export function AdminDashboardStats() {
                 />
                 <Bar 
                   dataKey="value" 
-                  fill={COLORS.primary}
                   radius={[4, 4, 0, 0]}
-                  animationBegin={0}
-                  animationDuration={1500}
-                  animationEasing="ease-out"
+                  fill={COLORS.indigo}
                 >
-                  {fileTypeData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={Object.values(COLORS)[index % Object.values(COLORS).length]} />
+                  {fileCategoryData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.fill} />
                   ))}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
-        </Card>
-
-        {/* Conversation Statistics */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Thống kê hội thoại</CardTitle>
-            <CardDescription>
-              Số lượng hội thoại theo ngày
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={stats.conversations.byDate}>
-                <defs>
-                  <linearGradient id="colorConv" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={COLORS.primary} stopOpacity={0.8}/>
-                    <stop offset="95%" stopColor={COLORS.primary} stopOpacity={0.1}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" tickFormatter={formatDate} />
-                <YAxis />
-                <Tooltip content={<CustomTooltip />} />
-                <Area
-                  type="monotone"
-                  dataKey="count"
-                  stroke={COLORS.primary}
-                  fillOpacity={1}
-                  fill="url(#colorConv)"
-                  name="Số hội thoại"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+        </Card> */}
       </div>
 
       {/* Top Active Users */}
       <Card>
         <CardHeader>
-          <CardTitle>Top người dùng tích cực</CardTitle>
-          <CardDescription>5 người dùng có nhiều hội thoại nhất</CardDescription>
+          <CardTitle className="flex items-center gap-2">
+            <Star className="h-5 w-5 text-yellow-600" />
+            Top người dùng tích cực nhất
+          </CardTitle>
+          <CardDescription>Xếp hạng theo số lượng hội thoại</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             {stats.conversations.topUsers.slice(0, 5).map((user, index) => (
-              <div key={user.email} className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium text-muted-foreground">#{index + 1}</span>
-                  <span className="text-sm truncate max-w-[200px]">{user.email}</span>
+              <div key={user.email} className="flex flex-col items-center p-4 bg-blue-50 rounded-lg border">
+                <div className="flex items-center justify-center w-12 h-12 rounded-full bg-blue-500 text-white font-bold text-lg mb-2">
+                  #{index + 1}
                 </div>
-                <span className="text-sm font-medium">{user.count} hội thoại</span>
+                <span className="text-sm font-medium text-center truncate max-w-full" title={user.email}>
+                  {user.email}
+                </span>
+                <Badge variant="outline" className="mt-2 text-xs">
+                  {user.count} hội thoại
+                </Badge>
               </div>
             ))}
           </div>

@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -344,9 +345,8 @@ export function AdminDashboard() {
                         <Label htmlFor="password" className="text-right">
                           Mật khẩu
                         </Label>
-                        <Input
+                        <PasswordInput
                           id="password"
-                          type="password"
                           value={createForm.password}
                           onChange={(e) => setCreateForm({...createForm, password: e.target.value})}
                           className="col-span-3"
@@ -542,9 +542,8 @@ export function AdminDashboard() {
               <Label htmlFor="edit-password" className="text-right">
                 Mật khẩu mới
               </Label>
-              <Input
+              <PasswordInput
                 id="edit-password"
-                type="password"
                 value={editForm.password || ""}
                 onChange={(e) => setEditForm({...editForm, password: e.target.value})}
                 className="col-span-3"

@@ -185,6 +185,8 @@ export class AdminAPI {
     file_categories: Record<string, number>;
     last_7_days: number;
     last_30_days: number;
+    upload_trend: Record<string, number>;
+    avg_file_size: number;
   }> {
     try {
       return await fetchApi(`/admin/files/stats`);
@@ -197,7 +199,65 @@ export class AdminAPI {
         file_types: {},
         file_categories: {},
         last_7_days: 0,
-        last_30_days: 0
+        last_30_days: 0,
+        upload_trend: {},
+        avg_file_size: 0
+      };
+    }
+  }
+
+  async getSystemStats(): Promise<{
+    overview: {
+      total_users: number;
+      total_conversations: number;
+      total_messages: number;
+      total_files: number;
+      total_storage: number;
+    };
+    user_metrics: {
+      active_users: number;
+      banned_users: number;
+      engagement_rate: number;
+      user_growth: Record<string, number>;
+    };
+    activity_metrics: {
+      avg_messages_per_conversation: number;
+      conversations_per_user: number;
+      messages_per_user: number;
+    };
+    storage_metrics: {
+      avg_file_size: number;
+      files_per_user: number;
+    };
+  }> {
+    try {
+      return await fetchApi(`/admin/system/stats`);
+    } catch (error) {
+      console.error("Error fetching system stats:", error);
+      // Trả về dữ liệu giả để tránh lỗi khi render
+      return {
+        overview: {
+          total_users: 0,
+          total_conversations: 0,
+          total_messages: 0,
+          total_files: 0,
+          total_storage: 0
+        },
+        user_metrics: {
+          active_users: 0,
+          banned_users: 0,
+          engagement_rate: 0,
+          user_growth: {}
+        },
+        activity_metrics: {
+          avg_messages_per_conversation: 0,
+          conversations_per_user: 0,
+          messages_per_user: 0
+        },
+        storage_metrics: {
+          avg_file_size: 0,
+          files_per_user: 0
+        }
       };
     }
   }
