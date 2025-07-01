@@ -11,7 +11,12 @@ interface AuthGuardProps {
 export function AuthGuard({ children }: AuthGuardProps) {
   const { user, loading, checkAuth } = useAuth();
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [mounted, setMounted] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const verifyAuth = async () => {
@@ -28,15 +33,15 @@ export function AuthGuard({ children }: AuthGuardProps) {
     verifyAuth();
   }, [loading, router, checkAuth]);
 
-  // Hiển thị loading khi đang kiểm tra xác thực
-  if (loading || isAuthenticated === null) {
+  // Hiển thị loading khi đang kiểm tra xác thực hoặc chưa mount
+  if (!mounted || loading || isAuthenticated === null) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="w-10 h-10 border-t-2 border-b-2 border-primary rounded-full animate-spin"></div>
+      <div className="flex items-center justify-center h-screen" suppressHydrationWarning={true}>
+        <div className="w-10 h-10 border-t-2 border-b-2 border-primary rounded-full animate-spin" suppressHydrationWarning={true}></div>
       </div>
     );
   }
 
   // Nếu đã xác thực, hiển thị nội dung
-  return isAuthenticated ? <>{children}</> : null;
+  return isAuthenticated ? <div suppressHydrationWarning={true}>{children}</div> : null;
 } 

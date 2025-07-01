@@ -10,9 +10,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { User, Settings, HelpCircle, LogOut } from "lucide-react"
+import { User, Settings, HelpCircle, LogOut, BarChart3 } from "lucide-react"
 import { useAuth } from "@/hooks/useAuth"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 
 interface UserDropdownProps {
   userName?: string
@@ -64,22 +65,24 @@ export function UserDropdown({
             <p className="text-xs leading-none text-muted-foreground truncate">{displayEmail}</p>
           </div>
         </DropdownMenuLabel>
-        {/* <DropdownMenuSeparator />
+        <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem>
-            <User className="mr-2 h-4 w-4" />
-            <span>Hồ sơ</span>
+          <DropdownMenuItem asChild>
+            <Link href="/learning" className="flex items-center cursor-pointer">
+              <BarChart3 className="mr-2 h-4 w-4" />
+              <span>Dashboard Học Tập</span>
+            </Link>
           </DropdownMenuItem>
-          <DropdownMenuItem>
+          {/* <DropdownMenuItem>
             <Settings className="mr-2 h-4 w-4" />
             <span>Cài đặt</span>
           </DropdownMenuItem>
           <DropdownMenuItem>
             <HelpCircle className="mr-2 h-4 w-4" />
             <span>Trợ giúp</span>
-          </DropdownMenuItem>
+          </DropdownMenuItem> */}
         </DropdownMenuGroup>
-        <DropdownMenuSeparator /> */}
+        <DropdownMenuSeparator />
         <DropdownMenuItem 
           className="text-destructive focus:text-destructive cursor-pointer" 
           onClick={handleLogout}

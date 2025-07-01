@@ -168,6 +168,9 @@ except Exception as e:
     print(f"Chi tiết lỗi: {traceback.format_exc()}")
     raise
 
+# Sẽ khởi tạo Learning Analytics Service sau khi có supabase_client
+analytics_service = None
+
 # Đường dẫn lưu dữ liệu tạm thời
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "backend/data")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -397,6 +400,16 @@ if supabase_url and supabase_key:
 else:
     print("Cảnh báo: Chưa cấu hình SUPABASE_URL và SUPABASE_KEY trong .env")
 
+# Khởi tạo Learning Analytics Service sau khi có supabase_client
+if supabase_client:
+    try:
+        from backend.learning_analytics_api import LearningAnalyticsService
+        analytics_service = LearningAnalyticsService(supabase_client)
+        print("Khởi tạo LearningAnalyticsService thành công")
+    except Exception as e:
+        print(f"Lỗi khi khởi tạo LearningAnalyticsService: {str(e)}")
+        analytics_service = None
+
 
 # Hàm để lấy người dùng hiện tại từ token
 async def get_current_user(
@@ -547,6 +560,31 @@ async def ask_question_stream(
             request.question,
             user_id=user_id,
         )
+        
+        # Thêm phân tích learning analytics (async, không block)
+        if analytics_service and current_user:
+            # Lưu message_id từ message vừa được lưu
+            try:
+                # Lấy message_id mới nhất của user trong conversation này
+                latest_message_result = supabase_client.table("messages").select("message_id").eq(
+                    "conversation_id", conversation_manager.get_current_conversation_id()
+                ).eq("role", "user").order("message_id", desc=True).limit(1).execute()
+                
+                if latest_message_result.data:
+                    message_id = latest_message_result.data[0]["message_id"]
+                    # Chạy phân tích async (không block response)
+                    asyncio.create_task(
+                        analytics_service.process_user_message(
+                            message_id=message_id,
+                            content=request.question,
+                            user_id=current_user.id,
+                            conversation_id=conversation_manager.get_current_conversation_id()
+                        )
+                    )
+                    print(f"[ANALYTICS] Đã khởi chạy phân tích cho message {message_id}")
+            except Exception as e:
+                print(f"[ANALYTICS] Lỗi khi khởi chạy phân tích: {str(e)}")
+                # Không để lỗi analytics ảnh hưởng đến flow chính
 
         # Lấy lịch sử hội thoại để sử dụng trong prompt
         conversation_history = conversation_manager.format_for_prompt(
@@ -4158,6 +4196,134 @@ async def admin_get_conversation_stats(
 # =====================================================================
 # END ADMIN CONVERSATION MANAGEMENT APIs  
 # =====================================================================
+
+# ==================== LEARNING ANALYTICS ENDPOINTS ====================
+
+@app.get(f"{PREFIX}/learning/dashboard")
+async def get_learning_dashboard(
+    weeks: int = Query(4, ge=1, le=12, description="Số tuần để hiển thị"),
+    current_user=Depends(get_current_user)
+):
+    """Dashboard học tập cá nhân"""
+    try:
+        if not analytics_service:
+            raise HTTPException(status_code=503, detail="Learning analytics service không khả dụng")
+        
+        dashboard_data = await analytics_service.get_dashboard_data(current_user.id, weeks)
+        return dashboard_data
+        
+    except Exception as e:
+        print(f"Error getting learning dashboard: {e}")
+        raise HTTPException(status_code=500, detail="Lỗi khi lấy dashboard học tập")
+
+@app.post(f"{PREFIX}/learning/recommendations/{{recommendation_id}}/dismiss")
+async def dismiss_recommendation(
+    recommendation_id: str,
+    current_user=Depends(get_current_user)
+):
+    """Ẩn recommendation"""
+    try:
+        result = supabase_client.table("learning_recommendations").update({
+            "status": "dismissed"
+        }).eq("recommendation_id", recommendation_id).eq("user_id", current_user.id).execute()
+        
+        return {"success": True, "message": "Đã ẩn gợi ý"}
+        
+    except Exception as e:
+        print(f"Error dismissing recommendation: {e}")
+        raise HTTPException(status_code=500, detail="Lỗi khi ẩn gợi ý")
+
+@app.get(f"{PREFIX}/learning/analytics/{{user_id}}")
+async def get_user_analytics(
+    user_id: str,
+    days: int = Query(30, ge=7, le=365, description="Số ngày để phân tích"),
+    current_user=Depends(get_current_user)
+):
+    """Lấy analytics chi tiết cho user (chỉ user chính hoặc admin)"""
+    # Kiểm tra quyền: user chỉ xem analytics của mình, admin xem được tất cả
+    if current_user.id != user_id and getattr(current_user, 'role', 'student') != 'admin':
+        raise HTTPException(status_code=403, detail="Không có quyền truy cập analytics của user khác")
+    
+    try:
+        # Lấy message analysis trong khoảng thời gian
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days)
+        
+        analyses_result = supabase_client.table("message_analysis").select("*").eq(
+            "user_id", user_id
+        ).gte("analysis_timestamp", start_date.isoformat()).order("analysis_timestamp", desc=True).execute()
+        
+        return {
+            "user_id": user_id,
+            "period": {"start": start_date.isoformat(), "end": end_date.isoformat(), "days": days},
+            "analyses": analyses_result.data,
+            "total_analyses": len(analyses_result.data)
+        }
+        
+    except Exception as e:
+        print(f"Error getting user analytics: {e}")
+        raise HTTPException(status_code=500, detail="Lỗi khi lấy dữ liệu phân tích")
+
+# ==================== ADMIN LEARNING ANALYTICS ====================
+
+@app.get(f"{PREFIX}/admin/learning/overview")
+async def admin_get_learning_overview(
+    days: int = Query(30, ge=7, le=365, description="Số ngày thống kê"),
+    admin_user=Depends(require_admin_role)
+):
+    """Tổng quan analytics học tập cho admin"""
+    try:
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days)
+        
+        # Lấy tất cả phân tích trong khoảng thời gian
+        analyses_result = supabase_client.table("message_analysis").select("*").gte(
+            "analysis_timestamp", start_date.isoformat()
+        ).execute()
+        
+        analyses = analyses_result.data
+        
+        # Tính toán metrics tổng quan
+        total_questions = len(analyses)
+        unique_users = len(set(a["user_id"] for a in analyses)) if analyses else 0
+        
+        # Bloom distribution
+        bloom_counts = {}
+        for analysis in analyses:
+            bloom = analysis["bloom_level"]
+            bloom_counts[bloom] = bloom_counts.get(bloom, 0) + 1
+        
+        # Topic distribution
+        topic_counts = {}
+        for analysis in analyses:
+            topics = analysis.get("topics_detected", [])
+            if isinstance(topics, list):
+                for topic in topics:
+                    topic_counts[topic] = topic_counts.get(topic, 0) + 1
+        
+        # User activity
+        user_activity = {}
+        for analysis in analyses:
+            user_id = analysis["user_id"]
+            user_activity[user_id] = user_activity.get(user_id, 0) + 1
+        
+        top_active_users = sorted(user_activity.items(), key=lambda x: x[1], reverse=True)[:10]
+        
+        return {
+            "period": {"start": start_date.isoformat(), "end": end_date.isoformat(), "days": days},
+            "overview": {
+                "total_questions": total_questions,
+                "unique_users": unique_users,
+                "avg_questions_per_user": total_questions / unique_users if unique_users > 0 else 0
+            },
+            "bloom_distribution": bloom_counts,
+            "topic_distribution": dict(sorted(topic_counts.items(), key=lambda x: x[1], reverse=True)[:10]),
+            "top_active_users": top_active_users
+        }
+        
+    except Exception as e:
+        print(f"Error getting admin learning overview: {e}")
+        raise HTTPException(status_code=500, detail="Lỗi khi lấy tổng quan học tập")
 
 if __name__ == "__main__":
     uvicorn.run("backend.api:app", host="0.0.0.0", port=8000, reload=True)

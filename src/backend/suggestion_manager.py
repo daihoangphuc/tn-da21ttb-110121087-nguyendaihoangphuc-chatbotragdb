@@ -198,7 +198,7 @@ class SuggestionManager:
             Danh sách các câu hỏi đề xuất mặc định
         """
         return [
-            "Các loại cơ sở dữ liệu phổ biến hiện nay là gì?",
+            "Các loại cơ sở dữ liệu phổ biến là gì?",
             "Sự khác biệt giữa cơ sở dữ liệu quan hệ và NoSQL là gì?",
             "Làm thế nào để tối ưu hóa truy vấn SQL trong ứng dụng?",
             "Các mô hình dữ liệu cơ bản trong thiết kế cơ sở dữ liệu?",
