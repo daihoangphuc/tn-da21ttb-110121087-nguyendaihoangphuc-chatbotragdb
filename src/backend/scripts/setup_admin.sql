@@ -15,12 +15,7 @@ CREATE TABLE message_analysis (
   question_type VARCHAR(50), -- "definition", "example", "problem_solving", "comparison"
   keywords JSONB, -- ["3NF", "chuẩn hóa", "CSDL"]
   
-  -- Metadata
-  api_provider VARCHAR(50), -- "openai", "claude", "gemini"
-  analysis_timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  
-  -- Lưu raw response để debug
-  raw_api_response JSONB
+  analysis_timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE TABLE learning_metrics (

@@ -67,6 +67,32 @@ export async function fetchApi(
     
     // Nếu response không ok, ném lỗi
     if (!response.ok) {
+      // Xử lý lỗi 401 Unauthorized (token hết hạn)
+      if (response.status === 401) {
+        // Xóa token và thông tin người dùng
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('user_info');
+          localStorage.removeItem('session');
+        }
+        
+        // Thông báo cho người dùng
+        const errorMessage = "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại";
+        
+        // Chuyển hướng về trang đăng nhập nếu không phải đang ở trang đăng nhập
+        if (typeof window !== 'undefined' && 
+            !window.location.pathname.includes('/auth/login') &&
+            !window.location.pathname.includes('/auth/signup')) {
+          // Lưu URL hiện tại để sau khi đăng nhập có thể quay lại
+          localStorage.setItem('redirect_after_login', window.location.pathname);
+          
+          // Chuyển hướng với thông báo
+          window.location.href = `/auth/login?error=${encodeURIComponent(errorMessage)}`;
+        }
+        
+        throw new Error(errorMessage);
+      }
+
       let errorMessage = 'Có lỗi xảy ra khi gọi API';
       try {
         const errorData = await response.json();
@@ -409,5 +435,34 @@ export async function fetchApiStream(
     ...options,
     headers,
   };
-  return fetch(url, config);
+  
+  const response = await fetch(url, config);
+  
+  // Xử lý lỗi 401 Unauthorized (token hết hạn)
+  if (response.status === 401) {
+    // Xóa token và thông tin người dùng
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('user_info');
+      localStorage.removeItem('session');
+    }
+    
+    // Thông báo cho người dùng
+    const errorMessage = "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại";
+    
+    // Chuyển hướng về trang đăng nhập nếu không phải đang ở trang đăng nhập
+    if (typeof window !== 'undefined' && 
+        !window.location.pathname.includes('/auth/login') &&
+        !window.location.pathname.includes('/auth/signup')) {
+      // Lưu URL hiện tại để sau khi đăng nhập có thể quay lại
+      localStorage.setItem('redirect_after_login', window.location.pathname);
+      
+      // Chuyển hướng với thông báo
+      window.location.href = `/auth/login?error=${encodeURIComponent(errorMessage)}`;
+    }
+    
+    throw new Error(errorMessage);
+  }
+  
+  return response;
 }

@@ -244,7 +244,7 @@ export function SimpleLearningDashboard() {
                 <div className="text-3xl font-bold text-violet-800">
                   {Math.round(summary.latest_autonomy_score * 100)}%
                 </div>
-                <div className="text-sm font-medium text-violet-600">Tư duy cao cấp</div>
+                <div className="text-sm font-medium text-violet-600">Tư duy cao</div>
               </div>
             </div>
             <div className="w-full bg-violet-200 rounded-full h-2">

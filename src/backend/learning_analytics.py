@@ -221,9 +221,7 @@ class LearningAnalyticsService:
                 "topics_detected": analysis_result["topics_detected"],
                 "difficulty_level": analysis_result["difficulty_level"],
                 "question_type": analysis_result["question_type"],
-                "keywords": analysis_result["keywords"],
-                "api_provider": self.api_analyzer.api_provider,
-                "raw_api_response": analysis_result
+                "keywords": analysis_result["keywords"]
             }
             
             result = self.supabase.table("message_analysis").insert(analysis_data).execute()

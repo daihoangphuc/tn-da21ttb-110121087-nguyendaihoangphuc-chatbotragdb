@@ -96,7 +96,7 @@ QUY TẮC TẠO BẢNG MARKDOWN (KHI CẦN THIẾT):
   |Dòng1Cột1|Dòng1Cột2|
   |Dòng2Cột1|Dòng2Cột2|
 - YÊU CẦU QUAN TRỌNG:
-  1. TUYỆT ĐỐI KHÔNG TẠO RA KHOẢN TRẮNG THỪA TRONG KHI TẠO BẢNG.
+  1. TUYỆT ĐỐI KHÔNG TẠO RA KHOẢNG TRẮNG THỪA TRONG KHI TẠO BẢNG VÀ CẤU TRÚC BẢNG PHẢI TUÂN THỦ ĐÚNG THEO ĐỊNH DẠNG MARKDOWN.
   2. Mỗi dòng (header, phân cách, dữ liệu) phải bắt đầu bằng `|` và kết thúc bằng `|` theo sau NGAY LẬP TỨC bởi ký tự xuống dòng (`\\n`).
   3. KHÔNG dùng khoảng trắng để căn chỉnh cột. Giữ nội dung ô ngắn gọn.
 - Sau bảng (nếu có), tóm tắt ngắn gọn điểm chính (1-2 câu)."""

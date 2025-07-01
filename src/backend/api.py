@@ -403,7 +403,7 @@ else:
 # Khởi tạo Learning Analytics Service sau khi có supabase_client
 if supabase_client:
     try:
-        from backend.learning_analytics_api import LearningAnalyticsService
+        from backend.learning_analytics import LearningAnalyticsService
         analytics_service = LearningAnalyticsService(supabase_client)
         print("Khởi tạo LearningAnalyticsService thành công")
     except Exception as e:

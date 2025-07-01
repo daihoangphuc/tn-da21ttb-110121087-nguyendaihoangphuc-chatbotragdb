@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,14 +11,31 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { useToast } from "@/components/ui/use-toast";
 import { authApi } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const { login } = useAuth();
+
+  // Kiểm tra URL parameter cho thông báo lỗi khi component được mount
+  useEffect(() => {
+    const error = searchParams.get("error");
+    if (error) {
+      setErrorMessage(decodeURIComponent(error));
+    }
+    
+    // Kiểm tra redirect_after_login
+    const redirectPath = localStorage.getItem("redirect_after_login");
+    if (redirectPath) {
+      console.log("Tìm thấy redirect path:", redirectPath);
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,8 +56,15 @@ export default function LoginPage() {
       
       // Đợi một chút để toast hiển thị, sau đó chuyển hướng
       setTimeout(() => {
-        // Sử dụng window.location.href thay vì router.push để đảm bảo tải lại trang
-        window.location.href = "/";
+        // Kiểm tra xem có URL để chuyển hướng sau khi đăng nhập không
+        const redirectPath = localStorage.getItem("redirect_after_login");
+        if (redirectPath) {
+          localStorage.removeItem("redirect_after_login");
+          window.location.href = redirectPath;
+        } else {
+          // Sử dụng window.location.href thay vì router.push để đảm bảo tải lại trang
+          window.location.href = "/";
+        }
       }, 100);
     } catch (error) {
       console.error("Lỗi đăng nhập:", error);
@@ -83,6 +107,11 @@ export default function LoginPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {errorMessage && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertDescription>{errorMessage}</AlertDescription>
+            </Alert>
+          )}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
