@@ -413,6 +413,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
       
+      // Kiểm tra lỗi JSON từ API
+      if (error.response) {
+        try {
+          const errorData = error.response;
+          if (errorData.error_code === "same_password" || 
+              (errorData.detail && errorData.detail.includes("New password should be different from the old password"))) {
+            errorMessage = "Mật khẩu mới phải khác mật khẩu cũ của bạn.";
+            variant = "warning";
+            title = "Cảnh báo";
+          }
+        } catch (e) {
+          console.error("Không thể phân tích lỗi API:", e);
+        }
+      }
+      
       toast({
         variant,
         title,

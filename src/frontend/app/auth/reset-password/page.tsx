@@ -163,19 +163,56 @@ export default function ResetPasswordPage() {
     } catch (error: any) {
       // Handle errors
       let errorMessage = "Không thể đặt lại mật khẩu";
+      let variant: "destructive" | "warning" = "destructive";
+      let title = "Lỗi";
 
       if (error instanceof Error && error.message) {
         errorMessage = error.message;
 
+        // Kiểm tra lỗi mật khẩu trùng lặp
         if (error.message.includes("Mật khẩu mới phải khác mật khẩu cũ")) {
-          router.replace("/auth/login");
+          variant = "warning";
+          title = "Cảnh báo";
+          
+          // Hiển thị thông báo và chuyển hướng về trang đăng nhập
+          toast({
+            variant,
+            title,
+            description: errorMessage
+          });
+          
+          // Chuyển hướng về trang đăng nhập sau 3 giây
+          setTimeout(() => {
+            router.replace("/auth/login");
+          }, 3000);
           return;
         }
       }
 
+      // Kiểm tra lỗi từ API
+      if (error.response && (error.response.error_code === "same_password" || 
+          (error.response.detail && error.response.detail.includes("New password should be different")))) {
+        errorMessage = "Mật khẩu mới phải khác mật khẩu cũ của bạn.";
+        variant = "warning";
+        title = "Cảnh báo";
+        
+        // Hiển thị thông báo và chuyển hướng về trang đăng nhập
+        toast({
+          variant,
+          title,
+          description: errorMessage
+        });
+        
+        // Chuyển hướng về trang đăng nhập sau 3 giây
+        setTimeout(() => {
+          router.replace("/auth/login");
+        }, 3000);
+        return;
+      }
+
       toast({
-        variant: "destructive",
-        title: "Lỗi",
+        variant,
+        title,
         description: errorMessage
       });
     } finally {

@@ -203,6 +203,22 @@ export const authApi = {
       });
     } catch (error) {
       console.error("Reset password error:", error);
+      
+      // Kiểm tra nếu lỗi có chứa thông tin chi tiết từ API
+      if (error instanceof Error && error.message) {
+        // Kiểm tra nếu lỗi có chứa thông tin về mật khẩu trùng lặp
+        if (error.message.includes("same_password") || 
+            error.message.includes("New password should be different from the old password")) {
+          const enhancedError = new Error("Mật khẩu mới phải khác mật khẩu cũ của bạn.");
+          // Thêm thông tin gốc từ API vào đối tượng lỗi để xử lý ở frontend
+          (enhancedError as any).response = {
+            error_code: "same_password",
+            detail: error.message
+          };
+          throw enhancedError;
+        }
+      }
+      
       throw error;
     }
   },
