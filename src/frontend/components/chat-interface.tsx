@@ -277,11 +277,25 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
     }
   }
 
+  const [loadingStatus, setLoadingStatus] = useState<{type: string, message: string, details?: string} | undefined>(undefined);
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const elapsedTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const handleSend = async () => {
     if (!input.trim() || isSending) return;
     
     setIsSending(true);
     setIsTyping(true);
+    setElapsedTime(0);
+    // Hiển thị trạng thái ngay lập tức
+    setLoadingStatus({ type: "analyzing", message: "Đang phân tích truy vấn..." });
+    
+    // Start timer
+    if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
+    elapsedTimerRef.current = setInterval(() => {
+      setElapsedTime((prev) => prev + 0.1);
+    }, 100);
+    
     const userMessage = {
       id: Date.now().toString(),
       role: "user" as const,
@@ -334,10 +348,21 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
                   const data = JSON.parse(dataLine.replace('data:', '').trim());
                   if (data.query_type) {
                     currentQueryType = data.query_type;
-                    console.log(`Query type: ${currentQueryType}`);
+                    // Xác định trạng thái hiển thị
+                    if (data.query_type === "question_from_document") {
+                      setLoadingStatus({ type: "searching_docs", message: "Đang tìm kiếm trong cơ sở tri thức..." });
+                    } else if (data.query_type === "realtime_question" || data.search_type === "google_raw_search") {
+                      setLoadingStatus({ type: "searching_web", message: "Đang tìm kiếm trên Internet..." });
+                    } else if (data.query_type === "sql_code_task") {
+                      setLoadingStatus({ type: "processing_sql", message: "Đang phân tích và sinh mã SQL..." });
+                    } else if (data.query_type?.includes("fallback")) {
+                      setLoadingStatus({ type: "fallback", message: "Không đủ thông tin, đang tìm kiếm trên Internet...", details: data.fallback_reason });
+                    } else {
+                      setLoadingStatus({ type: "analyzing", message: "Đang phân tích truy vấn..." });
+                    }
                   }
                 } catch (error) {
-                  console.error('Lỗi khi parse dữ liệu start:', error);
+                  setLoadingStatus(undefined);
                 }
               }
             }
@@ -450,6 +475,8 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
               }
               setIsTyping(false);
               setIsSending(false);
+              setLoadingStatus(undefined);
+              if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
               break;
             }
           }
@@ -472,6 +499,8 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
         
         setIsTyping(false);
         setIsSending(false);
+        setLoadingStatus(undefined);
+        if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
       }
     } catch (error) {
       console.error('Lỗi khi gửi câu hỏi:', error);
@@ -482,6 +511,8 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
       });
       setIsTyping(false);
       setIsSending(false);
+      setLoadingStatus(undefined);
+      if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
     }
   };
   
@@ -554,34 +585,6 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
     }, 1500);
   };
 
-  // Thêm state cho đồng hồ đếm
-  const [elapsedTime, setElapsedTime] = useState<number>(0);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Thêm useEffect để xử lý đồng hồ đếm
-  useEffect(() => {
-    if (isTyping) {
-      const startTime = Date.now();
-      timerRef.current = setInterval(() => {
-        const elapsed = (Date.now() - startTime) / 1000;
-        setElapsedTime(elapsed);
-      }, 100);
-    } else {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-      setElapsedTime(0);
-    }
-
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-  }, [isTyping]);
-
   const formatMessageWithCitations = (message: Message) => {
     if (!message || !message.content) return "";
     return message.content; // Trả về nguyên văn nội dung
@@ -617,9 +620,9 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
   // Cleanup khi component unmount
   useEffect(() => {
     return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
+      if (elapsedTimerRef.current) {
+        clearInterval(elapsedTimerRef.current);
+        elapsedTimerRef.current = null;
       }
     };
   }, []);
@@ -815,9 +818,7 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
                   />
                 ))}
 
-                {isTyping && (
-                  <LoadingMessage elapsedTime={elapsedTime} />
-                )}
+                {isTyping && <LoadingMessage elapsedTime={elapsedTime} status={loadingStatus} />}
 
                 <div ref={messagesEndRef} key="messages-end" />
               </div>

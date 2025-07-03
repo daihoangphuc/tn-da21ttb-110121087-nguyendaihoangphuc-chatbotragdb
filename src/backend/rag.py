@@ -40,7 +40,7 @@ import uuid
 import json
 
 # Import Google_Search
-from backend.tools.Google_Search import run_query_with_sources as google_agent_search, get_raw_search_results
+from backend.tools.Google_Search import get_raw_search_results
 
 # Load biến môi trường từ .env
 load_dotenv()
@@ -178,6 +178,206 @@ class AdvancedDatabaseRAG:
 
         # Cài đặt cơ chế xử lý song song
         self.max_workers = int(os.getenv("MAX_PARALLEL_WORKERS", "4"))
+
+        # **THÊM: Config cho Smart Fallback feature**
+        self.enable_smart_fallback = os.getenv("ENABLE_SMART_FALLBACK", "true").lower() == "true"
+        self.context_quality_threshold = float(os.getenv("CONTEXT_QUALITY_THRESHOLD", "0.2"))
+        
+        # **THÊM: Config cho Response-based Fallback feature**
+        self.enable_response_fallback = os.getenv("ENABLE_RESPONSE_FALLBACK", "true").lower() == "true"
+        
+        print(f"Smart Fallback: {'Enabled' if self.enable_smart_fallback else 'Disabled'} (threshold: {self.context_quality_threshold})")
+        print(f"Response-based Fallback: {'Enabled' if self.enable_response_fallback else 'Disabled'}")
+
+    async def _evaluate_context_quality(self, query: str, context_docs: List[Dict]) -> Dict[str, any]:
+        """
+        Đánh giá xem context có đủ thông tin để trả lời câu hỏi không
+        
+        Args:
+            query: Câu hỏi người dùng
+            context_docs: Danh sách các document context
+            
+        Returns:
+            Dict với các key: {"is_sufficient": bool, "confidence": float, "reason": str}
+        """
+        if not context_docs:
+            return {"is_sufficient": False, "confidence": 0.0, "reason": "No context documents"}
+        
+        # Tạo context preview ngắn gọn cho evaluation (chỉ lấy 200 ký tự đầu của mỗi doc)
+        context_preview = "\n---\n".join([
+            f"Doc {i+1}: {doc.get('content', '')[:200]}..." 
+            for i, doc in enumerate(context_docs[:3])  # Chỉ lấy 3 docs đầu
+        ])
+        
+        evaluation_prompt = f"""Bạn là chuyên gia đánh giá thông tin. Hãy đánh giá xem thông tin dưới đây có đủ để trả lời câu hỏi không.
+
+CÂU HỎI: {query}
+
+THÔNG TIN HIỆN CÓ:
+{context_preview}
+
+Hãy trả về JSON với định dạng chính xác:
+{{"is_sufficient": true/false, "confidence": 0.0-1.0, "reason": "lý do ngắn gọn"}}
+
+NGUYÊN TẮC ĐÁNH GIÁ:
+- is_sufficient: true nếu thông tin đủ để trả lời ít nhất 70% câu hỏi
+- confidence: 0.0-1.0 (0.7+ là đủ tốt, 0.5-0.69 là trung bình, <0.5 là không đủ)
+- reason: giải thích ngắn gọn (tối đa 50 từ)
+
+VÍ DỤ:
+- Nếu câu hỏi về "khóa chính SQL" và document có đầy đủ định nghĩa, cú pháp → {{"is_sufficient": true, "confidence": 0.9, "reason": "Có đầy đủ thông tin về khóa chính"}}
+- Nếu câu hỏi về "PostgreSQL 16" nhưng document chỉ nói về MySQL → {{"is_sufficient": false, "confidence": 0.2, "reason": "Document không chứa thông tin về PostgreSQL"}}
+
+CHỈ trả về JSON, không có text khác."""
+
+        try:
+            response = await self.llm.invoke(evaluation_prompt)
+            response_text = response.content.strip()
+            
+            # Tìm JSON trong response
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group()
+                result = json.loads(json_str)
+                
+                # Validate response format
+                if not all(key in result for key in ["is_sufficient", "confidence", "reason"]):
+                    print("⚠️ Invalid evaluation response format")
+                    return {"is_sufficient": True, "confidence": 0.6, "reason": "Evaluation format error"}
+                
+                # Đảm bảo confidence là float trong khoảng 0-1
+                try:
+                    confidence = float(result["confidence"])
+                    confidence = max(0.0, min(1.0, confidence))  # Clamp between 0-1
+                    result["confidence"] = confidence
+                except (ValueError, TypeError):
+                    result["confidence"] = 0.5
+                
+                print(f"📊 Context evaluation: sufficient={result['is_sufficient']}, confidence={result['confidence']:.2f}, reason='{result['reason']}'")
+                return result
+            else:
+                print("⚠️ No JSON found in evaluation response")
+                return {"is_sufficient": True, "confidence": 0.6, "reason": "JSON parse error"}
+                
+        except json.JSONDecodeError as e:
+            print(f"⚠️ JSON decode error in evaluation: {e}")
+            return {"is_sufficient": True, "confidence": 0.6, "reason": "JSON decode error"}
+        except Exception as e:
+            print(f"⚠️ Error evaluating context quality: {e}")
+            # Conservative fallback - nếu không đánh giá được thì coi như đủ để tránh loop
+            return {"is_sufficient": True, "confidence": 0.6, "reason": "Evaluation failed"}
+
+    async def _execute_google_fallback_streaming(self, query: str, conversation_history: str, start_time: float, query_type: str, file_id: List[str] = None):
+        """
+        Execute Google Search fallback với streaming response
+        
+        Args:
+            query: Câu hỏi đã được xử lý
+            conversation_history: Lịch sử hội thoại  
+            start_time: Thời gian bắt đầu process
+            query_type: Loại câu hỏi gốc
+            file_id: Danh sách file_id (để trả về trong response)
+        """
+        print(f"🔄 Executing Google Search fallback for: '{query[:50]}...'")
+        
+        try:
+            # Gọi Google Search
+            fallback_content, fallback_urls = get_raw_search_results(query)
+            
+            if fallback_content and fallback_content != "Không tìm thấy thông tin liên quan đến truy vấn này.":
+                print(f"✅ Google fallback found results: {len(fallback_urls)} sources")
+                
+                # Chuẩn bị sources list cho Google Search
+                gas_sources_list = []
+                for url_idx, url in enumerate(fallback_urls):
+                    gas_sources_list.append({
+                        "source": url,
+                        "page": f"Web Search {url_idx+1}",
+                        "section": "Online Source",
+                        "score": 0.9,
+                        "content_snippet": url,
+                        "file_id": "web_search_fallback",
+                        "is_web_search": True,
+                        "url": url
+                    })
+                
+                # Yield start với fallback indicator
+                yield {
+                    "type": "start",
+                    "data": {
+                        "query_type": f"{query_type}_smart_fallback",
+                        "search_type": "google_smart_fallback", 
+                        "fallback_reason": "Insufficient document context",
+                        "file_id": file_id if file_id else []
+                    }
+                }
+                
+                # Yield sources từ Google Search
+                yield {
+                    "type": "sources", 
+                    "data": {
+                        "sources": gas_sources_list, 
+                        "filtered_sources": [], 
+                        "filtered_file_id": file_id if file_id else []
+                    }
+                }
+                
+                # Tạo prompt cho realtime question
+                prompt = self.prompt_manager.get_realtime_question_prompt(
+                    query=query, 
+                    search_results=fallback_content, 
+                    conversation_history=conversation_history
+                )
+                
+                # Stream response từ LLM
+                try:
+                    async for content in self.llm.stream(prompt):
+                        yield {"type": "content", "data": {"content": content}}
+                except Exception as llm_error:
+                    print(f"❌ LLM error in fallback: {llm_error}")
+                    yield {"type": "content", "data": {"content": f"Lỗi khi xử lý phản hồi từ Google Search: {str(llm_error)}"}}
+                
+            else:
+                print("⚠️ Google fallback returned no useful results")
+                # Yield empty sources
+                yield {
+                    "type": "start",
+                    "data": {
+                        "query_type": f"{query_type}_failed_fallback",
+                        "file_id": file_id if file_id else []
+                    }
+                }
+                yield {
+                    "type": "sources", 
+                    "data": {"sources": [], "filtered_sources": [], "filtered_file_id": file_id if file_id else []}
+                }
+                yield {"type": "content", "data": {"content": "Không tìm thấy thông tin phù hợp từ cả tài liệu và tìm kiếm web. Vui lòng thử lại với câu hỏi khác hoặc từ khóa cụ thể hơn."}}
+                
+        except Exception as e:
+            print(f"❌ Error in Google fallback: {e}")
+            # Yield error response
+            yield {
+                "type": "start",
+                "data": {
+                    "query_type": f"{query_type}_error_fallback",
+                    "file_id": file_id if file_id else []
+                }
+            }
+            yield {
+                "type": "sources", 
+                "data": {"sources": [], "filtered_sources": [], "filtered_file_id": file_id if file_id else []}
+            }
+            yield {"type": "content", "data": {"content": f"Lỗi khi tìm kiếm thông tin bổ sung: {str(e)}"}}
+        
+        # Yield end
+        elapsed_time = time.time() - start_time
+        yield {
+            "type": "end",
+            "data": {
+                "processing_time": round(elapsed_time, 2),
+                "query_type": f"{query_type}_fallback"
+            }
+        }
 
     async def load_documents_async(self, data_dir: str) -> List[Dict]:
         """Tải tài liệu từ thư mục (bất đồng bộ)"""
@@ -794,6 +994,40 @@ class AdvancedDatabaseRAG:
                 }
             )
 
+        # **THÊM: Smart Fallback - Đánh giá chất lượng context**
+        should_fallback = False
+        fallback_reason = ""
+        
+        if self.enable_smart_fallback and context_docs and query_type == "question_from_document":
+            print(f"🔍 Evaluating context quality for smart fallback...")
+            try:
+                context_quality = await self._evaluate_context_quality(query_to_use, context_docs)
+                
+                # Sửa logic: fallback khi confidence < threshold HOẶC is_sufficient = False
+                insufficient_context = not context_quality.get("is_sufficient", True)
+                low_confidence = context_quality["confidence"] < self.context_quality_threshold
+                
+                if insufficient_context or low_confidence:
+                    should_fallback = True
+                    if insufficient_context:
+                        fallback_reason = f"Insufficient context (is_sufficient=False, confidence: {context_quality['confidence']:.2f}, reason: {context_quality['reason']})"
+                    else:
+                        fallback_reason = f"Low context quality (confidence: {context_quality['confidence']:.2f} < threshold: {self.context_quality_threshold:.2f}, reason: {context_quality['reason']})"
+                    print(f"🔄 {fallback_reason}. Triggering smart fallback...")
+                else:
+                    print(f"✅ Context quality sufficient (is_sufficient=True, confidence: {context_quality['confidence']:.2f} >= threshold: {self.context_quality_threshold:.2f}). Proceeding with RAG...")
+            except Exception as e:
+                print(f"⚠️ Error during context quality evaluation: {e}. Proceeding with normal RAG...")
+        
+        # **THÊM: Execute smart fallback nếu cần**
+        if should_fallback:
+            print(f"🔄 Executing smart fallback: {fallback_reason}")
+            async for item in self._execute_google_fallback_streaming(
+                query_to_use, conversation_history, start_time, query_type, file_id
+            ):
+                yield item
+            return
+
         # Chuẩn bị danh sách nguồn tham khảo
         sources_list = []
         for i, doc in enumerate(reranked_results):
@@ -871,11 +1105,47 @@ class AdvancedDatabaseRAG:
             query_to_use, context_docs, conversation_history=conversation_history
         )
 
-        # Gọi LLM để trả lời
+        # Gọi LLM để trả lời với response fallback detection
         try:
-            # Sử dụng LLM để trả lời dưới dạng stream
+            # Thu thập toàn bộ response để kiểm tra insufficient response patterns
+            full_response = ""
+            response_chunks = []
+            
+            # Stream response và lưu lại từng chunk
             async for content in self.llm.stream(prompt):
+                full_response += content
+                response_chunks.append(content)
                 yield {"type": "content", "data": {"content": content}}
+            
+            # **THÊM: Response-based Fallback Detection**
+            # Kiểm tra xem response có chứa pattern thiếu thông tin không
+            if (self.enable_response_fallback and 
+                query_type == "question_from_document" and 
+                await self._detect_insufficient_response(full_response)):
+                
+                print(f"🔄 Detected insufficient response, triggering Google search fallback...")
+                
+                # Yield một dòng trống để tách biệt với response cũ
+                yield {"type": "content", "data": {"content": "\n\n---\n\n"}}
+                yield {"type": "content", "data": {"content": "**Đang tìm kiếm thông tin bổ sung từ web...**\n\n"}}
+                
+                # Execute Google Search fallback
+                try:
+                    async for fallback_item in self._execute_google_fallback_streaming(
+                        query_to_use, conversation_history, start_time, f"{query_type}_response_fallback", file_id
+                    ):
+                        # Chỉ yield content, không yield start/sources/end lại để tránh override
+                        if fallback_item["type"] == "content":
+                            yield fallback_item
+                        elif fallback_item["type"] == "end":
+                            # Cập nhật query_type trong end message để báo hiệu đã fallback
+                            fallback_item["data"]["query_type"] = f"{query_type}_response_fallback"
+                            yield fallback_item
+                            return  # Kết thúc luôn sau fallback
+                except Exception as fallback_error:
+                    print(f"❌ Error in response-based fallback: {fallback_error}")
+                    yield {"type": "content", "data": {"content": f"\n\nLỗi khi tìm kiếm thông tin bổ sung: {str(fallback_error)}"}}
+                    
         except Exception as e:
             print(f"Lỗi khi gọi LLM stream: {str(e)}")
             # Trả về lỗi
@@ -927,15 +1197,65 @@ class AdvancedDatabaseRAG:
                 "Bạn có muốn biết thêm thông tin về ứng dụng thực tế không?",
             ]
 
-    # def _generate_answer(self, query, relevant_docs, **kwargs):
-    #     """Phương thức nội bộ để tạo câu trả lời"""
-    #     # Tạo context từ các tài liệu liên quan
-    #     context = "\n---\n".join([doc["text"] for doc in relevant_docs])
-
-    #     # Tạo prompt với template phù hợp
-    #     prompt = self.prompt_manager.templates["query_with_context"].format(
-    #         context=context, query=query
-    #     ) # Gọi LLM và lấy kết quả
-    #     response = self.llm.invoke(prompt)
-    #     return response.content
+    async def _detect_insufficient_response(self, response_content: str) -> bool:
+        """
+        Phát hiện xem response có chứa pattern "không thể trả lời đầy đủ" không
+        
+        Args:
+            response_content: Nội dung response từ LLM
+            
+        Returns:
+            bool: True nếu response cho thấy thiếu thông tin
+        """
+        if not response_content or len(response_content.strip()) < 20:
+            return False  # Response quá ngắn, không đánh giá
+        
+        # Các pattern chính xác cho thấy thiếu thông tin
+        strong_insufficient_patterns = [
+            "Tôi không thể trả lời đầy đủ câu hỏi này dựa trên tài liệu hiện có",
+            "không thể trả lời đầy đủ câu hỏi này dựa trên tài liệu",
+            "không được tìm thấy trong tài liệu được cung cấp",
+            "Tôi chỉ tìm thấy thông tin giới hạn về chủ đề này trong tài liệu"
+        ]
+        
+        # Các pattern yếu hơn - cần kết hợp với điều kiện khác
+        weak_insufficient_patterns = [
+            "không đủ thông tin",
+            "thông tin không đầy đủ",
+            "không có thông tin chi tiết",
+            "tài liệu không đề cập",
+            "không được đề cập trong tài liệu"
+        ]
+        
+        response_lower = response_content.lower()
+        
+        # Kiểm tra strong patterns - trigger fallback ngay lập tức
+        for pattern in strong_insufficient_patterns:
+            if pattern.lower() in response_lower:
+                print(f"🔍 Detected strong insufficient response pattern: '{pattern}' in response")
+                return True
+        
+        # Kiểm tra weak patterns - chỉ trigger nếu response ngắn
+        response_length = len(response_content.strip())
+        if response_length < 200:  # Response ngắn hơn 200 ký tự
+            for pattern in weak_insufficient_patterns:
+                if pattern.lower() in response_lower:
+                    print(f"🔍 Detected weak insufficient response pattern: '{pattern}' in short response ({response_length} chars)")
+                    return True
+        
+        # Kiểm tra xem có phải chỉ là câu trả lời từ chối hay không
+        refusal_indicators = [
+            "tôi không thể",
+            "không thể cung cấp",
+            "không có thông tin",
+            "xin lỗi, tôi"
+        ]
+        
+        # Nếu response chứa nhiều từ từ chối và ngắn -> có thể thiếu thông tin
+        refusal_count = sum(1 for indicator in refusal_indicators if indicator in response_lower)
+        if refusal_count >= 2 and response_length < 300:
+            print(f"🔍 Detected multiple refusal indicators ({refusal_count}) in short response ({response_length} chars)")
+            return True
+        
+        return False
 
