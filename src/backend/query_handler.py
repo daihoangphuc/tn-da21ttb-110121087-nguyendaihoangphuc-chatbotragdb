@@ -355,20 +355,20 @@ class QueryHandler:
         Returns:
             Phản hồi lịch sự hướng dẫn người dùng quay lại chủ đề CSDL
         """
-        default_response = f"""
-        Xin chào! Tôi là DBR - chatbot chuyên về cơ sở dữ liệu. 
+        default_response = f"""Xin chào! Tôi là DBR - chatbot chuyên về cơ sở dữ liệu.
 
         Câu hỏi của bạn: "{query}" có vẻ không liên quan đến lĩnh vực cơ sở dữ liệu mà tôi được đào tạo để hỗ trợ.
 
         Tôi có thể giúp bạn với:
-        • Các khái niệm về cơ sở dữ liệu
-        • Thiết kế và chuẩn hóa CSDL  
-        • Ngôn ngữ SQL và các truy vấn
-        • Hệ quản trị CSDL (MySQL, PostgreSQL, MongoDB...)
-        • Tối ưu hóa hiệu suất và bảo mật
 
-        Bạn có muốn hỏi gì về cơ sở dữ liệu không? Tôi sẽ rất vui được hỗ trợ! 😊
-        """
+        • Các khái niệm về cơ sở dữ liệu  
+        • Thiết kế và chuẩn hóa CSDL  
+        • Ngôn ngữ SQL và các truy vấn  
+        • Hệ quản trị CSDL  
+        • Tối ưu hóa câu lệnh SQL  
+
+        Bạn có muốn hỏi gì về cơ sở dữ liệu không? Tôi sẽ rất vui được hỗ trợ! 😊"""
+
         return default_response
 
     def get_response_for_other_question_sync(self, query: str) -> str:
