@@ -118,7 +118,16 @@ class QueryHandler:
     def _create_enhanced_prompt(self, query: str, conversation_history: str) -> str:
         """Tạo prompt được cải thiện cho việc mở rộng và phân loại câu hỏi."""
         # Cung cấp lịch sử hội thoại, nếu không có thì thông báo
-        history_context = conversation_history if conversation_history and conversation_history.strip() else "Không có lịch sử hội thoại."
+        history_context = "Không có lịch sử hội thoại."
+        
+        if conversation_history and conversation_history.strip():
+            # Giới hạn lịch sử hội thoại chỉ lấy 5 tin nhắn gần nhất
+            if "\n" in conversation_history:
+                history_lines = conversation_history.strip().split("\n")
+                # Lấy tối đa 5 tin nhắn gần nhất
+                history_context = "\n".join(history_lines[-5:])
+            else:
+                history_context = conversation_history.strip()
 
         # Xây dựng prompt chi tiết và tối ưu
         prompt = f"""

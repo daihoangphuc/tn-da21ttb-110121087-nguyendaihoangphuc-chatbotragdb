@@ -358,7 +358,7 @@ Hãy trả lời câu hỏi dựa trên kết quả tìm kiếm trên và NHẤT
             return ""
         
         formatted_history = []
-        for msg in conversation_history[-10:]:  # Limit to last 10 messages
+        for msg in conversation_history[-5:]:  # Limit to last 5 messages
             role = msg.get("role", "user")
             content = msg.get("content", "")
             
