@@ -257,7 +257,7 @@ class QueryHandler:
         try:
             # Gọi LLM bất đồng bộ
             response = await self.llm.invoke(enhanced_prompt)
-            response_text = response.content.strip()
+            response_text = response.content if hasattr(response, "content") else str(response)
             print(f"📝 Raw LLM response: {response_text[:200]}...")
             
             # Bước 3: Parse JSON response
@@ -312,7 +312,7 @@ class QueryHandler:
         try:
             # Gọi LLM đồng bộ
             response = self.llm.invoke_sync(enhanced_prompt)
-            response_text = response.content.strip()
+            response_text = response.content if hasattr(response, "content") else str(response)
             print(f"📝 Raw LLM response: {response_text[:200]}...")
             
             # Bước 3: Parse JSON response
@@ -355,19 +355,19 @@ class QueryHandler:
         Returns:
             Phản hồi lịch sự hướng dẫn người dùng quay lại chủ đề CSDL
         """
-        default_response = f"""Xin chào! Tôi là DBR - chatbot chuyên về cơ sở dữ liệu.
+        default_response = f"""## Xin chào! Tôi là DBR - chatbot chuyên về cơ sở dữ liệu.
 
-        Câu hỏi của bạn: "{query}" có vẻ không liên quan đến lĩnh vực cơ sở dữ liệu mà tôi được đào tạo để hỗ trợ.
+Câu hỏi của bạn: "{query}" có vẻ không liên quan đến lĩnh vực cơ sở dữ liệu mà tôi được đào tạo để hỗ trợ.
 
-        Tôi có thể giúp bạn với:
+Tôi có thể giúp bạn với:
 
-        • Các khái niệm về cơ sở dữ liệu  
-        • Thiết kế và chuẩn hóa CSDL  
-        • Ngôn ngữ SQL và các truy vấn  
-        • Hệ quản trị CSDL  
-        • Tối ưu hóa câu lệnh SQL  
+- Các khái niệm về cơ sở dữ liệu  
+- Thiết kế và chuẩn hóa CSDL  
+- Ngôn ngữ SQL và các truy vấn  
+- Hệ quản trị CSDL  
+- Tối ưu hóa câu lệnh SQL  
 
-        Bạn có muốn hỏi gì về cơ sở dữ liệu không? Tôi sẽ rất vui được hỗ trợ! 😊"""
+Bạn có muốn hỏi gì về cơ sở dữ liệu không? Tôi sẽ rất vui được hỗ trợ! 😊"""
 
         return default_response
 
@@ -381,20 +381,20 @@ class QueryHandler:
         Returns:
             Phản hồi lịch sự hướng dẫn người dùng quay lại chủ đề CSDL
         """
-        default_response = f"""
-        Xin chào! Tôi là DBR - chatbot chuyên về cơ sở dữ liệu. 
+        default_response = f"""## Xin chào! Tôi là DBR - chatbot chuyên về cơ sở dữ liệu.
 
-        Câu hỏi của bạn: "{query}" có vẻ không liên quan đến lĩnh vực cơ sở dữ liệu mà tôi được đào tạo để hỗ trợ.
+Câu hỏi của bạn: "{query}" có vẻ không liên quan đến lĩnh vực cơ sở dữ liệu mà tôi được đào tạo để hỗ trợ.
 
-        Tôi có thể giúp bạn với:
-        • Các khái niệm về cơ sở dữ liệu
-        • Thiết kế và chuẩn hóa CSDL  
-        • Ngôn ngữ SQL và các truy vấn
-        • Hệ quản trị CSDL (MySQL, PostgreSQL, MongoDB...)
-        • Tối ưu hóa hiệu suất và bảo mật
+Tôi có thể giúp bạn với:
 
-        Bạn có muốn hỏi gì về cơ sở dữ liệu không? Tôi sẽ rất vui được hỗ trợ! 😊
-        """
+- Các khái niệm về cơ sở dữ liệu
+- Thiết kế và chuẩn hóa CSDL  
+- Ngôn ngữ SQL và các truy vấn
+- Hệ quản trị CSDL (MySQL, PostgreSQL, MongoDB...)
+- Tối ưu hóa hiệu suất và bảo mật
+
+Bạn có muốn hỏi gì về cơ sở dữ liệu không? Tôi sẽ rất vui được hỗ trợ! 😊"""
+        
         return default_response
 
     def test_preprocessing(self, test_queries=None) -> None:

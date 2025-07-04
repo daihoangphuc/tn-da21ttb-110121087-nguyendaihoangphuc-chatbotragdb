@@ -508,7 +508,7 @@ class AdvancedDatabaseRAG:
                 },
             }
 
-            # Trả về nội dung
+            # Trả về nội dung - đã định dạng Markdown
             response = await self.query_handler.get_response_for_other_question(query)
             yield {"type": "content", "data": {"content": response}}
 
