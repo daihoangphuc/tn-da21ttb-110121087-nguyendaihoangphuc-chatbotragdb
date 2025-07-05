@@ -26,15 +26,16 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SearchConfig:
     """Cấu hình cho Google Search tool"""
-    max_results: int = 3
+    max_results: int = 2
     include_answer: bool = True
     include_raw_content: bool = True
     temperature: float = 0.0
-    model: str = "gemini-2.0-flash"
+    model: str = "gemini-1.5-flash"
     cache_ttl_hours: int = 24
     rate_limit_per_minute: int = 30
     max_content_length: int = 8000
     timeout_seconds: int = 30
+    enable_llm: bool = False
 
 class RateLimiter:
     """Simple rate limiter để tránh spam API"""
