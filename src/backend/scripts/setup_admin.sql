@@ -1,3 +1,53 @@
+-- XÓA USER VÀ TẤT CẢ BẢNG LIÊN QUAN USER VÀ THÊM 3 BẢNG MỚI
+-- 1. conversations.user_id  ──► auth.users(id)  (đổi sang CASCADE)
+ALTER TABLE public.conversations
+  DROP CONSTRAINT IF EXISTS fk_conversations_user,
+  ADD  CONSTRAINT fk_conversations_user
+  FOREIGN KEY (user_id)
+  REFERENCES auth.users(id)
+  ON DELETE CASCADE;
+
+-- 2. messages.conversation_id  ──► conversations.conversation_id  (đã CASCADE sẵn, chỉ đảm bảo)
+ALTER TABLE public.messages
+  DROP CONSTRAINT IF EXISTS fk_messages_conversations,
+  ADD  CONSTRAINT fk_messages_conversations
+  FOREIGN KEY (conversation_id)
+  REFERENCES public.conversations(conversation_id)
+  ON DELETE CASCADE;
+
+-- 3. message_analysis.message_id  ──► messages.message_id
+ALTER TABLE public.message_analysis
+  DROP CONSTRAINT IF EXISTS message_analysis_message_id_fkey,
+  ADD  CONSTRAINT message_analysis_message_id_fkey
+  FOREIGN KEY (message_id)
+  REFERENCES public.messages(message_id)
+  ON DELETE CASCADE;
+
+-- 4. Ba FK còn lại trỏ thẳng lên auth.users – đổi sang CASCADE
+ALTER TABLE public.message_analysis
+  DROP CONSTRAINT IF EXISTS message_analysis_user_id_fkey,
+  ADD  CONSTRAINT message_analysis_user_id_fkey
+  FOREIGN KEY (user_id)
+  REFERENCES auth.users(id)
+  ON DELETE CASCADE;
+
+ALTER TABLE public.learning_metrics
+  DROP CONSTRAINT IF EXISTS learning_metrics_user_id_fkey,
+  ADD  CONSTRAINT learning_metrics_user_id_fkey
+  FOREIGN KEY (user_id)
+  REFERENCES auth.users(id)
+  ON DELETE CASCADE;
+
+ALTER TABLE public.learning_recommendations
+  DROP CONSTRAINT IF EXISTS learning_recommendations_user_id_fkey,
+  ADD  CONSTRAINT learning_recommendations_user_id_fkey
+  FOREIGN KEY (user_id)
+  REFERENCES auth.users(id)
+  ON DELETE CASCADE;
+
+
+
+
 -- Thêm 3 bảng mới
 CREATE TABLE message_analysis (
   analysis_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
