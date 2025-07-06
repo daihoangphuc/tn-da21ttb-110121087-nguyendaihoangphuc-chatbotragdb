@@ -109,50 +109,27 @@ def format_vietnam_time_iso(dt=None):
         dt = get_vietnam_time()
     return dt.isoformat()
 
-def parse_and_format_vietnam_time(time_str):
-    """Parse thời gian từ database và chuyển về múi giờ Việt Nam"""
-    try:
-        # Kiểm tra nếu time_str là None hoặc chuỗi rỗng
-        if not time_str or time_str == "":
-            return ""
-        
-        if isinstance(time_str, str):
-            # Xử lý các format thời gian khác nhau
-            time_str_cleaned = time_str.strip()
-            
-            # Nếu có 'Z' thì thay bằng '+00:00'
-            if time_str_cleaned.endswith('Z'):
-                time_str_cleaned = time_str_cleaned.replace('Z', '+00:00')
-            
-            # Nếu không có timezone và có dấu chấm (microseconds)
-            elif '+' not in time_str_cleaned and 'T' in time_str_cleaned:
-                # Thêm timezone UTC nếu không có
-                if '.' in time_str_cleaned:
-                    # Cắt microseconds về 6 chữ số nếu cần
-                    parts = time_str_cleaned.split('.')
-                    if len(parts) == 2:
-                        microseconds = parts[1][:6].ljust(6, '0')  # Đảm bảo có đúng 6 chữ số
-                        time_str_cleaned = f"{parts[0]}.{microseconds}+00:00"
-                else:
-                    time_str_cleaned = f"{time_str_cleaned}+00:00"
-            
-            # Parse thời gian từ string ISO
-            dt = datetime.fromisoformat(time_str_cleaned)
-            
-            # Chuyển về múi giờ Việt Nam
-            vietnam_tz = pytz.timezone('Asia/Ho_Chi_Minh')
-            if dt.tzinfo is None:
-                # Nếu không có timezone info, coi như UTC
-                dt = pytz.UTC.localize(dt)
-            
-            vietnam_time = dt.astimezone(vietnam_tz)
-            return vietnam_time.isoformat()
-        
-        return time_str
-    except Exception as e:
-        print(f"Lỗi khi parse thời gian '{time_str}': {e}")
-        # Trả về chuỗi gốc hoặc chuỗi rỗng thay vì None để tránh lỗi JSON
-        return time_str if time_str else ""
+def parse_and_format_vietnam_time(time_str: str) -> str:
+    """
+    Trả về ISO-8601 kèm offset +07:00.
+    Giả định chuỗi KHÔNG có offset đang ở múi giờ Việt Nam.
+    """
+    if not time_str:
+        return ""
+
+    raw = time_str.strip()
+
+    # 1) Nếu có hậu tố Z  ➜ UTC
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+
+    dt = datetime.fromisoformat(raw.replace(" ", "T"))  # chấp nhận " " hoặc "T"
+    vn_tz = pytz.timezone("Asia/Ho_Chi_Minh")
+
+    if dt.tzinfo is None:             # không có offset  ➜ coi là giờ VN
+        dt = vn_tz.localize(dt)
+
+    return dt.astimezone(vn_tz).isoformat()
 
 # Khởi tạo quản lý hội thoại
 try:

@@ -457,11 +457,11 @@ export function AdminDashboardStats() {
           <h1 className="text-3xl font-bold text-gray-900">
             Dashboard Quản Trị Hệ Thống
           </h1>
-          <p className="text-muted-foreground">
+          {/* <p className="text-muted-foreground">
             Thống kê tổng quan và phân tích dữ liệu trong {timeRange} ngày qua
-          </p>
+          </p> */}
         </div>
-        <Select value={timeRange} onValueChange={setTimeRange}>
+        {/* <Select value={timeRange} onValueChange={setTimeRange}>
           <SelectTrigger className="w-[180px]">
             <Calendar className="w-4 h-4 mr-2" />
             <SelectValue />
@@ -471,7 +471,7 @@ export function AdminDashboardStats() {
             <SelectItem value="30">30 ngày qua</SelectItem>
             <SelectItem value="90">90 ngày qua</SelectItem>
           </SelectContent>
-        </Select>
+        </Select> */}
       </div>
 
       {/* Main Stats Cards */}

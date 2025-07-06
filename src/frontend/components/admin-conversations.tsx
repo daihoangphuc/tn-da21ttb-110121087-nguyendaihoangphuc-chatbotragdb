@@ -27,13 +27,19 @@ import {
   Bot,
   UserIcon,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  RefreshCw,
+  X
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatVietnameseDate } from "@/lib/utils";
+import { adminConversationsCache } from "@/lib/admin-conversations-cache";
+import { Badge } from "@/components/ui/badge";
 
 export function AdminConversations() {
-  const [conversations, setConversations] = useState<AdminConversation[]>([]);
+  const [allConversations, setAllConversations] = useState<AdminConversation[]>([]);
+  const [filteredConversations, setFilteredConversations] = useState<AdminConversation[]>([]);
+  const [displayedConversations, setDisplayedConversations] = useState<AdminConversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<AdminConversation | null>(null);
   const [messages, setMessages] = useState<AdminMessage[]>([]);
   const [stats, setStats] = useState<AdminConversationStats | null>(null);
@@ -53,51 +59,38 @@ export function AdminConversations() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
-  const [perPage] = useState(20); // Giảm xuống 20 items per page để load nhanh hơn
-  
-  // Debounce search term để tránh gọi API quá nhiều
-  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
+  const [perPage] = useState(20);
 
-  // Load dữ liệu khi component mount hoặc khi search/filter/page thay đổi
+  // Load toàn bộ dữ liệu khi component mount
   useEffect(() => {
-    fetchConversations();
-  }, [currentPage, debouncedSearchTerm, dateFilter]);
-
-  // Load stats một lần khi component mount
-  useEffect(() => {
+    loadConversationsWithCache();
     fetchStats();
   }, []);
 
-  const fetchConversations = async () => {
+  // Filter local khi searchTerm hoặc dateFilter thay đổi
+  useEffect(() => {
+    filterConversations();
+  }, [allConversations, searchTerm, dateFilter]);
+
+  // Pagination local
+  useEffect(() => {
+    paginateConversations();
+  }, [filteredConversations, currentPage]);
+
+  const loadConversationsWithCache = async () => {
     setLoading(true);
     try {
-      // Sử dụng server-side filtering và pagination
-      const params: any = { 
-        page: currentPage, 
-        per_page: perPage 
-      };
-      
-      // Thêm search term nếu có
-      if (debouncedSearchTerm.trim()) {
-        if (debouncedSearchTerm.includes('@')) {
-          params.user_email = debouncedSearchTerm; // Exact email match
-        } else {
-          params.search_message = debouncedSearchTerm; // Search in messages
-        }
+      // Kiểm tra cache trước
+      const cachedData = adminConversationsCache.getCachedData();
+      if (cachedData) {
+        setAllConversations(cachedData);
+        setLoading(false);
+        return;
       }
-      
-      // Thêm date filter nếu có
-      if (dateFilter.from) {
-        params.date_from = dateFilter.from;
-      }
-      if (dateFilter.to) {
-        params.date_to = dateFilter.to;
-      }
-      
-      const response = await adminAPI.fetchConversations(params);
-      setConversations(response.conversations);
-      setTotalPages(response.total_pages);
-      setTotalCount(response.total_count);
+
+      // Nếu không có cache, fetch từ API
+      const data = await adminConversationsCache.getConversations(fetchAllConversationsFromAPI);
+      setAllConversations(data);
     } catch (error) {
       toast({
         title: "Lỗi",
@@ -109,6 +102,131 @@ export function AdminConversations() {
     }
   };
 
+  const fetchAllConversationsFromAPI = async (): Promise<AdminConversation[]> => {
+    let allConversationsData: AdminConversation[] = [];
+    let currentPageLoad = 1;
+    let hasMoreData = true;
+    
+    while (hasMoreData) {
+      const params: any = {
+        page: currentPageLoad,
+        per_page: 100 // Giới hạn tối đa của backend
+      };
+
+      const response = await adminAPI.fetchConversations(params);
+      allConversationsData = [...allConversationsData, ...response.conversations];
+      
+      // Kiểm tra xem còn trang nào không
+      if (response.conversations.length < 100 || currentPageLoad >= response.total_pages) {
+        hasMoreData = false;
+      } else {
+        currentPageLoad++;
+      }
+    }
+
+    // Deduplicate dữ liệu dựa trên conversation_id
+    const uniqueConversations = allConversationsData.filter((conv, index, arr) => 
+      arr.findIndex(c => c.conversation_id === conv.conversation_id) === index
+    );
+
+    console.log('Data loaded:', {
+      total: allConversationsData.length,
+      unique: uniqueConversations.length,
+      duplicates: allConversationsData.length - uniqueConversations.length
+    });
+
+    return uniqueConversations;
+  };
+
+  const fetchAllConversations = async () => {
+    // Deprecated - sử dụng loadConversationsWithCache thay thế
+    await loadConversationsWithCache();
+  };
+
+  const filterConversations = () => {
+    let filtered = [...allConversations];
+
+    // Kiểm tra duplicates trong allConversations
+    const duplicateIds = allConversations
+      .map(conv => conv.conversation_id)
+      .filter((id, index, arr) => arr.indexOf(id) !== index);
+    
+    if (duplicateIds.length > 0) {
+      console.warn('Found duplicate conversation IDs:', duplicateIds);
+    }
+
+    // Filter theo search term
+    if (searchTerm.trim()) {
+      const searchLower = searchTerm.toLowerCase();
+      filtered = filtered.filter(conv => 
+        conv.user_email.toLowerCase().includes(searchLower) ||
+        conv.first_message.toLowerCase().includes(searchLower)
+      );
+    }
+
+    // Filter theo date range - IMPROVED LOGIC
+    if (dateFilter.from || dateFilter.to) {
+      filtered = filtered.filter(conv => {
+        // Parse conversation date (có thể có timezone)
+        const convDate = new Date(conv.last_updated);
+        
+        // Nếu date không hợp lệ, bỏ qua
+        if (isNaN(convDate.getTime())) {
+          console.warn('Invalid date:', conv.last_updated);
+          return true; // Giữ lại nếu không parse được
+        }
+        
+        // Chuyển về local date (YYYY-MM-DD) để so sánh
+        const convDateStr = convDate.toLocaleDateString('en-CA'); // Format: YYYY-MM-DD
+        
+        // Kiểm tra range
+        if (dateFilter.from && convDateStr < dateFilter.from) {
+          return false;
+        }
+        
+        if (dateFilter.to && convDateStr > dateFilter.to) {
+          return false;
+        }
+        
+        return true;
+      });
+    }
+
+    // Kiểm tra duplicates trong filtered data
+    const filteredDuplicates = filtered
+      .map(conv => conv.conversation_id)
+      .filter((id, index, arr) => arr.indexOf(id) !== index);
+    
+    if (filteredDuplicates.length > 0) {
+      console.warn('Found duplicate conversation IDs in filtered data:', filteredDuplicates);
+      // Deduplicate filtered data as safety measure
+      filtered = filtered.filter((conv, index, arr) => 
+        arr.findIndex(c => c.conversation_id === conv.conversation_id) === index
+      );
+    }
+
+    console.log('Filter result:', {
+      original: allConversations.length,
+      filtered: filtered.length,
+      searchTerm,
+      dateFilter,
+      duplicatesFound: duplicateIds.length > 0 || filteredDuplicates.length > 0
+    });
+
+    setFilteredConversations(filtered);
+    setCurrentPage(1); // Reset về trang đầu khi filter
+  };
+
+  const paginateConversations = () => {
+    const startIndex = (currentPage - 1) * perPage;
+    const endIndex = startIndex + perPage;
+    const paginated = filteredConversations.slice(startIndex, endIndex);
+    
+    setDisplayedConversations(paginated);
+    setTotalPages(Math.ceil(filteredConversations.length / perPage));
+    setTotalCount(filteredConversations.length);
+  };
+
   const fetchStats = async () => {
     try {
       const response = await adminAPI.getConversationStats(7);
@@ -118,10 +236,39 @@ export function AdminConversations() {
     }
   };
 
+  const handleFilter = () => {
+    // Validation date range
+    if (dateFilter.from && dateFilter.to) {
+      const fromDate = new Date(dateFilter.from);
+      const toDate = new Date(dateFilter.to);
+      
+      if (fromDate > toDate) {
+        toast({
+          title: "Lỗi",
+          description: "Ngày bắt đầu không thể lớn hơn ngày kết thúc",
+          variant: "destructive"
+        });
+        return;
+      }
+    }
+
+    // Debug info
+    console.log('Filter applied:', {
+      searchTerm,
+      dateFilter,
+      totalConversations: allConversations.length
+    });
+
+    // Filter sẽ tự động chạy qua useEffect
+    filterConversations();
+  };
+
   const handleClearFilter = () => {
     setSearchTerm("");
     setDateFilter({ from: "", to: "" });
-    setCurrentPage(1); // Reset về trang đầu khi clear filter
+    setCurrentPage(1);
+    
+    console.log('Filter cleared');
   };
 
   const handleViewMessages = async (conversation: AdminConversation) => {
@@ -148,7 +295,7 @@ export function AdminConversations() {
       const response = await adminAPI.searchMessages({
         query: searchQuery,
         page: 1,
-        per_page: 50
+        per_page: 10
       });
       setSearchResults(response.messages);
     } catch (error) {
@@ -168,6 +315,14 @@ export function AdminConversations() {
     try {
       setLoading(true);
       await adminAPI.deleteConversation(conversationToDelete);
+      
+      // Cập nhật cache
+      adminConversationsCache.removeConversation(conversationToDelete);
+      
+      // Cập nhật state local
+      const updatedConversations = allConversations.filter(conv => conv.conversation_id !== conversationToDelete);
+      setAllConversations(updatedConversations);
+      
       toast({
         title: "Thành công",
         description: "Đã xóa hội thoại"
@@ -175,12 +330,6 @@ export function AdminConversations() {
       setShowDeleteDialog(false);
       setConversationToDelete(null);
       
-      // Nếu trang hiện tại chỉ có 1 item và không phải trang đầu, quay về trang trước
-      if (conversations.length === 1 && currentPage > 1) {
-        setCurrentPage(currentPage - 1);
-      } else {
-        fetchConversations();
-      }
       fetchStats();
     } catch (error) {
       toast({
@@ -193,17 +342,17 @@ export function AdminConversations() {
     }
   };
 
+  const handleRefreshData = () => {
+    // Xóa cache và load lại dữ liệu
+    adminConversationsCache.invalidateCache();
+    loadConversationsWithCache();
+  };
+
   const formatDate = (dateString: string) => {
     return formatVietnameseDate(dateString);
   };
 
-  // Debounce search term để tránh gọi API quá nhiều
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearchTerm(searchTerm);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [searchTerm]);
+  // Real-time filter không cần debounce
 
   return (
     <div className="space-y-6 relative">
@@ -290,7 +439,7 @@ export function AdminConversations() {
             <CardContent>
               {/* Search and Filters */}
               <div className="space-y-4 mb-4">
-                {/* Search bar giống admin users */}
+                {/* Search bar và refresh button */}
                 <div className="flex items-center space-x-2">
                   <div className="relative flex-1 max-w-sm">
                     <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -301,31 +450,115 @@ export function AdminConversations() {
                       className="pl-8"
                     />
                   </div>
-                  <Button variant="outline" onClick={handleClearFilter}>
-                    Xóa bộ lọc
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={handleRefreshData}
+                    disabled={loading}
+                  >
+                    <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                    Làm mới
                   </Button>
                 </div>
 
-                {/* Date filters */}
-                <div className="flex gap-4">
-                  <div className="flex-1 max-w-xs">
-                    <Label htmlFor="dateFrom">Từ ngày</Label>
-                    <Input
-                      id="dateFrom"
-                      type="date"
-                      value={dateFilter.from}
-                      onChange={(e) => setDateFilter({ ...dateFilter, from: e.target.value })}
-                    />
+                {/* Cache status */}
+                <div className="text-xs text-muted-foreground">
+                  {(() => {
+                    const cacheStatus = adminConversationsCache.getCacheStatus();
+                    if (cacheStatus.hasCache && cacheStatus.isValid) {
+                      const ageMinutes = Math.floor(cacheStatus.age / 60000);
+                      return `Dữ liệu từ cache (${ageMinutes} phút trước)`;
+                    } else if (cacheStatus.hasCache) {
+                      return "Cache đã hết hạn, sẽ tải lại dữ liệu";
+                    } else {
+                      return "";
+                    }
+                  })()}
+                </div>
+
+                {/* Date filters - Improved layout */}
+                <div className="border rounded-lg p-4 bg-muted/20">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Lọc theo thời gian</span>
+                    {(searchTerm || dateFilter.from || dateFilter.to) && (
+                      <Badge variant="secondary" className="ml-2">
+                        Đang lọc
+                      </Badge>
+                    )}
                   </div>
-                  <div className="flex-1 max-w-xs">
-                    <Label htmlFor="dateTo">Đến ngày</Label>
-                    <Input
-                      id="dateTo"
-                      type="date"
-                      value={dateFilter.to}
-                      onChange={(e) => setDateFilter({ ...dateFilter, to: e.target.value })}
-                    />
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+                    <div className="space-y-2">
+                      <Label htmlFor="dateFrom" className="text-sm font-medium">Từ ngày</Label>
+                      <Input
+                        id="dateFrom"
+                        type="date"
+                        value={dateFilter.from}
+                        onChange={(e) => setDateFilter({ ...dateFilter, from: e.target.value })}
+                        className="w-full"
+                      />
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="dateTo" className="text-sm font-medium">Đến ngày</Label>
+                      <Input
+                        id="dateTo"
+                        type="date"
+                        value={dateFilter.to}
+                        onChange={(e) => setDateFilter({ ...dateFilter, to: e.target.value })}
+                        className="w-full"
+                      />
+                    </div>
+                    
+                    <div className="flex gap-2">
+                      <Button 
+                        onClick={handleFilter} 
+                        disabled={loading}
+                        className="flex-1"
+                        size="sm"
+                      >
+                        <Search className="h-4 w-4 mr-1" />
+                        Lọc
+                      </Button>
+                    </div>
+                    
+                    <div>
+                      <Button 
+                        variant="outline" 
+                        onClick={handleClearFilter} 
+                        disabled={loading}
+                        className="w-full"
+                        size="sm"
+                      >
+                        <X className="h-4 w-4 mr-1" />
+                        Xóa bộ lọc
+                      </Button>
+                    </div>
                   </div>
+
+                  {/* Filter summary */}
+                  {(searchTerm || dateFilter.from || dateFilter.to) && (
+                    <div className="mt-3 pt-3 border-t">
+                      <div className="flex flex-wrap gap-2">
+                        {searchTerm && (
+                          <Badge variant="outline" className="text-xs">
+                            Tìm kiếm: "{searchTerm}"
+                          </Badge>
+                        )}
+                        {dateFilter.from && (
+                          <Badge variant="outline" className="text-xs">
+                            Từ: {dateFilter.from}
+                          </Badge>
+                        )}
+                        {dateFilter.to && (
+                          <Badge variant="outline" className="text-xs">
+                            Đến: {dateFilter.to}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -362,8 +595,8 @@ export function AdminConversations() {
                       </tr>
                     </thead>
                     <tbody>
-                      {conversations.map((conv) => (
-                      <tr key={conv.conversation_id} className="border-b">
+                      {displayedConversations.map((conv, index) => (
+                      <tr key={`${conv.conversation_id}_${index}`} className="border-b">
                         <td className="p-2 font-mono text-xs">
                           {conv.conversation_id.substring(0, 8)}...
                         </td>
@@ -404,7 +637,10 @@ export function AdminConversations() {
               {/* Pagination và Result count */}
               <div className="mt-4 flex items-center justify-between">
                 <div className="text-sm text-muted-foreground">
-                  Hiển thị {conversations.length} / {totalCount} hội thoại
+                  Hiển thị {displayedConversations.length} / {filteredConversations.length} hội thoại
+                  {filteredConversations.length !== allConversations.length && (
+                    <span> (từ tổng {allConversations.length} hội thoại)</span>
+                  )}
                   {totalCount > 0 && (
                     <span> - Trang {currentPage} / {totalPages}</span>
                   )}
@@ -661,3 +897,4 @@ export function AdminConversations() {
     </div>
   );
 }
+
