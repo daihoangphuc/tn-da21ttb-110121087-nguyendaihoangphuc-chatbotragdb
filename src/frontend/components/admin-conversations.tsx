@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { useState, useEffect } from "react";
 import { adminAPI, AdminConversation, AdminMessage, AdminConversationStats } from "./admin-api";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatVietnameseDate } from "@/lib/utils";
 import { adminConversationsCache } from "@/lib/admin-conversations-cache";
 import { Badge } from "@/components/ui/badge";
+import { ResponsiveContainer, PieChart, Pie, Tooltip as RechartsTooltip, Legend, BarChart, XAxis, YAxis, Bar } from "recharts";
 
 export function AdminConversations() {
   const [allConversations, setAllConversations] = useState<AdminConversation[]>([]);
@@ -44,8 +46,6 @@ export function AdminConversations() {
   const [messages, setMessages] = useState<AdminMessage[]>([]);
   const [stats, setStats] = useState<AdminConversationStats | null>(null);
   const [loading, setLoading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<any[]>([]);
 
   const [showMessageDialog, setShowMessageDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -58,7 +58,6 @@ export function AdminConversations() {
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
   const [perPage] = useState(20);
 
   // Load toàn bộ dữ liệu khi component mount
@@ -224,7 +223,6 @@ export function AdminConversations() {
     
     setDisplayedConversations(paginated);
     setTotalPages(Math.ceil(filteredConversations.length / perPage));
-    setTotalCount(filteredConversations.length);
   };
 
   const fetchStats = async () => {
@@ -287,28 +285,6 @@ export function AdminConversations() {
     }
   };
 
-  const handleSearchMessages = async () => {
-    if (!searchQuery.trim()) return;
-
-    setLoading(true);
-    try {
-      const response = await adminAPI.searchMessages({
-        query: searchQuery,
-        page: 1,
-        per_page: 10
-      });
-      setSearchResults(response.messages);
-    } catch (error) {
-      toast({
-        title: "Lỗi",
-        description: "Không thể tìm kiếm tin nhắn",
-        variant: "destructive"
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleDeleteConversation = async () => {
     if (!conversationToDelete) return;
 
@@ -359,10 +335,7 @@ export function AdminConversations() {
       {/* Loading overlay */}
       {loading && (
         <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-10 flex items-center justify-center">
-          <div className="flex flex-col items-center space-y-2">
-            <MessageSquare className="h-8 w-8 animate-pulse text-primary" />
-            <p className="text-sm text-muted-foreground">Đang xử lý...</p>
-          </div>
+          <Skeleton className="h-12 w-12 rounded-full" />
         </div>
       )}
       {/* Stats Cards */}
@@ -424,7 +397,6 @@ export function AdminConversations() {
       <Tabs defaultValue="conversations" className="space-y-4">
         <TabsList>
           <TabsTrigger value="conversations">Danh sách hội thoại</TabsTrigger>
-          <TabsTrigger value="search">Tìm kiếm tin nhắn</TabsTrigger>
           <TabsTrigger value="stats">Thống kê chi tiết</TabsTrigger>
         </TabsList>
 
@@ -471,7 +443,7 @@ export function AdminConversations() {
                     } else if (cacheStatus.hasCache) {
                       return "Cache đã hết hạn, sẽ tải lại dữ liệu";
                     } else {
-                      return "";
+                      return "Đang tải dữ liệu từ server";
                     }
                   })()}
                 </div>
@@ -581,7 +553,7 @@ export function AdminConversations() {
                     ))}
                   </div>
                 </div>
-              ) : (
+              ) :
                 <div className="rounded-md border">
                   <table className="w-full">
                     <thead>
@@ -632,7 +604,7 @@ export function AdminConversations() {
                     </tbody>
                   </table>
                 </div>
-              )}
+              }
 
               {/* Pagination và Result count */}
               <div className="mt-4 flex items-center justify-between">
@@ -641,7 +613,7 @@ export function AdminConversations() {
                   {filteredConversations.length !== allConversations.length && (
                     <span> (từ tổng {allConversations.length} hội thoại)</span>
                   )}
-                  {totalCount > 0 && (
+                  {totalPages > 1 && (
                     <span> - Trang {currentPage} / {totalPages}</span>
                   )}
                 </div>
@@ -703,111 +675,173 @@ export function AdminConversations() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="search">
-          <Card>
-            <CardHeader>
-              <CardTitle>Tìm kiếm tin nhắn</CardTitle>
-              <CardDescription>
-                Tìm kiếm tin nhắn trong toàn bộ hệ thống
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex gap-2 mb-4">
-                <Input
-                  placeholder="Nhập từ khóa tìm kiếm..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && handleSearchMessages()}
-                />
-                <Button onClick={handleSearchMessages} disabled={loading}>
-                  <Search className="h-4 w-4 mr-2" />
-                  {loading ? "Đang tìm..." : "Tìm kiếm"}
-                </Button>
-              </div>
-
-              {searchResults.length > 0 && (
-                <div className="space-y-4">
-                  <p className="text-sm text-muted-foreground">
-                    Tìm thấy {searchResults.length} kết quả
-                  </p>
-                  <ScrollArea className="h-[400px]">
-                    <div className="space-y-4">
-                      {searchResults.map((msg) => (
-                        <Card key={msg.message_id}>
-                          <CardHeader className="pb-3">
-                            <div className="flex justify-between items-start">
-                              <div className="space-y-1">
-                                <p className="text-sm font-medium">{msg.user_email}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {formatDate(msg.created_at)}
-                                </p>
-                              </div>
-                              <div className={`px-2 py-1 rounded text-xs ${
-                                msg.role === "user" ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"
-                              }`}>
-                                {msg.role}
-                              </div>
-                            </div>
-                          </CardHeader>
-                          <CardContent>
-                            <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
         <TabsContent value="stats">
           <Card>
             <CardHeader>
-              <CardTitle>Thống kê chi tiết</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5" />
+                Thống kê chi tiết hệ thống
+              </CardTitle>
               <CardDescription>
-                Phân tích xu hướng và hoạt động
+                Phân tích dữ liệu hội thoại và hoạt động người dùng
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {stats && (
-                <div className="space-y-6">
-                  {/* Top Users */}
-                  <div>
-                    <h3 className="text-lg font-semibold mb-3">Top người dùng hoạt động</h3>
-                    <div className="space-y-2">
-                      {stats.top_users.map((user, index) => (
-                        <div key={user.user_id} className="flex items-center justify-between p-3 border rounded">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold">
-                              {index + 1}
-                            </div>
-                            <div>
-                              <p className="font-medium">{user.email}</p>
-                              <p className="text-sm text-muted-foreground">ID: {user.user_id}</p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-semibold">{user.conversation_count}</p>
-                            <p className="text-sm text-muted-foreground">hội thoại</p>
-                          </div>
+              {stats ? (
+                <div className="space-y-8">
+                  {/* Overview Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 p-4 rounded-lg border">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Tổng hội thoại</p>
+                          <p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{stats.total_conversations}</p>
                         </div>
-                      ))}
+                        <MessageSquare className="h-8 w-8 text-blue-600 dark:text-blue-400" />
+                      </div>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950 dark:to-green-900 p-4 rounded-lg border">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-green-700 dark:text-green-300">Tổng tin nhắn</p>
+                          <p className="text-2xl font-bold text-green-900 dark:text-green-100">{stats.total_messages}</p>
+                        </div>
+                        <MessageCircle className="h-8 w-8 text-green-600 dark:text-green-400" />
+                      </div>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950 dark:to-purple-900 p-4 rounded-lg border">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-purple-700 dark:text-purple-300">Người dùng</p>
+                          <p className="text-2xl font-bold text-purple-900 dark:text-purple-100">{stats.total_users}</p>
+                        </div>
+                        <Users className="h-8 w-8 text-purple-600 dark:text-purple-400" />
+                      </div>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-950 dark:to-orange-900 p-4 rounded-lg border">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-orange-700 dark:text-orange-300">Trung bình/Hội thoại</p>
+                          <p className="text-2xl font-bold text-orange-900 dark:text-orange-100">
+                            {stats.total_conversations > 0 ? Math.round(stats.total_messages / stats.total_conversations) : 0}
+                          </p>
+                        </div>
+                        <TrendingUp className="h-8 w-8 text-orange-600 dark:text-orange-400" />
+                      </div>
                     </div>
                   </div>
 
-                  {/* Conversations by Date */}
-                  <div>
-                    <h3 className="text-lg font-semibold mb-3">Hội thoại theo ngày</h3>
-                    <div className="space-y-2">
-                      {stats.conversations_by_date.map((item) => (
-                        <div key={item.date} className="flex items-center justify-between p-3 border rounded">
-                          <span>{formatDate(item.date)}</span>
-                          <span className="font-semibold">{item.count} hội thoại</span>
-                        </div>
-                      ))}
+                  {/* Charts Row */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Messages by Role Chart */}
+                    <div className="bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 p-6 rounded-lg border">
+                      <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                        <MessageCircle className="h-5 w-5 text-slate-600 dark:text-slate-400" />
+                        Phân bố tin nhắn theo vai trò
+                      </h3>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={[
+                                { name: 'Người dùng', value: stats.messages_by_role.user, fill: '#3b82f6' },
+                                { name: 'AI Assistant', value: stats.messages_by_role.assistant, fill: '#10b981' }
+                              ]}
+                              cx="50%"
+                              cy="50%"
+                              labelLine={false}
+                              label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(1)}%`}
+                              outerRadius={80}
+                              fill="#8884d8"
+                              dataKey="value"
+                            />
+                            <RechartsTooltip formatter={(value) => [value, 'Tin nhắn']} />
+                            <Legend />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
                     </div>
+
+                    {/* Conversations by Date Chart */}
+                    <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-950 dark:to-indigo-900 p-6 rounded-lg border">
+                      <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                        <Calendar className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                        Hội thoại theo ngày (7 ngày gần nhất)
+                      </h3>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={stats.conversations_by_date.slice(-7)}>
+                            <XAxis 
+                              dataKey="date" 
+                              tick={{ fontSize: 12 }}
+                              tickFormatter={(value) => {
+                                const date = new Date(value);
+                                return `${date.getDate()}/${date.getMonth() + 1}`;
+                              }}
+                            />
+                            <YAxis tick={{ fontSize: 12 }} />
+                            <RechartsTooltip 
+                              labelFormatter={(value) => `Ngày: ${formatDate(value)}`}
+                              formatter={(value) => [value, 'Hội thoại']}
+                            />
+                            <Bar 
+                              dataKey="count" 
+                              fill="#6366f1"
+                              radius={[4, 4, 0, 0]}
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Top Users Table */}
+                  <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-950 dark:to-emerald-900 p-6 rounded-lg border">
+                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                      <Users className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                      Người dùng hoạt động nhất
+                    </h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-emerald-200 dark:border-emerald-800">
+                            <th className="text-left p-3 text-sm font-medium text-emerald-800 dark:text-emerald-200">Email</th>
+                            <th className="text-center p-3 text-sm font-medium text-emerald-800 dark:text-emerald-200">Số hội thoại</th>
+                            <th className="text-center p-3 text-sm font-medium text-emerald-800 dark:text-emerald-200">Hoạt động</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {stats.top_users.slice(0, 5).map((user, index) => (
+                            <tr key={user.user_id} className="border-b border-emerald-100 dark:border-emerald-900 hover:bg-emerald-50 dark:hover:bg-emerald-900/50">
+                              <td className="p-3 text-sm">{user.email}</td>
+                              <td className="p-3 text-center text-sm font-medium">{user.conversation_count}</td>
+                              <td className="p-3 text-center">
+                                <div className="flex items-center justify-center">
+                                  <div className="w-16 bg-emerald-200 dark:bg-emerald-800 rounded-full h-2">
+                                    <div 
+                                      className="bg-emerald-500 h-2 rounded-full" 
+                                      style={{ 
+                                        width: `${Math.min(100, (user.conversation_count / Math.max(...stats.top_users.map(u => u.conversation_count))) * 100)}%` 
+                                      }}
+                                    ></div>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-64">
+                  <div className="text-center">
+                    <BarChart3 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground">Đang tải thống kê...</p>
                   </div>
                 </div>
               )}
@@ -897,4 +931,3 @@ export function AdminConversations() {
     </div>
   );
 }
-
