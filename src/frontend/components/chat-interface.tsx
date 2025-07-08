@@ -156,70 +156,40 @@ export function ChatInterface({ initialMessages = [], conversationId = null, sel
   const SUGGESTIONS_CACHE_KEY = 'suggestions_loaded_session';
   const SUGGESTIONS_DATA_KEY = 'suggestions_data_cache';
 
-  // TỐI ỦU HÓA: Load suggestions một lần khi component mount
   useEffect(() => {
-    // Kiểm tra cache trong sessionStorage
-    const cachedLoaded = typeof window !== 'undefined' ? sessionStorage.getItem(SUGGESTIONS_CACHE_KEY) : null;
-    const cachedData = typeof window !== 'undefined' ? sessionStorage.getItem(SUGGESTIONS_DATA_KEY) : null;
-    
-    // Nếu đã có cache và vẫn còn valid (trong 5 phút)
-    if (cachedLoaded && cachedData) {
-      try {
-        const cacheTime = parseInt(cachedLoaded);
-        const now = Date.now();
-        if (now - cacheTime < 300000) { // 5 phút
-          console.log('Using cached suggestions data');
-          const parsedData = JSON.parse(cachedData);
-          setRelatedQuestions(parsedData);
-          return;
-        }
-      } catch (e) {
-        console.error('Error parsing cached suggestions:', e);
-      }
-    }
-    
-    // Tránh gọi API 2 lần do React Strict Mode
-    if (suggestionsLoadedRef.current) {
-      console.log('Suggestions already loaded in this component instance, skipping...');
-      return;
-    }
-    
-    const loadSuggestions = async () => {
-      try {
-        console.log('Loading suggestions - one time only for conversationId:', conversationId);
-        const data = await fetchApi('/suggestions?num_suggestions=3', { method: 'GET' });
-        if (data.suggestions && Array.isArray(data.suggestions)) {
-          const newRelatedQuestions = data.suggestions.map((question: string, index: number) => ({
-            id: `related-${index}`,
-            text: question,
-            query: question
-          }));
-          setRelatedQuestions(newRelatedQuestions);
-          
-          // Cache the data
-          if (typeof window !== 'undefined') {
-            sessionStorage.setItem(SUGGESTIONS_CACHE_KEY, Date.now().toString());
-            sessionStorage.setItem(SUGGESTIONS_DATA_KEY, JSON.stringify(newRelatedQuestions));
+    const fetchSuggestions = async () => {
+      // Chỉ fetch suggestions khi bắt đầu một conversation mới (ID là null)
+      if (conversationId === null) {
+        // Reset suggestions cũ trong khi chờ load
+        setRelatedQuestions([]); 
+        try {
+          console.log('Fetching new suggestions for new conversation...');
+          const data = await fetchApi('/suggestions?num_suggestions=3', { method: 'GET' });
+          if (data.suggestions && Array.isArray(data.suggestions)) {
+            const newRelatedQuestions = data.suggestions.map((question: string, index: number) => ({
+              id: `related-${Date.now()}-${index}`,
+              text: question,
+              query: question
+            }));
+            setRelatedQuestions(newRelatedQuestions);
+            console.log('Updated suggestions for new chat:', newRelatedQuestions);
           }
+        } catch (error) {
+          console.error('Lỗi khi tải câu hỏi gợi ý:', error);
+          setRelatedQuestions([]); // Đảm bảo mảng rỗng khi có lỗi
         }
-      } catch (error) {
-        console.error('Lỗi khi cập nhật câu hỏi gợi ý:', error);
-        setRelatedQuestions([]);
-      } finally {
-        // Đánh dấu đã load suggestions
-        suggestionsLoadedRef.current = true;
       }
     };
 
-    // Load suggestions ngay khi component mount
-    loadSuggestions();
+    fetchSuggestions();
     
-    // Cleanup function
-    return () => {
-      console.log('ChatInterface cleanup for conversationId:', conversationId);
-    };
-  }, []); // Chạy một lần duy nhất khi mount
+    // Nếu chọn một conversation cũ, chúng ta không cần hiển thị gợi ý ban đầu
+    if (conversationId) {
+      setRelatedQuestions([]);
+    }
 
+  }, [conversationId]); // Chạy lại mỗi khi conversationId thay đổi
+  
   // TỐI ỦU HÓA: Thêm debounce cho việc update suggestions sau này (nếu cần)
   const updateRelatedQuestions = useCallback(
     debounce(async () => {

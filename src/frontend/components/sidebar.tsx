@@ -17,6 +17,7 @@ import { debounce } from "@/lib/utils"
 interface SidebarProps {
   className?: string
   onSelectConversation?: (conversationId: string) => void
+  onNewConversation?: () => void
   currentConversationId?: string | null
   onSelectedFilesChange?: (selectedIds: string[]) => void
   searchQuery?: string
@@ -26,6 +27,7 @@ interface SidebarProps {
 export function Sidebar({ 
   className, 
   onSelectConversation, 
+  onNewConversation,
   currentConversationId, 
   onSelectedFilesChange,
   searchQuery = "",
@@ -39,67 +41,16 @@ export function Sidebar({
   const [creatingConversation, setCreatingConversation] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const { toast } = useToast()
-
-  const handleCreateNewConversation = async () => {
-    if (creatingConversation) return
-    
-    try {
-      setCreatingConversation(true)
-      const response = await conversationsApi.createConversation()
-      
-      if (response && response.conversation_id) {
-        // Chuyển hướng đến hội thoại mới
-        onSelectConversation && onSelectConversation(response.conversation_id)
-        
-        // Thêm hội thoại mới vào đầu danh sách
-        const newConversation = {
-          conversation_id: response.conversation_id,
-          user_id: response.user_id || "",
-          created_at: new Date().toISOString(),
-          last_updated: new Date().toISOString(),
-          first_message: "Hội thoại mới",
-          message_count: 0
-        };
-        
-        // Tăng refreshKey để kích hoạt việc tải lại danh sách hội thoại
-        setRefreshKey(prev => prev + 1)
-        
-        toast({
-          title: "Tạo hội thoại mới thành công",
-        })
-      } else {
-        toast({
-          variant: "destructive",
-          title: "Lỗi",
-          description: "Không thể tạo hội thoại mới. Vui lòng thử lại sau."
-        })
-      }
-    } catch (error) {
-      console.error('Lỗi khi tạo hội thoại mới:', error)
-      toast({
-        variant: "destructive",
-        title: "Lỗi",
-        description: "Đã xảy ra lỗi khi tạo hội thoại mới. Vui lòng thử lại sau."
-      })
-    } finally {
-      setCreatingConversation(false)
-    }
-  }
   
   return (
     <div className={cn("flex flex-col border-r bg-background relative z-10", className)}>
       <div className="p-4">
         <Button 
           className="w-full justify-start gap-2" 
-          onClick={handleCreateNewConversation}
-          disabled={creatingConversation}
+          onClick={onNewConversation}
         >
-          {creatingConversation ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <PlusCircle className="h-4 w-4" />
-          )}
-          <span>{creatingConversation ? "Đang tạo..." : "Hội thoại mới"}</span>
+          <PlusCircle className="h-4 w-4" />
+          <span>Hội thoại mới</span>
         </Button>
       </div>
       

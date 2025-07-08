@@ -419,7 +419,12 @@ export function AdminConversations() {
                   Lọc
                 </Button>
                 <Button variant="outline" onClick={handleClearFilter}>
+                  <X className="mr-2 h-4 w-4" />
                   Xóa bộ lọc
+                </Button>
+                <Button variant="outline" onClick={handleRefreshData} className="flex items-center gap-2">
+                    <RefreshCw className="h-4 w-4" />
+                    <span>Làm mới</span>
                 </Button>
               </div>
             </CardContent>

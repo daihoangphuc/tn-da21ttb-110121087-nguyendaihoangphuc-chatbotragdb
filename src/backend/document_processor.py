@@ -4,6 +4,7 @@ import subprocess
 import shutil
 import re
 import uuid
+import platform
 from typing import List, Dict
 
 from langchain_community.document_loaders import (
@@ -33,6 +34,25 @@ logger = logging.getLogger(__name__)
 # ------------------------------------------------------------
 class DocumentProcessor:
     """Manage loading, normalising, and chunking documents for RAG."""
+
+    def _get_soffice_path(self) -> str:
+        """Dynamically find the path to the LibreOffice executable."""
+        # 1. Check for environment variable override
+        if os.getenv("LIBREOFFICE_PATH"):
+            return os.getenv("LIBREOFFICE_PATH")
+
+        # 2. Platform-specific defaults
+        system = platform.system()
+        if system == "Windows":
+            return r"C:\Program Files\LibreOffice\program\soffice.exe"
+        elif system == "Linux":
+            # Standard path for installations via apt
+            return "/usr/bin/soffice"
+        elif system == "Darwin":  # macOS
+            return "/Applications/LibreOffice.app/Contents/MacOS/soffice"
+        else:
+            # Fallback for unknown systems
+            return "soffice"
 
     # --------------------------------------------------------
     # Construction helpers
@@ -177,10 +197,8 @@ class DocumentProcessor:
             ".odp",
         ]
 
-        # Default LibreOffice path – override with env var LIBREOFFICE_PATH if needed
-        self.libreoffice_path = os.getenv(
-            "LIBREOFFICE_PATH", r"C:\\Program Files\\LibreOffice\\program\\soffice.exe"
-        )
+        # Get the path to the LibreOffice executable
+        self.libreoffice_path = self._get_soffice_path()
 
     # --------------------------------------------------------
     # Conversion helpers
@@ -220,6 +238,10 @@ class DocumentProcessor:
 
         print(f"Đang chuyển đổi {input_path} sang PDF…")
         try:
+            # Thêm kiểm tra sự tồn tại của file thực thi trước khi chạy
+            if not shutil.which(self.libreoffice_path):
+                raise FileNotFoundError(f"Không tìm thấy file thực thi LibreOffice tại: '{self.libreoffice_path}'. Vui lòng kiểm tra cài đặt hoặc đặt biến môi trường LIBREOFFICE_PATH.")
+
             subprocess.run(
                 [
                     self.libreoffice_path,
@@ -232,6 +254,7 @@ class DocumentProcessor:
                 ],
                 check=True,
                 stderr=subprocess.DEVNULL,
+                text=True, # Thêm text=True để ghi log stdout/stderr nếu cần
             )
         except (subprocess.CalledProcessError, FileNotFoundError) as exc:
             print(f"Chuyển đổi sang PDF thất bại ({exc}). Tạm dùng tệp gốc.")

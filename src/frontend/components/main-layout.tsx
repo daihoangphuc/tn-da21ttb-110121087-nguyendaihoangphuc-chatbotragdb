@@ -47,6 +47,22 @@ export function MainLayout() {
   const isMobile = useMobile()
   const { user } = useAuth()
 
+  const handleNewConversation = () => {
+    setLoading(true);
+    setCurrentConversationId(null);
+    setConversationMessages([
+      {
+        id: "welcome-message-" + Date.now(),
+        role: "assistant",
+        content: "Xin chào! Tôi là trợ lý RAG chuyên về cơ sở dữ liệu. Bạn có thể hỏi tôi bất kỳ câu hỏi nào về SQL, thiết kế cơ sở dữ liệu, hoặc các khái niệm liên quan.",
+        sources: [],
+        citations: []
+      }
+    ]);
+    setSelectedFileIds([]);
+    setLoading(false);
+  }
+
   // Lưu trạng thái sidebar vào localStorage khi thay đổi
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -126,6 +142,7 @@ export function MainLayout() {
             <Sidebar
               className="h-full border-r bg-background"
               onSelectConversation={handleSelectConversation}
+              onNewConversation={handleNewConversation}
               currentConversationId={currentConversationId}
               onSelectedFilesChange={setSelectedFileIds}
               searchQuery={searchQuery}
@@ -140,6 +157,7 @@ export function MainLayout() {
             open={sidebarOpen}
             onOpenChange={setSidebarOpen}
             onSelectConversation={handleSelectConversation}
+            onNewConversation={handleNewConversation}
             currentConversationId={currentConversationId}
             searchQuery={searchQuery}
             searchResults={searchResults}
@@ -179,7 +197,7 @@ export function MainLayout() {
             onSidebarToggle={() => setSidebarOpen(!sidebarOpen)}
             isSidebarOpen={sidebarOpen}
             onSearch={handleSearch}
-            onSelectConversation={handleSelectConversation}
+            onNewConversation={handleNewConversation}
           />
 
           <main className="flex-1 overflow-hidden flex">

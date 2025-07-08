@@ -5,6 +5,7 @@ import asyncio
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta, date
 import logging
+import re
 
 # Cấu hình logging
 logging.basicConfig(format="[Learning Analytics API] %(message)s", level=logging.INFO)
@@ -27,6 +28,23 @@ class APIAnalyticsService:
         except Exception as e:
             print(f"Warning: Không thể khởi tạo GeminiLLM: {e}")
             self.client = None
+
+    def _extract_json_from_response(self, response: str) -> Optional[str]:
+        """Trích xuất chuỗi JSON từ phản hồi có thể chứa markdown."""
+        # Ưu tiên tìm kiếm khối mã JSON hoàn chỉnh
+        match = re.search(r"```json\s*(\{.*?\})\s*```", response, re.DOTALL)
+        if match:
+            return match.group(1)
+
+        # Nếu không có khối mã, tìm đối tượng JSON đầu tiên và lớn nhất
+        # Điều này giúp tránh các JSON nhỏ không mong muốn trong giải thích
+        json_matches = list(re.finditer(r"(\{.*?\})", response, re.DOTALL))
+        if json_matches:
+            # Sắp xếp các kết quả theo độ dài, lấy kết quả dài nhất
+            best_match = max(json_matches, key=lambda m: len(m.group(1)))
+            return best_match.group(1)
+
+        return None
             
     def _create_question_hash(self, question: str) -> str:
         """Tạo hash cho câu hỏi để cache"""
@@ -88,9 +106,16 @@ QUAN TRỌNG: Chỉ trả về JSON, không có text khác.
             else:
                 response = await self._call_gemini_api(prompt)  # Fallback
                 
-            # Parse JSON response
+            # Trích xuất và phân tích JSON
+            json_str = self._extract_json_from_response(response)
+            
+            if not json_str:
+                print(f"Không tìm thấy chuỗi JSON hợp lệ trong phản hồi.")
+                print(f"Phản hồi thô: {response}")
+                return self._fallback_analysis(question)
+
             try:
-                result = json.loads(response)
+                result = json.loads(json_str)
                 # Validate result structure
                 result = self._validate_and_fix_result(result, question)
                 
@@ -100,8 +125,8 @@ QUAN TRỌNG: Chỉ trả về JSON, không có text khác.
                 return result
                 
             except json.JSONDecodeError as e:
-                print(f"Failed to parse JSON response: {e}")
-                print(f"Raw response: {response}")
+                print(f"Lỗi phân tích JSON sau khi trích xuất: {e}")
+                print(f"Chuỗi JSON đã trích xuất: {json_str}")
                 return self._fallback_analysis(question)
                 
         except Exception as e:
@@ -313,6 +338,19 @@ class LearningAnalyticsService:
         higher_order_thinking = ["Apply", "Analyze", "Evaluate", "Create"]
         higher_count = sum(bloom_counts.get(level, 0) for level in higher_order_thinking)
         autonomy_score = higher_count / total_questions if total_questions > 0 else 0
+
+        # Phân tích câu hỏi theo từng ngày
+        daily_counts = { (week_start + timedelta(days=i)).isoformat(): 0 for i in range(7) }
+        for analysis in analyses:
+            try:
+                # 'analysis_timestamp' phải là một chuỗi ISO format có timezone
+                timestamp_dt = datetime.fromisoformat(analysis['analysis_timestamp'])
+                day_str = timestamp_dt.date().isoformat()
+                if day_str in daily_counts:
+                    daily_counts[day_str] += 1
+            except (KeyError, TypeError, ValueError) as e:
+                # Bỏ qua nếu không thể parse timestamp
+                pass
         
         return {
             "total_questions": total_questions,
@@ -320,7 +358,8 @@ class LearningAnalyticsService:
             "topics_covered": unique_topics,
             "difficulty_distribution": difficulty_counts,
             "most_frequent_topic": most_frequent_topic,
-            "autonomy_score": autonomy_score
+            "autonomy_score": autonomy_score,
+            "daily_question_counts": daily_counts,
         }
     
     async def generate_simple_recommendations(self, user_id: str, metrics: dict):
@@ -383,30 +422,34 @@ class LearningAnalyticsService:
         except Exception as e:
             print(f"Error generating recommendations: {e}")
     
-    async def get_dashboard_data(self, user_id: str, weeks: int = 4) -> dict:
-        """Lấy dữ liệu dashboard cho user"""
+    async def get_dashboard_data(self, user_id: str, week_offset: int = 0) -> dict:
+        """Lấy dữ liệu dashboard cho user cho một tuần cụ thể."""
         try:
-            # Lấy metrics gần nhất
-            end_date = datetime.now().date()
-            start_date = end_date - timedelta(weeks=weeks)
-            week_start = start_date - timedelta(days=start_date.weekday())
+            # Lấy ngày bắt đầu và kết thúc của tuần được chọn
+            today = datetime.now().date()
+            target_date = today + timedelta(weeks=week_offset)
+            week_start = target_date - timedelta(days=target_date.weekday())
+            week_end = week_start + timedelta(days=6)
             
+            # Lấy metrics cho tuần đó
             metrics_result = self.supabase.table("learning_metrics").select("*").eq(
                 "user_id", user_id
-            ).gte("date_week", week_start.isoformat()).order("date_week", desc=True).execute()
+            ).eq("date_week", week_start.isoformat()).execute()
             
-            # Lấy recommendations active
+            # Lấy recommendations active cho tuần đó
             recommendations_result = self.supabase.table("learning_recommendations").select("*").eq(
                 "user_id", user_id
             ).eq("status", "active").gte("expires_at", datetime.now().isoformat()).execute()
             
+            weekly_metrics_data = metrics_result.data if metrics_result.data else []
+            
             # Tổng hợp dữ liệu
             dashboard_data = {
                 "user_id": user_id,
-                "period": {"weeks": weeks, "from": week_start.isoformat(), "to": end_date.isoformat()},
-                "weekly_metrics": metrics_result.data,
+                "period": {"weeks": 1, "from": week_start.isoformat(), "to": week_end.isoformat()},
+                "weekly_metrics": weekly_metrics_data,
                 "recommendations": recommendations_result.data,
-                "summary": self._calculate_summary(metrics_result.data)
+                "summary": self._calculate_summary(weekly_metrics_data)
             }
             
             return dashboard_data
@@ -416,31 +459,26 @@ class LearningAnalyticsService:
             raise
     
     def _calculate_summary(self, weekly_metrics: List[dict]) -> dict:
-        """Tính toán summary từ weekly metrics"""
-        if not weekly_metrics:
+        """Tính toán summary từ metrics của một tuần."""
+        if not weekly_metrics or not weekly_metrics[0]:
             return {"total_questions": 0, "topics_learned": 0, "current_trend": "no_data", "latest_autonomy_score": 0}
         
-        total_questions = sum(m.get("total_questions", 0) for m in weekly_metrics)
-        all_topics = []
-        for m in weekly_metrics:
-            topics = m.get("topics_covered", [])
-            if isinstance(topics, list):
-                all_topics.extend(topics)
-        unique_topics = len(set(all_topics))
+        # Chỉ lấy dữ liệu của tuần đầu tiên trong danh sách (vì chỉ có 1 tuần)
+        current_week_metrics = weekly_metrics[0]
         
-        # Autonomy trend (so sánh 2 tuần gần nhất)
-        if len(weekly_metrics) >= 2:
-            recent_autonomy = weekly_metrics[0].get("autonomy_score", 0)
-            previous_autonomy = weekly_metrics[1].get("autonomy_score", 0)
-            trend = "improving" if recent_autonomy > previous_autonomy else "stable"
-        else:
-            trend = "stable"
+        total_questions = current_week_metrics.get("total_questions", 0)
         
-        latest_autonomy = weekly_metrics[0].get("autonomy_score", 0) if weekly_metrics else 0
+        topics = current_week_metrics.get("topics_covered", [])
+        topics_learned = len(topics) if isinstance(topics, list) else 0
+
+        # Trend không áp dụng cho một tuần, có thể để 'stable'
+        trend = "stable"
+        
+        latest_autonomy = current_week_metrics.get("autonomy_score", 0)
         
         return {
             "total_questions": total_questions,
-            "topics_learned": unique_topics,
+            "topics_learned": topics_learned,
             "current_trend": trend,
             "latest_autonomy_score": latest_autonomy
         } 

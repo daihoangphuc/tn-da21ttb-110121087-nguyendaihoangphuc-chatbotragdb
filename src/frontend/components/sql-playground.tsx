@@ -750,19 +750,19 @@ export function SqlPlayground({ className, onClose }: SqlPlaygroundProps) {
         {/* Important Notice */}
         <div className="px-4 py-3 bg-blue-50 border-b border-blue-200 dark:bg-blue-950/30 dark:border-blue-800">
           <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 mt-0.5">
+            {/* <div className="flex-shrink-0 mt-0.5">
               <AlertTriangle className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-            </div>
+            </div> */}
             <div className="flex-1 text-sm">
-              <div className="font-medium text-blue-800 dark:text-blue-300 mb-1">
+              {/* <div className="font-medium text-blue-800 dark:text-blue-300 mb-1">
                 ⚠️ Lưu ý quan trọng
-              </div>
-              <div className="text-blue-700 dark:text-blue-400 leading-relaxed">
+              </div> */}
+              {/* <div className="text-blue-700 dark:text-blue-400 leading-relaxed">
                 Đây là môi trường <strong>thực hành SQL</strong> với dữ liệu mẫu được tạo sẵn. 
                 Bạn chỉ có thể thực hiện truy vấn trên các bảng có sẵn trong hệ thống. 
                 <strong>Đây không phải là hệ quản trị cơ sở dữ liệu thực sự</strong> - 
                 không thể tạo bảng mới, thêm dữ liệu vĩnh viễn hay kết nối database ngoài.
-              </div>
+              </div> */}
               <div className="mt-2 text-xs text-blue-600 dark:text-blue-400">
                 💡 <strong>Các bảng có sẵn:</strong> users, products, orders, categories, employees, departments, projects, customers
               </div>

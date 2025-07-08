@@ -4178,7 +4178,7 @@ async def admin_get_conversation_stats(
 
 @app.get(f"{PREFIX}/learning/dashboard")
 async def get_learning_dashboard(
-    weeks: int = Query(4, ge=1, le=12, description="Số tuần để hiển thị"),
+    week_offset: int = Query(0, ge=-52, le=0, description="Offset tuần so với tuần hiện tại (0 = tuần này, -1 = tuần trước)"),
     current_user=Depends(get_current_user)
 ):
     """Dashboard học tập cá nhân"""
@@ -4186,7 +4186,7 @@ async def get_learning_dashboard(
         if not analytics_service:
             raise HTTPException(status_code=503, detail="Learning analytics service không khả dụng")
         
-        dashboard_data = await analytics_service.get_dashboard_data(current_user.id, weeks)
+        dashboard_data = await analytics_service.get_dashboard_data(current_user.id, week_offset)
         return dashboard_data
         
     except Exception as e:

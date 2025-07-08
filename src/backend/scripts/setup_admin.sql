@@ -1,4 +1,15 @@
 -- XÓA USER VÀ TẤT CẢ BẢNG LIÊN QUAN USER VÀ THÊM 3 BẢNG MỚI
+
+alter table public.message_analysis
+  drop constraint if exists message_analysis_conversation_id_fkey,
+  add  constraint message_analysis_conversation_id_fkey
+       foreign key (conversation_id)
+       references public.conversations (conversation_id)
+       on delete cascade;
+
+ALTER TABLE public.learning_metrics
+ADD COLUMN IF NOT EXISTS daily_question_counts JSONB;
+
 -- 1. conversations.user_id  ──► auth.users(id)  (đổi sang CASCADE)
 ALTER TABLE public.conversations
   DROP CONSTRAINT IF EXISTS fk_conversations_user,

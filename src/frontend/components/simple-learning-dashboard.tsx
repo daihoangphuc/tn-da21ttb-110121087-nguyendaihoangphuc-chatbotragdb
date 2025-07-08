@@ -10,6 +10,19 @@ import { Brain, TrendingUp, BookOpen, Lightbulb, X, Target, Clock } from "lucide
 import { useToast } from "@/hooks/use-toast";
 import { fetchApi } from "@/lib/api";
 
+// Tooltip tùy chỉnh cho biểu đồ xu hướng hàng ngày
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="p-2 bg-background/90 border rounded-lg shadow-lg">
+        <p className="label font-semibold">{`${label} - ${payload[0].payload.date}`}</p>
+        <p className="intro text-muted-foreground">{`${payload[0].value} câu hỏi`}</p>
+      </div>
+    );
+  }
+  return null;
+};
+
 interface DashboardData {
   user_id: string;
   period: {
@@ -26,6 +39,7 @@ interface DashboardData {
     topics_covered: string[];
     autonomy_score: number;
     most_frequent_topic: string;
+    daily_question_counts?: Record<string, number>; // Thêm trường mới
   }>;
   recommendations: Array<{
     recommendation_id: string;
@@ -47,18 +61,19 @@ export function SimpleLearningDashboard() {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [weekOffset, setWeekOffset] = useState(0); // State for week navigation
   const { toast } = useToast();
   
   useEffect(() => {
-    loadDashboard();
-  }, []);
+    loadDashboard(weekOffset);
+  }, [weekOffset]);
   
-  const loadDashboard = async () => {
+  const loadDashboard = async (offset: number) => {
     try {
       setLoading(true);
       setError(null);
       
-      const data = await fetchApi('/learning/dashboard');
+      const data = await fetchApi(`/learning/dashboard?week_offset=${offset}`);
       setDashboardData(data);
     } catch (error) {
       console.error('Error loading dashboard:', error);
@@ -79,7 +94,8 @@ export function SimpleLearningDashboard() {
         description: "Đã ẩn gợi ý",
       });
       
-      loadDashboard(); // Reload
+      // Tải lại dữ liệu cho tuần hiện tại sau khi ẩn
+      loadDashboard(weekOffset);
     } catch (error) {
       console.error('Error dismissing recommendation:', error);
       toast({
@@ -116,7 +132,7 @@ export function SimpleLearningDashboard() {
           <CardContent className="p-6 text-center" suppressHydrationWarning={true}>
             <div className="text-red-500 text-lg font-semibold mb-2">Lỗi khi tải dashboard</div>
             <p className="text-gray-600 mb-4">{error}</p>
-            <Button onClick={loadDashboard}>Thử lại</Button>
+            <Button onClick={() => loadDashboard(weekOffset)}>Thử lại</Button>
           </CardContent>
         </Card>
       </div>
@@ -145,16 +161,23 @@ export function SimpleLearningDashboard() {
       fill: getBloomColor(level)
     })) : [];
   
-  // Weekly trend data
-  const weeklyTrendData = weekly_metrics
-    .slice(0, 4)
-    .reverse()
-    .map(metric => ({
-      week: new Date(metric.date_week).toLocaleDateString('vi-VN', { month: 'short', day: 'numeric' }),
-      questions: metric.total_questions,
-      autonomy: Math.round(metric.autonomy_score * 100)
-    }));
-  
+  // Dữ liệu xu hướng hàng ngày
+  const dailyTrendData = (() => {
+    if (!weekly_metrics || weekly_metrics.length === 0 || !weekly_metrics[0].daily_question_counts) {
+      return [];
+    }
+    const dailyCounts = weekly_metrics[0].daily_question_counts;
+    const weekDays = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+    
+    return Object.keys(dailyCounts)
+      .sort()
+      .map((dateStr, index) => ({
+        day: weekDays[index] || `Ngày ${index + 1}`,
+        date: new Date(dateStr).toLocaleDateString('vi-VN', { month: 'numeric', day: 'numeric' }),
+        questions: dailyCounts[dateStr],
+      }));
+  })();
+
   function getBloomColor(level: string): string {
     const colors: Record<string, string> = {
       'Remember': '#ef4444',
@@ -193,11 +216,31 @@ export function SimpleLearningDashboard() {
       <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-8" suppressHydrationWarning={true}>
         <div className="flex items-center space-x-3 mb-6">
           <div className="p-3 bg-blue-100 rounded-lg">
-            <BookOpen className="h-6 w-6 text-blue-600" />
+            <Clock className="h-6 w-6 text-blue-600" />
           </div>
           <div>
             <h2 className="text-2xl font-bold text-gray-900">Tổng quan Học tập</h2>
-            <p className="text-gray-600">Phân tích trong {dashboardData.period.weeks} tuần gần đây • Cập nhật liên tục</p>
+            <p className="text-gray-600">
+              {weekOffset === 0
+                ? 'Tuần này'
+                : `${-weekOffset} tuần trước`
+              }
+              {dashboardData?.period.from && dashboardData?.period.to && 
+                ` • ${new Date(dashboardData.period.from).toLocaleDateString('vi-VN')} - ${new Date(dashboardData.period.to).toLocaleDateString('vi-VN')}`
+              }
+            </p>
+          </div>
+          <div className="flex-grow" />
+          <div className="flex space-x-2">
+            <Button variant="outline" onClick={() => setWeekOffset(weekOffset - 1)}>
+              Tuần trước
+            </Button>
+            <Button variant="outline" onClick={() => setWeekOffset(0)} disabled={weekOffset === 0}>
+              Tuần này
+            </Button>
+            <Button variant="outline" onClick={() => setWeekOffset(weekOffset + 1)} disabled={weekOffset >= 0}>
+              Tuần sau
+            </Button>
           </div>
         </div>
         
@@ -348,7 +391,7 @@ export function SimpleLearningDashboard() {
         )}
         
         {/* Learning Progress Trends */}
-        {weeklyTrendData.length > 0 && (
+        {dailyTrendData.length > 0 && (
           <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
             <div className="flex items-center space-x-3 mb-6">
               <div className="p-2 bg-emerald-100 rounded-lg">
@@ -356,13 +399,13 @@ export function SimpleLearningDashboard() {
               </div>
               <div>
                 <h3 className="text-xl font-bold text-gray-900">Xu hướng Học tập</h3>
-                <p className="text-sm text-gray-600">Hoạt động học tập {dashboardData.period.weeks} tuần gần đây</p>
+                <p className="text-sm text-gray-600">Hoạt động học tập trong tuần</p>
               </div>
             </div>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={weeklyTrendData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+              <BarChart data={dailyTrendData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                 <XAxis 
-                  dataKey="week" 
+                  dataKey="day" 
                   tick={{ fontSize: 12 }}
                   axisLine={{ stroke: '#e2e8f0' }}
                 />
@@ -370,15 +413,7 @@ export function SimpleLearningDashboard() {
                   tick={{ fontSize: 12 }}
                   axisLine={{ stroke: '#e2e8f0' }}
                 />
-                <Tooltip 
-                  formatter={(value, name) => [`${value} câu hỏi`, 'Số lượng câu hỏi']}
-                  labelFormatter={(label) => `Tuần: ${label}`}
-                  contentStyle={{
-                    backgroundColor: '#f8fafc',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px'
-                  }}
-                />
+                <Tooltip content={<CustomTooltip />} />
                 <Bar 
                   dataKey="questions" 
                   fill="url(#colorGradient)" 

@@ -21,3 +21,6 @@ supabase
 pytz
 
 # LibreOffice sẽ được cài đặt thông qua Dockerfile để chuyển đổi các định dạng tài liệu về PDF
+langchain-tavily
+readability-lxml 
+html2text

@@ -1,15 +1,27 @@
 "use client";
 
-import { useEffect, Suspense } from "react";
+import { useEffect, Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { MainLayout } from "@/components/main-layout";
 import { useAuth } from "@/hooks/useAuth";
 import { HydrationSafe } from "@/components/ui/hydration-safe";
 
 // Component spinner đơn giản để tránh hydration issues
-const LoadingSpinner = () => (
-  <div className="w-10 h-10 border-t-2 border-b-2 border-primary rounded-full animate-spin" />
-);
+const LoadingSpinner = () => {
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  if (!isClient) {
+    return null; // Return null on the server
+  }
+
+  return (
+    <div className="w-10 h-10 border-t-2 border-b-2 border-primary rounded-full animate-spin" />
+  );
+};
 
 function HomeContent() {
   const { user, loading } = useAuth();

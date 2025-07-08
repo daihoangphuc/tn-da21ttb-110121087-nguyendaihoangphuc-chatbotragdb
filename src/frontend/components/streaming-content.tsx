@@ -94,10 +94,10 @@ export const StreamingContent = React.memo(({ content }: StreamingContentProps) 
   
   const markdownComponents = {
     // Tiêu đề
-    h1: ({node, ...props}) => <h1 className="text-xl font-bold mt-4 mb-2" {...props} />,
-    h2: ({node, ...props}) => <h2 className="text-lg font-bold mt-3 mb-1.5" {...props} />,
-    h3: ({node, ...props}) => <h3 className="text-base font-semibold mt-2 mb-1" {...props} />,
-    h4: ({node, ...props}) => <h4 className="text-sm font-semibold mt-1 mb-0.5" {...props} />,
+    h1: ({node, children, ...props}) => <h1 className="text-xl font-bold mt-4 mb-2" {...props}>{processWithCitations(children)}</h1>,
+    h2: ({node, children, ...props}) => <h2 className="text-lg font-bold mt-3 mb-1.5" {...props}>{processWithCitations(children)}</h2>,
+    h3: ({node, children, ...props}) => <h3 className="text-base font-semibold mt-2 mb-1" {...props}>{processWithCitations(children)}</h3>,
+    h4: ({node, children, ...props}) => <h4 className="text-sm font-semibold mt-1 mb-0.5" {...props}>{processWithCitations(children)}</h4>,
     
     // Đoạn văn - Sử dụng <div> thay vì <p> để tránh lỗi hydration
     p: ({node, children, ...props}) => (
