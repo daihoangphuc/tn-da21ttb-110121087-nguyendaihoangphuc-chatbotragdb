@@ -1,14 +1,9 @@
 """
-optimized_google_search.py
+Google Search Module for RAG System
 ──────────────────────────────────────────────────────────────────────────────
-Module tìm kiếm (Google + Tavily) tối ưu cho hệ thống RAG.
+Module tìm kiếm Google sử dụng Custom Search JSON API.
 
-• Nếu có SERPER_API_KEY  → ưu tiên Google (Serper.dev) và lấy full‑text của
-  N URL đầu tiên (google_top_k).
-• Sau đó mới fallback Tavily basic / advanced.
-• Trả về tuple (markdown_content, url_list) – giữ nguyên chữ ký hàm cũ.
-
-CHỮ KÝ PUBLIC (KHÔNG THAY ĐỔI)
+CHỮ KÝ PUBLIC (GIỮ NGUYÊN ĐỂ TƯƠNG THÍCH)
 ──────────────────────────────
 get_search_instance()
 run_query_with_sources(query)
@@ -16,40 +11,43 @@ get_raw_search_results(query)
 tavily_with_sources(query)
 
 ENV bắt buộc:
-• TAVILY_API_KEY
-Tùy chọn:
-• SERPER_API_KEY          – kích hoạt Serper (Google)
-• GOOGLE_API_KEY|GEMINI_API_KEY – kích hoạt Gemini tóm tắt
+• GOOGLE_API_KEY      – API key cho Google Custom Search
+• GOOGLE_CSE_ID       – Custom Search Engine ID
+Tùy chọn:
+• TAVILY_API_KEY      – fallback cho Tavily (để tương thích cũ)
 """
 
 from __future__ import annotations
 
 import hashlib
-import html2text
 import logging
 import os
-import re
 import time
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
-from langchain_tavily import TavilySearch
 import requests
-from readability import Document  # pip install readability-lxml
-# LangChain tools -----------------------------------------------------------
-from langchain_community.tools import TavilySearchResults  # type: ignore
-try:
-    from langchain_community.tools import GoogleSerperResults  # type: ignore
-except ImportError:                                            # pragma: no cover
-    GoogleSerperResults = None
+import re
+from dotenv import load_dotenv
 
-# Gemini LLM (tùy chọn) -----------------------------------------------------
+# Load environment variables
+load_dotenv()
+
 try:
-    from langchain_google_genai import ChatGoogleGenerativeAI  # type: ignore
-except ImportError:                                            # pragma: no cover
-    ChatGoogleGenerativeAI = None  # không bắt buộc
+    from googleapiclient.discovery import build
+except ImportError:
+    build = None
+
+# Fallback Tavily imports (sử dụng package mới)
+try:
+    from langchain_tavily import TavilySearch
+except ImportError:
+    # Fallback to old import if new package not available
+    try:
+        from langchain_community.tools import TavilySearch
+    except ImportError:
+        TavilySearch = None
 
 # ────────────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -64,37 +62,27 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SearchConfig:
     # Hành vi chung
-    max_results: int = 3
+    max_results: int = 10
     min_docs: int = 3
     max_content_length: int = 4000
     cache_ttl_hours: int = 24
     rate_limit_per_minute: int = 30
 
-    # Google ưu tiên
-    prefer_google: bool = True
-    google_top_k: int = 3   # số URL đầu tiên sẽ crawl nội dung
+    # Google Custom Search
+    language: str = 'vi'
+    country: str = 'countryVN'
+    use_google_custom_search: bool = True
 
-    # Tavily
+    # Tavily fallback
+    use_tavily_fallback: bool = True
     include_answer: bool = True
     include_raw_content: bool = False
-    search_depth_basic: str = "basic"
-    search_depth_advanced: str = "advanced"
-    escalate_to_advanced: bool = True
-
-    # Serper (Google)
-    use_serper: bool = True
-    serper_max_results: int = 10
-
-    # LLM (tùy chọn)
-    enable_llm: bool = False
-    llm_temperature: float = 0.0
-    llm_model: str = "gemini-1.5-flash"
 
 
 # ============================= HELPERS =====================================
 
 class RateLimiter:
-    """Giới hạn số lần gọi API / phút (cực đơn giản)."""
+    """Giới hạn số lần gọi API / phút."""
 
     def __init__(self, max_calls_per_minute: int):
         self.max_calls = max_calls_per_minute
@@ -116,7 +104,7 @@ class RateLimiter:
 
 
 class SearchCache:
-    """Cache trong RAM – đủ nhanh cho hầu hết use‑case."""
+    """Cache trong RAM cho kết quả tìm kiếm."""
 
     def __init__(self, ttl_hours: int):
         self.ttl = ttl_hours
@@ -144,89 +132,153 @@ class SearchCache:
         }
 
 
-# ========================== MAIN CLASS =====================================
+# ========================== GOOGLE SEARCH MODULE ===========================
+
+class GoogleSearchModule:
+    """
+    Module thực hiện tìm kiếm Google bằng Custom Search JSON API.
+
+    Thuộc tính:
+        api_key (str): Khóa API cho Custom Search API.
+        cse_id (str): ID của công cụ tìm kiếm tùy chỉnh.
+        language (str): Mã ngôn ngữ cho giao diện tìm kiếm (mặc định: 'vi').
+        country (str): Mã quốc gia để giới hạn kết quả (mặc định: 'countryVN').
+    """
+
+    def __init__(self, api_key, cse_id, language='vi', country='countryVN'):
+        """
+        Khởi tạo GoogleSearchModule.
+
+        Tham số:
+            api_key (str): Khóa API cho Custom Search API.
+            cse_id (str): ID của công cụ tìm kiếm tùy chỉnh.
+            language (str): Mã ngôn ngữ cho giao diện tìm kiếm (mặc định: 'vi').
+            country (str): Mã quốc gia để giới hạn kết quả (mặc định: 'countryVN').
+        """
+        if not build:
+            raise ImportError("googleapiclient.discovery không có sẵn. Cài đặt: pip install google-api-python-client")
+        
+        self.api_key = api_key
+        self.cse_id = cse_id
+        self.language = language
+        self.country = country
+        self.service = build("customsearch", "v1", developerKey=api_key)
+
+    def search(self, query, num=10):
+        """
+        Thực hiện tìm kiếm bằng Google Custom Search API.
+
+        Tham số:
+            query (str): Truy vấn tìm kiếm.
+            num (int): Số lượng kết quả trả về (mặc định: 10).
+
+        Trả về:
+            list: Danh sách các từ điển chứa 'title', 'link', và 'snippet' cho mỗi kết quả.
+        """
+        try:
+            res = self.service.cse().list(
+                q=query,
+                cx=self.cse_id,
+                num=min(num, 10),  # Google Custom Search giới hạn 10 kết quả/request
+                hl=self.language,
+                cr=self.country
+            ).execute()
+            
+            if 'items' not in res:
+                return []
+                
+            return [
+                {
+                    'title': item.get('title', 'No title'),
+                    'link': item.get('link', ''),
+                    'snippet': item.get('snippet', '')
+                }
+                for item in res['items']
+            ]
+        except Exception as e:
+            logger.error(f"Lỗi khi thực hiện tìm kiếm Google Custom Search: {e}")
+            return []
+
+
+# ========================== MAIN SEARCH CLASS ==============================
 
 class OptimizedGoogleSearch:
-    """Serper (Google) ➜ Tavily basic ➜ Tavily advanced (fallback)."""
-
-    # ---------------------------------------------------------------------
+    """Tìm kiếm Google sử dụng Custom Search API với fallback Tavily."""
 
     def __init__(self, config: SearchConfig = SearchConfig()):
         self.cfg = config
         self.rate_limiter = RateLimiter(config.rate_limit_per_minute)
         self.cache = SearchCache(config.cache_ttl_hours)
 
-        if not os.getenv("TAVILY_API_KEY"):
-            raise ValueError("❌ Thiếu TAVILY_API_KEY trong .env")
-
         self._init_search_tools()
-        self._init_llm()
-
-    # ---------------------------------------------------------------------
 
     def _init_search_tools(self):
-        # Serper (Google)
-        self.serper: Optional[GoogleSerperResults] = None
+        # Google Custom Search
+        self.google_search: Optional[GoogleSearchModule] = None
+        google_api_key = os.getenv("GOOGLE_API_KEY")
+        google_cse_id = os.getenv("GOOGLE_CSE_ID")
+        
         if (
-            self.cfg.use_serper
-            and os.getenv("SERPER_API_KEY")
-            and GoogleSerperResults is not None
+            self.cfg.use_google_custom_search
+            and google_api_key
+            and google_cse_id
+            and build is not None
         ):
-            self.serper = GoogleSerperResults(k=self.cfg.serper_max_results)
-            logger.info("✅ Serper (Google) initialized")
+            try:
+                self.google_search = GoogleSearchModule(
+                    api_key=google_api_key,
+                    cse_id=google_cse_id,
+                    language=self.cfg.language,
+                    country=self.cfg.country
+                )
+                logger.info("✅ Google Custom Search initialized")
+            except Exception as e:
+                logger.warning(f"Không thể khởi tạo Google Custom Search: {e}")
+                self.google_search = None
         else:
-            logger.info("ℹ️ Serper disabled")
+            logger.info("ℹ️ Google Custom Search disabled hoặc thiếu cấu hình")
 
-        # Tavily
-        common = dict(
-            include_answer=self.cfg.include_answer,
-            include_raw_content=self.cfg.include_raw_content,
-        )
-        self.tavily_basic = TavilySearchResults(
-            max_results=self.cfg.max_results,
-            search_depth=self.cfg.search_depth_basic,
-            **common,
-        )
-        self.tavily_advanced = TavilySearchResults(
-            max_results=max(self.cfg.max_results, 10),
-            search_depth=self.cfg.search_depth_advanced,
-            **common,
-        )
+        # Tavily fallback
+        self.tavily_search: Optional[TavilySearch] = None
+        if (
+            self.cfg.use_tavily_fallback
+            and os.getenv("TAVILY_API_KEY")
+            and TavilySearch is not None
+        ):
+            try:
+                self.tavily_search = TavilySearch(
+                    max_results=self.cfg.max_results,
+                    include_answer=self.cfg.include_answer,
+                    include_raw_content=self.cfg.include_raw_content,
+                )
+                logger.info("✅ Tavily fallback initialized")
+            except Exception as e:
+                logger.warning(f"Không thể khởi tạo Tavily fallback: {e}")
+                self.tavily_search = None
+        else:
+            logger.info("ℹ️ Tavily fallback disabled")
 
-    def _init_llm(self):
-        self.llm = None
-        google_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-        if self.cfg.enable_llm and google_key and ChatGoogleGenerativeAI:
-            os.environ["GEMINI_API_KEY"] = google_key
-            self.llm = ChatGoogleGenerativeAI(
-                model=self.cfg.llm_model,
-                temperature=self.cfg.llm_temperature,
-            )
-            logger.info("✅ Gemini LLM ready")
-
-    # ===================== GOOGLE HELPERS =================================
-
-    @staticmethod
-    def _process_serper_results(res: Any, max_len: int) -> Tuple[List[str], str]:
-        """Trả về (urls, markdown snippet)."""
+    def _process_google_results(self, results: List[Dict], max_len: int) -> Tuple[List[str], str]:
+        """Xử lý kết quả từ Google Custom Search."""
         urls, md = [], []
-        if not isinstance(res, dict):
-            return urls, ""
-        # Serper giữ thứ tự organic theo 'position'
-        for item in res.get("organic", []):
-            url = item.get("link")
+        
+        for item in results:
+            url = item.get('link', '')
             if not url or url in urls:
                 continue
+                
             urls.append(url)
-            title = item.get("title", "No title")
-            snippet = item.get("snippet", "")[:max_len]
+            title = item.get('title', 'No title')
+            snippet = item.get('snippet', '')[:max_len]
             md.append(f"- **{title}** ({url})\n{snippet}\n")
+            
         return urls, "\n".join(md)
 
-    @staticmethod
-    def _process_tavily_results(res: Any, max_len: int) -> Tuple[List[str], str]:
+    def _process_tavily_results(self, res: Any, max_len: int) -> Tuple[List[str], str]:
+        """Xử lý kết quả từ Tavily."""
         urls, md = [], []
         iterable = res if isinstance(res, list) else [res]
+        
         for item in iterable:
             if not isinstance(item, dict) or "url" not in item:
                 continue
@@ -241,146 +293,71 @@ class OptimizedGoogleSearch:
             md.append(f"- **{title}** ({url})\n{content}\n")
         return urls, "\n".join(md)
 
-    # ---------- Crawl page text ------------------------------------------
-
-    @staticmethod
-    def _fetch_page_content(url: str, max_len: int = 2_000) -> str:
-        try:
-            resp = requests.get(
-                url,
-                timeout=8,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (RAG/1.0) AppleWebKit/537.36"
-                },
-            )
-            resp.raise_for_status()
-            doc = Document(resp.text)
-            text = html2text.html2text(doc.summary())
-            text = unicodedata.normalize("NFKC", re.sub(r"\s+", " ", text))
-            return text[:max_len] + ("…" if len(text) > max_len else "")
-        except Exception:
-            logger.debug("⚠️ Không lấy được nội dung %s", url)
-            return ""
-
-    # =================== PUBLIC METHODS ===================================
-
     def search_raw_results(self, query: str) -> Tuple[str, List[str]]:
-        """Trả về (markdown, urls)."""
+        """Trả về (markdown_content, url_list)."""
         query = query.strip()
         if not query:
             raise ValueError("Query trống")
 
-        # Cache
+        # Cache check
         hit = self.cache.get(query)
         if hit:
             return hit
 
-        # Rate limit
+        # Rate limiting
         if not self.rate_limiter.can_make_call():
             time.sleep(self.rate_limiter.wait_time())
 
         urls: List[str] = []
         content_parts: List[str] = []
 
-        # 1️⃣ SERPER (Google)
-        if self.serper:
+        # 1️⃣ Thử Google Custom Search trước
+        if self.google_search:
             try:
-                s_res = self.serper.invoke({"query": query})
-                urls_s, md_s = self._process_serper_results(
-                    s_res, self.cfg.max_content_length
-                )
-                # Crawl nội dung Top‑K nếu prefer_google
-                if self.cfg.prefer_google:
-                    top_urls = urls_s[: self.cfg.google_top_k]
-                    if top_urls:                       # <— thêm
-                        with ThreadPoolExecutor(max_workers=min(len(top_urls), 8)) as ex:
-                            futures = {
-                                ex.submit(
-                                    self._fetch_page_content, u, self.cfg.max_content_length
-                                ): u
-                                for u in top_urls
-                            }
-                        for fut in as_completed(futures):
-                            u = futures[fut]
-                            txt = fut.result()
-                            if txt:
-                                texts[u] = txt
-                    for u in top_urls:
-                        if u in texts:
-                            content_parts.append(f"### {u}\n{texts[u]}\n")
-                        if u not in urls:
-                            urls.append(u)
-
-                    # Nếu còn URL Google ngoài Top‑K → thêm cuối danh sách
-                    for u in urls_s[self.cfg.google_top_k :]:
-                        if u not in urls:
-                            urls.append(u)
-                    # snippets Google (md_s) vẫn hữu ích để LLM hiểu ngữ cảnh
-                    content_parts.append(md_s)
+                google_results = self.google_search.search(query, num=self.cfg.max_results)
+                if google_results:
+                    urls_g, md_g = self._process_google_results(
+                        google_results, self.cfg.max_content_length
+                    )
+                    urls.extend(urls_g)
+                    content_parts.append(md_g)
+                    logger.info(f"🔍 Google Custom Search: {len(urls_g)} kết quả")
                 else:
-                    urls.extend(urls_s)
-                    content_parts.append(md_s)
-            except Exception as e:  # pragma: no cover
-                logger.warning("Serper error: %s – bỏ qua", e)
+                    logger.info("🔍 Google Custom Search: Không có kết quả")
+            except Exception as e:
+                logger.warning(f"Google Custom Search error: {e}")
 
-        # 2️⃣ TAVILY BASIC
-        try:
-            t_basic = self.tavily_basic.invoke({"query": query})
-            urls_t, md_t = self._process_tavily_results(
-                t_basic, self.cfg.max_content_length
-            )
-            urls.extend([u for u in urls_t if u not in urls])
-            content_parts.append(md_t)
-        except Exception as e:  # pragma: no cover
-            logger.warning("Tavily basic error: %s", e)
-
-        # 3️⃣ TAVILY ADVANCED (fallback)
+        # 2️⃣ Fallback Tavily nếu cần
         if (
-            self.cfg.escalate_to_advanced
-            and len(urls) < self.cfg.min_docs
+            len(urls) < self.cfg.min_docs
+            and self.tavily_search
         ):
             try:
-                t_adv = self.tavily_advanced.invoke({"query": query})
-                urls_a, md_a = self._process_tavily_results(
-                    t_adv, self.cfg.max_content_length
+                tavily_results = self.tavily_search.invoke({"query": query})
+                urls_t, md_t = self._process_tavily_results(
+                    tavily_results, self.cfg.max_content_length
                 )
-                urls.extend([u for u in urls_a if u not in urls])
-                content_parts.append(md_a)
-            except Exception as e:  # pragma: no cover
-                logger.warning("Tavily advanced error: %s", e)
+                # Thêm URLs mới (không trùng)
+                urls.extend([u for u in urls_t if u not in urls])
+                content_parts.append(md_t)
+                logger.info(f"🔍 Tavily fallback: {len(urls_t)} kết quả")
+            except Exception as e:
+                logger.warning(f"Tavily fallback error: {e}")
 
         if not urls:
             content = "🔍 Không tìm thấy thông tin liên quan đến truy vấn này."
         else:
             content = "\n".join(filter(None, content_parts))
 
-        logger.info("🔍 Hoàn tất tìm kiếm – %d nguồn", len(urls))
+        logger.info(f"🔍 Hoàn tất tìm kiếm – {len(urls)} nguồn")
 
-        # Cache
+        # Cache kết quả
         self.cache.set(query, content, urls)
         return content, urls
 
-    # ---------------------------------------------------------------------
-
     def search_with_sources(self, query: str) -> Tuple[str, List[str]]:
-        """Nếu enable_llm → tóm tắt; ngược lại trả raw_content."""
-        raw_content, urls = self.search_raw_results(query)
-        if not self.llm or raw_content.startswith("🔍"):
-            return raw_content, urls
-
-        prompt = f"""Bạn là trợ lý tóm tắt. Hãy trả lời (TV) gồm:
-1. **Tóm tắt** thông tin chính.
-2. **Nguồn**: liệt kê URL mỗi dòng.
-
----
-{raw_content}
----"""
-        try:
-            summary = self.llm.invoke(prompt).content.strip()
-            return summary, urls
-        except Exception as e:  # pragma: no cover
-            logger.warning("LLM error, trả raw: %s", e)
-            return raw_content, urls
+        """Giống search_raw_results (để tương thích)."""
+        return self.search_raw_results(query)
 
     # Debug helpers
     def get_cache_stats(self) -> Dict[str, Any]:
@@ -408,37 +385,48 @@ def get_search_instance(config: SearchConfig = SearchConfig()) -> OptimizedGoogl
     return _search_instance
 
 
-# --- Legacy aliases (giữ nguyên chữ ký) -----------------------------------
+# --- Legacy aliases (giữ nguyên chữ ký để tương thích) ---
 
 def run_query_with_sources(query: str) -> Tuple[str, List[str]]:
-    logger.warning("⚠️ Legacy function – nên migrate sang get_search_instance().search_with_sources")
+    """Legacy function - migrate to get_search_instance().search_with_sources"""
+    logger.warning("⚠️ Legacy function – nên migrate sang get_search_instance().search_with_sources")
     return get_search_instance().search_with_sources(query)
 
 
 def get_raw_search_results(query: str) -> Tuple[str, List[str]]:
+    """Legacy function - giữ nguyên để tương thích với rag.py"""
     return get_search_instance().search_raw_results(query)
 
 
 def tavily_with_sources(query: str) -> Tuple[List[str], str]:
-    logger.warning("⚠️ Legacy function – nên migrate sang search_with_sources")
+    """Legacy function - migrate to search_with_sources"""
+    logger.warning("⚠️ Legacy function – nên migrate sang search_with_sources")
     answer, urls = get_search_instance().search_with_sources(query)
     return urls, answer
 
 
-# ============================== SELF‑TEST ==================================
+# ============================== TESTING ====================================
 if __name__ == "__main__":
-    os.environ.setdefault("TAVILY_API_KEY", "DUMMY")
-    os.environ.setdefault("SERPER_API_KEY", "DUMMY")
-    cfg = SearchConfig(enable_llm=False, google_top_k=3)
+    # Test với dummy config
+    os.environ.setdefault("GOOGLE_API_KEY", "DUMMY")
+    os.environ.setdefault("GOOGLE_CSE_ID", "DUMMY")
+    
+    cfg = SearchConfig(max_results=5)
     search = OptimizedGoogleSearch(cfg)
-    for q in [
-        "Những hệ quản trị cơ sở dữ liệu nào đang dẫn đầu về hiệu suất và tính năng trong năm 2025?",
+    
+    test_queries = [
+        "Hệ quản trị cơ sở dữ liệu nào tốt nhất?",
         "ACID vs BASE database",
-    ]:
+    ]
+    
+    for q in test_queries:
         print("—" * 80)
         print("🔍", q)
-        content, urls = search.search_raw_results(q)
-        print(content[:800] + ("…" if len(content) > 800 else ""))
-        print("\nNguồn:")
-        for i, u in enumerate(urls, 1):
-            print(f"{i}. {u}")
+        try:
+            content, urls = search.search_raw_results(q)
+            print(content[:500] + ("…" if len(content) > 500 else ""))
+            print(f"\nNguồn ({len(urls)}):")
+            for i, u in enumerate(urls, 1):
+                print(f"{i}. {u}")
+        except Exception as e:
+            print(f"Lỗi: {e}")

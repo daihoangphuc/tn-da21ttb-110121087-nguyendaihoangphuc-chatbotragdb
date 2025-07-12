@@ -426,6 +426,76 @@ Hãy trả lời câu hỏi dựa trên kết quả tìm kiếm trên và NHẤT
             # Fallback prompt với quy tắc chống ảo giác
             return f"""Có lỗi xảy ra khi tạo prompt. Tôi không thể trả lời câu hỏi "{query}" do thiếu thông tin ngữ cảnh cần thiết. Vui lòng thử lại hoặc cung cấp thêm thông tin."""
 
+    def create_prompt_with_google_search(
+        self,
+        query: str,
+        context: List[Dict],
+        google_search_content: str,
+        conversation_history: Union[str, List[Dict], None] = None,
+    ) -> str:
+        """Tạo prompt đặc biệt cho question_from_document với kết hợp Google search."""
+        try:
+            # Tạo context từ tài liệu RAG
+            document_context_str = self._create_context_str(context)
+            conversation_context_str = self._prepare_conversation_context(conversation_history)
+            
+            # Template đặc biệt cho question_from_document với Google search
+            template = """Bạn là một gia sư cơ sở dữ liệu thân thiện tên là DBR. Bạn có hai nguồn thông tin để trả lời câu hỏi:
+
+**NGUỒN 1 - TÀI LIỆU TRONG KHO (NGUỒN CHÍNH):**
+{document_context}
+
+**NGUỒN 2 - THÔNG TIN TỪ INTERNET (NGUỒN PHỤ):**
+{google_search_content}
+
+{conversation_context}
+
+**CÂU HỎI:** {query}
+
+**NGUYÊN TẮC TRẢ LỜI QUAN TRỌNG:**
+
+1. **ƯU TIÊN NGUỒN TÀI LIỆU**: Luôn ưu tiên thông tin từ tài liệu trong kho (Nguồn 1) làm nguồn chính để trả lời.
+
+2. **SỬ DỤNG NGUỒN PHỤ KHI CẦN THIẾT**: Chỉ sử dụng thông tin từ Internet (Nguồn 2) khi:
+   - Thông tin trong tài liệu không đủ để trả lời đầy đủ câu hỏi
+   - Cần bổ sung thông tin cập nhật hoặc ví dụ thực tế
+   - Cần làm rõ hoặc mở rộng kiến thức từ tài liệu
+
+3. **TRÍCH DẪN NGUỒN RÕ RÀNG**:
+   - Khi sử dụng thông tin từ tài liệu: "(trang X, Y)" hoặc "(file Y)" 
+   - Khi sử dụng thông tin từ Internet: "**[Từ nguồn Internet]**" và ghi chú rõ ràng
+   - Ví dụ: "SQL Server là RDBMS phổ biến (trang 15, Hệ_QT_CSDL.pdf). **[Từ nguồn Internet]** Phiên bản mới nhất là SQL Server 2022 với nhiều tính năng AI mới."
+
+4. **CẤU TRÚC CÂU TRẢ LỜI**:
+   - Bắt đầu bằng thông tin từ tài liệu (nếu có)
+   - Bổ sung thông tin từ Internet với ghi chú rõ ràng
+   - Kết thúc bằng tóm tắt ngắn gọn
+
+5. **GHI CHÚ MINH BẠCH**: Nếu thông tin chủ yếu đến từ Internet do thiếu trong tài liệu, hãy nói rõ:
+   "Thông tin chi tiết về [chủ đề] không có sẵn trong tài liệu được cung cấp, do đó tôi đã bổ sung từ nguồn Internet để trả lời đầy đủ hơn."
+
+6. **ĐỊNH DẠNG MARKDOWN**: Tuân thủ đầy đủ định dạng Markdown:
+   - ## cho tiêu đề chính, ### cho tiêu đề phụ
+   - **văn bản** để làm nổi bật, *văn bản* cho in nghiêng
+   - ```sql ... ``` cho khối mã SQL
+   - Danh sách với `-` hoặc `1.`
+
+7. **CHỐNG ẢO GIÁC**: Chỉ sử dụng thông tin từ hai nguồn được cung cấp, không thêm kiến thức bên ngoài.
+
+Hãy trả lời câu hỏi một cách đầy đủ, chính xác và có trích dẫn nguồn rõ ràng."""
+            
+            prompt = template.format(
+                document_context=document_context_str.strip() if document_context_str.strip() else "Không có thông tin từ tài liệu trong kho.",
+                google_search_content=google_search_content.strip() if google_search_content.strip() else "Không có thông tin từ Internet.",
+                query=query.strip(),
+                conversation_context=conversation_context_str.strip(),
+            )
+            return prompt
+        except Exception as e:
+            logger.error(f"Lỗi khi tạo prompt với Google search: {str(e)}")
+            # Fallback prompt với quy tắc chống ảo giác
+            return f"""Có lỗi xảy ra khi tạo prompt. Tôi không thể trả lời câu hỏi "{query}" do thiếu thông tin ngữ cảnh cần thiết. Vui lòng thử lại hoặc cung cấp thêm thông tin."""
+
     # def create_related_questions_prompt(self, query: str, answer: str) -> str:
     #     """Tạo prompt để gợi ý 3 câu hỏi liên quan."""
     #     try:

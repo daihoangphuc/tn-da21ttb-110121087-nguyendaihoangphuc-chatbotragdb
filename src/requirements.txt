@@ -3,6 +3,7 @@ sentence-transformers
 langchain 
 langchain-google-genai 
 google-generativeai 
+google-api-python-client
 python-dotenv 
 pypdf 
 docx2txt 

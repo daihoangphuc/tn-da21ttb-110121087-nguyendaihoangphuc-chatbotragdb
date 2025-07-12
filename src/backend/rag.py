@@ -665,21 +665,79 @@ class AdvancedDatabaseRAG:
             }
             return
         RETRIEVAL_K = int(os.getenv("RETRIEVAL_K", "50"))
-        # Thực hiện semantic search
-        search_results = await self.semantic_search_async(
-            query_to_use, k=RETRIEVAL_K, sources=sources, file_id=file_id
-        )
         
-        # Fallback mechanism cho streaming
+        # Khởi tạo biến để lưu trữ kết quả Google Search cho question_from_document
+        google_search_content = ""
+        google_search_urls = []
+        google_search_used = False
+        
+        # Nếu là question_from_document, thực hiện search song song
+        if query_type == "question_from_document":
+            print(f"🔍 Thực hiện tìm kiếm song song cho question_from_document: '{query_to_use}'")
+            
+            # Tạo tasks để chạy song song
+            search_tasks = []
+            
+            # Task 1: Semantic search trong tài liệu
+            semantic_task = asyncio.create_task(
+                self.semantic_search_async(
+                    query_to_use, k=RETRIEVAL_K, sources=sources, file_id=file_id
+                )
+            )
+            search_tasks.append(('semantic', semantic_task))
+            
+            # Task 2: Google Search
+            async def google_search_task():
+                try:
+                    # Chạy Google Search trong thread pool để tránh blocking
+                    loop = asyncio.get_event_loop()
+                    content, urls = await loop.run_in_executor(None, get_raw_search_results, query_to_use)
+                    return content, urls
+                except Exception as e:
+                    print(f"Lỗi khi thực hiện Google Search: {str(e)}")
+                    return "", []
+            
+            google_task = asyncio.create_task(google_search_task())
+            search_tasks.append(('google', google_task))
+            
+            # Chờ tất cả tasks hoàn thành
+            completed_tasks = await asyncio.gather(*[task for _, task in search_tasks], return_exceptions=True)
+            
+            # Xử lý kết quả semantic search
+            search_results = completed_tasks[0] if not isinstance(completed_tasks[0], Exception) else []
+            if isinstance(completed_tasks[0], Exception):
+                print(f"Lỗi trong semantic search: {completed_tasks[0]}")
+                search_results = []
+            
+            # Xử lý kết quả Google search
+            if not isinstance(completed_tasks[1], Exception):
+                google_search_content, google_search_urls = completed_tasks[1]
+                if google_search_content and google_search_content != "Không tìm thấy thông tin liên quan đến truy vấn này.":
+                    google_search_used = True
+                    print(f"✅ Google Search hoàn thành: {len(google_search_urls)} URLs")
+                else:
+                    print("⚠️ Google Search không tìm thấy kết quả")
+            else:
+                print(f"❌ Lỗi trong Google Search: {completed_tasks[1]}")
+                google_search_content, google_search_urls = "", []
+        else:
+            # Thực hiện semantic search thông thường cho các loại khác
+            search_results = await self.semantic_search_async(
+                query_to_use, k=RETRIEVAL_K, sources=sources, file_id=file_id
+            )
+        
+        # Fallback mechanism cho streaming (chỉ áp dụng khi không có kết quả RAG và không phải question_from_document)
         perform_fallback_stream = not search_results or len(search_results) == 0
         gas_fallback_used = False
         
-        if perform_fallback_stream:
+        if perform_fallback_stream and query_type != "question_from_document":
             print(f"Không có kết quả RAG (stream). Thực hiện fallback với Google Search cho: '{query_to_use}'")
             try:
                 # Khởi tạo sources_list trước khi sử dụng
                 sources_list = []
-                fallback_content, fallback_urls = get_raw_search_results(query_to_use)
+                # Chạy Google Search trong thread pool để tránh blocking
+                loop = asyncio.get_event_loop()
+                fallback_content, fallback_urls = await loop.run_in_executor(None, get_raw_search_results, query_to_use)
                 
                 if fallback_content and fallback_content != "Không tìm thấy thông tin liên quan đến truy vấn này.":
                     gas_fallback_used = True
@@ -720,8 +778,8 @@ class AdvancedDatabaseRAG:
                 print(f"Lỗi khi thực hiện fallback với Google Search: {str(e)}")
                 # Tiếp tục với kết quả hiện tại
 
-        # Nếu không có kết quả tìm kiếm, trả về thông báo không tìm thấy
-        if not search_results or len(search_results) == 0:
+        # Xử lý trường hợp không có kết quả từ cả hai nguồn
+        if (not search_results or len(search_results) == 0) and not google_search_used:
             # Trả về thông báo bắt đầu
             yield {
                 "type": "start",
@@ -742,7 +800,7 @@ class AdvancedDatabaseRAG:
             }
 
             # Trả về nội dung
-            response = "Không tìm thấy thông tin liên quan đến câu hỏi của bạn trong tài liệu. Vui lòng thử lại với câu hỏi khác hoặc điều chỉnh từ khóa tìm kiếm."
+            response = "Không tìm thấy thông tin liên quan đến câu hỏi của bạn trong tài liệu và cũng không thể tìm kiếm thông tin bổ sung từ Internet. Vui lòng thử lại với câu hỏi khác hoặc điều chỉnh từ khóa tìm kiếm."
             yield {"type": "content", "data": {"content": response}}
 
             # Trả về kết thúc
@@ -755,9 +813,91 @@ class AdvancedDatabaseRAG:
                 },
             }
             return
+
+        # Xử lý trường hợp đặc biệt: chỉ có Google Search results (không có document results)
+        if (not search_results or len(search_results) == 0) and google_search_used and query_type == "question_from_document":
+            print(f"⚠️ Chỉ có kết quả từ Google Search, không có kết quả từ tài liệu cho question_from_document")
+            # Tạo context trống cho tài liệu
+            context_docs = []
+            
+            # Tạo sources list chỉ từ Google Search
+            sources_list = []
+            for url_idx, url in enumerate(google_search_urls):
+                sources_list.append({
+                    "source": url,
+                    "page": f"Internet Search {url_idx+1}",
+                    "section": "Online Source",
+                    "score": 0.8,
+                    "content_snippet": url,
+                    "file_id": "internet_search",
+                    "is_web_search": True,
+                    "url": url,
+                    "source_type": "internet"
+                })
+
+            # Trả về thông báo bắt đầu
+            yield {
+                "type": "start",
+                "data": {
+                    "query_type": query_type,
+                    "file_id": file_id,
+                    "total_results": 0,
+                    "total_reranked": 0,
+                    "google_search_used": True,
+                    "google_search_urls_count": len(google_search_urls),
+                    "only_internet_results": True,
+                },
+            }
+
+            # Trả về nguồn tham khảo
+            yield {
+                "type": "sources",
+                "data": {
+                    "sources": sources_list,
+                    "filtered_sources": [],
+                    "filtered_file_id": file_id if file_id else [],
+                    "google_search_used": True,
+                },
+            }
+
+            # Sử dụng prompt đặc biệt với chỉ có Google search content
+            prompt = self.prompt_manager.create_prompt_with_google_search(
+                query_to_use, 
+                [],  # Context trống
+                google_search_content,
+                conversation_history=conversation_history
+            )
+
+            # Gọi LLM để trả lời
+            try:
+                async for content in self.llm.stream(prompt):
+                    yield {"type": "content", "data": {"content": content}}
+            except Exception as e:
+                print(f"Lỗi khi gọi LLM stream: {str(e)}")
+                yield {
+                    "type": "content",
+                    "data": {
+                        "content": f"Xin lỗi, có lỗi xảy ra khi xử lý câu hỏi: {str(e)}"
+                    },
+                }
+
+            # Kết thúc đo thời gian
+            elapsed_time = time.time() - start_time
+
+            # Trả về kết thúc
+            yield {
+                "type": "end",
+                "data": {
+                    "processing_time": round(elapsed_time, 2),
+                    "query_type": query_type,
+                    "google_search_used": True,
+                    "only_internet_results": True,
+                },
+            }
+            return
         RERANK_TOP_N = int(os.getenv("RERANK_TOP_N", "15"))
-        results_to_rerank = search_results[:RERANK_TOP_N]
-        print(f"Lấy về {len(search_results)} kết quả, sẽ rerank top {len(results_to_rerank)}.")
+        results_to_rerank = search_results[:RERANK_TOP_N] if search_results else []
+        print(f"Lấy về {len(search_results) if search_results else 0} kết quả, sẽ rerank top {len(results_to_rerank)}.")
 
         # Rerank kết quả nếu có nhiều hơn 1 kết quả
         if len(search_results) > 0:
@@ -767,8 +907,8 @@ class AdvancedDatabaseRAG:
             # Lấy số lượng kết quả đã rerank
             total_reranked = len(reranked_results)
         else:
-            reranked_results = search_results
-            total_reranked = 1
+            reranked_results = search_results if search_results else []
+            total_reranked = len(reranked_results)
 
         # Chuẩn bị context từ các kết quả đã rerank
         context_docs = []
@@ -796,6 +936,8 @@ class AdvancedDatabaseRAG:
 
         # Chuẩn bị danh sách nguồn tham khảo
         sources_list = []
+        
+        # Thêm nguồn từ RAG documents
         for i, doc in enumerate(reranked_results):
             # Trích xuất thông tin từ metadata
             metadata = doc.get("metadata", {})
@@ -845,14 +987,31 @@ class AdvancedDatabaseRAG:
                     }
                 )
 
+        # Thêm nguồn từ Google Search nếu có (cho question_from_document)
+        if google_search_used and query_type == "question_from_document":
+            for url_idx, url in enumerate(google_search_urls):
+                sources_list.append({
+                    "source": url,
+                    "page": f"Internet Search {url_idx+1}",
+                    "section": "Online Source",
+                    "score": 0.8,  # Điểm thấp hơn nguồn tài liệu
+                    "content_snippet": url,
+                    "file_id": "internet_search",
+                    "is_web_search": True,
+                    "url": url,
+                    "source_type": "internet"
+                })
+
         # Trả về thông báo bắt đầu
         yield {
             "type": "start",
             "data": {
                 "query_type": query_type,
                 "file_id": file_id,
-                "total_results": len(search_results),
+                "total_results": len(search_results) if search_results else 0,
                 "total_reranked": total_reranked,
+                "google_search_used": google_search_used,
+                "google_search_urls_count": len(google_search_urls) if google_search_used else 0,
             },
         }
 
@@ -863,13 +1022,24 @@ class AdvancedDatabaseRAG:
                 "sources": sources_list,
                 "filtered_sources": [],  # Giữ trường này để tương thích với code cũ
                 "filtered_file_id": file_id if file_id else [],
+                "google_search_used": google_search_used,
             },
         }
 
-        # Chuẩn bị prompt cho LLM
-        prompt = self.prompt_manager.create_prompt_with_history(
-            query_to_use, context_docs, conversation_history=conversation_history
-        )
+        # Chuẩn bị prompt cho LLM với cả nguồn tài liệu và Google search
+        if query_type == "question_from_document" and google_search_used:
+            # Sử dụng prompt đặc biệt cho question_from_document có kết hợp Google search
+            prompt = self.prompt_manager.create_prompt_with_google_search(
+                query_to_use, 
+                context_docs, 
+                google_search_content,
+                conversation_history=conversation_history
+            )
+        else:
+            # Sử dụng prompt thông thường
+            prompt = self.prompt_manager.create_prompt_with_history(
+                query_to_use, context_docs, conversation_history=conversation_history
+            )
 
         # Gọi LLM để trả lời
         try:
@@ -895,6 +1065,7 @@ class AdvancedDatabaseRAG:
             "data": {
                 "processing_time": round(elapsed_time, 2),
                 "query_type": query_type,
+                "google_search_used": google_search_used,
             },
         }
 
