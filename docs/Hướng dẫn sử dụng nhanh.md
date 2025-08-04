@@ -4,7 +4,7 @@ Chào mừng bạn đến với Chatbot Cơ sở dữ liệu! Chatbot này đư�
 
 ## 1. Truy cập Chatbot
 
-*   Bạn có thể truy cập chatbot qua đường dẫn sau: [https://chat.phucndh.me/](https://chat.phucndh.me/)
+*   Bạn có thể truy cập chatbot qua đường dẫn sau: [https://chat.phucndh.id.vn/](https://chat.phucndh.id.vn/)
 ![Trang chủ](src/img/Ui/Trang%20chủ.png)
 
 ## 2. Tải và Chọn Tài liệu Nguồn

@@ -35,16 +35,16 @@ jobs:
             "main")
               echo "env=production" >> $GITHUB_OUTPUT
               echo "tag=latest" >> $GITHUB_OUTPUT
-              echo "domain=phucndh.me" >> $GITHUB_OUTPUT
-              echo "api_url=https://api.phucndh.me/api" >> $GITHUB_OUTPUT
-              echo "frontend_url=https://chat.phucndh.me" >> $GITHUB_OUTPUT
+              echo "domain=phucndh.id.vn" >> $GITHUB_OUTPUT
+              echo "api_url=https://api.phucndh.id.vn/api" >> $GITHUB_OUTPUT
+              echo "frontend_url=https://chat.phucndh.id.vn" >> $GITHUB_OUTPUT
               ;;
             "staging")
               echo "env=staging" >> $GITHUB_OUTPUT  
               echo "tag=staging" >> $GITHUB_OUTPUT
-              echo "domain=staging.phucndh.me" >> $GITHUB_OUTPUT
-              echo "api_url=https://staging.api.phucndh.me/api" >> $GITHUB_OUTPUT
-              echo "frontend_url=https://staging.chat.phucndh.me" >> $GITHUB_OUTPUT
+              echo "domain=staging.phucndh.id.vn" >> $GITHUB_OUTPUT
+              echo "api_url=https://staging.api.phucndh.id.vn/api" >> $GITHUB_OUTPUT
+              echo "frontend_url=https://staging.chat.phucndh.id.vn" >> $GITHUB_OUTPUT
               ;;
             *)
               echo "env=development" >> $GITHUB_OUTPUT

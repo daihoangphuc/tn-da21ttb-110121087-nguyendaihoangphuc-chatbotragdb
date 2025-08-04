@@ -6,13 +6,13 @@ export function getApiUrl(): string {
     const protocol = window.location.protocol;
     
     // Production environment
-    if (hostname === 'chat.phucndh.me') {
-      return 'https://api.phucndh.me/api';
+    if (hostname === 'chat.phucndh.id.vn') {
+      return 'https://api.phucndh.id.vn/api';
     }
     
     // Staging environment
-    if (hostname === 'staging.chat.phucndh.me') {
-      return 'https://staging.api.phucndh.me/api';
+    if (hostname === 'staging.chat.phucndh.id.vn') {
+      return 'https://staging.api.phucndh.id.vn/api';
     }
     
     // Local development or other environments
@@ -22,15 +22,15 @@ export function getApiUrl(): string {
     
     // Fallback for other cases - assume HTTPS for production domains
     if (protocol === 'https:') {
-      return 'https://api.phucndh.me/api';
+      return 'https://api.phucndh.id.vn/api';
     }
     
     // Default fallback for browser
-    return 'https://api.phucndh.me/api';
+    return 'https://api.phucndh.id.vn/api';
   }
   
   // Server-side rendering or fallback
-  return process.env.NEXT_PUBLIC_API_URL || 'https://api.phucndh.me/api';
+  return process.env.NEXT_PUBLIC_API_URL || 'https://api.phucndh.id.vn/api';
 }
 
 // Export for use in components
