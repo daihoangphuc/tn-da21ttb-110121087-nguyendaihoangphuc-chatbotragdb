@@ -67,4 +67,5 @@ test/
 
 .env.frontend
 .env.backend
+.env.vps
 .env local
