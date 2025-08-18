@@ -6,6 +6,7 @@ on:
       - main
       - staging
       - analyze  
+      - demo
 
 env:
   REGISTRY: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -130,14 +131,14 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Cache pnpm store để tăng tốc install dependencies
-      - name: Cache pnpm store
-        uses: actions/cache@v3
-        with:
-          path: ~/.pnpm-store
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('src/frontend/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-
+      # Cache pnpm store đã bị tắt để tránh treo trong quá trình CI/CD
+      # - name: Cache pnpm store
+      #   uses: actions/cache@v3
+      #   with:
+      #     path: ~/.pnpm-store
+      #     key: ${{ runner.os }}-pnpm-${{ hashFiles('src/frontend/pnpm-lock.yaml') }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-pnpm-
 
       - name: Create frontend env
         run: |
@@ -157,13 +158,13 @@ jobs:
             ENV_FILE=.env.frontend
             NEXT_PUBLIC_API_URL=${{ needs.setup.outputs.api_url }}
           platforms: linux/amd64
-          # Tối ưu cache cho frontend
-          cache-from: |
-            type=registry,ref=${{ env.REGISTRY }}/db-rag-frontend:cache
-            type=gha,scope=frontend
-          cache-to: |
-            type=registry,ref=${{ env.REGISTRY }}/db-rag-frontend:cache,mode=max
-            type=gha,mode=max,scope=frontend
+          # Cache đã bị tắt để tránh treo trong quá trình CI/CD
+          # cache-from: |
+          #   type=registry,ref=${{ env.REGISTRY }}/db-rag-frontend:cache
+          #   type=gha,scope=frontend
+          # cache-to: |
+          #   type=registry,ref=${{ env.REGISTRY }}/db-rag-frontend:cache,mode=max
+          #   type=gha,mode=max,scope=frontend
 
   # Deploy sau khi cả backend và frontend build xong
   deploy:
