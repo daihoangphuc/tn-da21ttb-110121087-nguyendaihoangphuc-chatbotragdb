@@ -246,21 +246,44 @@ jobs:
           EOF
           fi
 
+      - name: Test VPS connectivity
+        run: |
+          echo "🔍 Testing VPS connectivity..."
+          # Test if VPS is reachable
+          if ! nc -z -v -w5 ${{ secrets.VPS_HOST }} 22; then
+            echo "❌ Cannot reach VPS on port 22"
+            echo "Please check:"
+            echo "1. VPS is running"
+            echo "2. SSH service is active"
+            echo "3. Firewall allows SSH connections"
+            echo "4. VPS_HOST secret is correct"
+            exit 1
+          fi
+          echo "✅ VPS is reachable on port 22"
+
       - name: Deploy to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          key: ${{ secrets.VPS_SSH_KEY_DEMO }}
+          port: 22
+          timeout: 60s
+          command_timeout: 10m
           source: "docker-compose.yml,.env,nginx-*.conf"
           target: "~/app"
+          debug: true
 
       - name: Run deployment on VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          key: ${{ secrets.VPS_SSH_KEY_DEMO }}
+          port: 22
+          timeout: 60s
+          command_timeout: 15m
+          debug: true
           script: |
             cd ~/app
             
@@ -349,3 +372,21 @@ jobs:
             echo "🌐 Frontend: ${{ needs.setup.outputs.frontend_url }}"
             echo "🔗 API: ${{ needs.setup.outputs.api_url }}"
             echo "🔄 Dependencies changed: Backend=${{ needs.setup.outputs.deps_changed }}, Frontend=${{ needs.setup.outputs.frontend_deps_changed }}"
+
+      - name: Deployment status notification
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Deployment successful!"
+            echo "🌐 Application should be available at:"
+            echo "   Frontend: ${{ needs.setup.outputs.frontend_url }}"
+            echo "   API: ${{ needs.setup.outputs.api_url }}"
+          else
+            echo "❌ Deployment failed!"
+            echo "💡 Common troubleshooting steps:"
+            echo "1. Check VPS is running and accessible"
+            echo "2. Verify SSH key is correct and has proper permissions"
+            echo "3. Ensure VPS has enough disk space and memory"
+            echo "4. Check Docker is installed and running on VPS"
+            echo "5. Verify all GitHub secrets are correctly configured"
+          fi

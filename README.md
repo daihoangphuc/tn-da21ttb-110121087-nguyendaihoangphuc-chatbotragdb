@@ -177,7 +177,7 @@ DOCKERHUB_USERNAME=your-dockerhub-username
 DOCKERHUB_TOKEN=your-dockerhub-token
 VPS_HOST=your-vps-ip
 VPS_USER=your-vps-username
-VPS_SSH_KEY=your-private-ssh-key
+VPS_SSH_KEY_DEMO=your-private-ssh-key
 BACKEND_ENV=your-backend-environment-variables
 FRONTEND_ENV=your-frontend-environment-variables
 ```
